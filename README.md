@@ -11,6 +11,7 @@ This is a [Python](https://www.python.org/) library and command-line tool built 
 [![CI](https://github.com/TheRockPusher/taskweaver/actions/workflows/ci.yml/badge.svg)](https://github.com/TheRockPusher/taskweaver/actions/workflows/ci.yml)
 [![Python Version](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL-3.0-blue.svg)](LICENSE)
+
 ## Getting Started
 
 This section will help you get up and running with TaskWeaver quickly.
@@ -180,7 +181,7 @@ All checks run automatically via pre-commit hooks and CI/CD.
 
 ## Project Structure
 
-```
+```bash
 taskweaver/
 ├── src/
 │   └── taskweaver/     # Main package code
@@ -205,6 +206,7 @@ taskweaver/
 Contributions are welcome! We actively encourage bug reports, feature requests, and pull requests from the community.
 
 **How to participate:**
+
 - **Bug Reports:** Please open an [issue](https://github.com/TheRockPusher/taskweaver/issues) on GitHub with detailed information about the problem.
 - **Feature Requests:** Open an [issue](https://github.com/TheRockPusher/taskweaver/issues) describing your proposed feature and use case.
 - **Pull Requests:** We accept and review pull requests. Please ensure your code passes all quality checks (`make check && make test`) before submitting.

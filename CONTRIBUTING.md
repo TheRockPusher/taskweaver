@@ -205,7 +205,7 @@ make test
 
 ## Project Structure
 
-```
+```bash
 taskweaver/
 ├── src/taskweaver/  # Main package code
 ├── tests/                               # Test suite
@@ -220,15 +220,17 @@ taskweaver/
 ### Bug Reports
 
 Include:
+
 - Clear description of the bug
 - Steps to reproduce
-- Expected vs actual behavior
+- Expected vs actual behaviour
 - Python version and OS
 - Relevant error messages/tracebacks
 
 ### Feature Requests
 
 Include:
+
 - Clear description of the feature
 - Use case / motivation
 - Proposed implementation (if you have ideas)
@@ -242,6 +244,6 @@ Include:
 
 By contributing, you agree that your contributions will be licensed under the AGPL-3.0 License.
 
-## Thank You!
+## Thank You
 
 Your contributions make TaskWeaver better for everyone. We appreciate your time and effort!
