@@ -1,20 +1,31 @@
 [project]
 name = "taskweaver"
 version = "0.1.0"
-description = "AI task master agent"
+description = "AI-powered task organizer with intelligent decomposition, skill gap analysis, and JIT learning"
 readme = "README.md"
 requires-python = ">=3.13"
 license = {text = "AGPL-3.0"}
 authors = [
     {name = "Nelson Sousa", email = "github@orvit.simplelogin.com"}
 ]
-keywords = ["python", "template", "uv", "modern-python"]
+keywords = [
+    "ai",
+    "task-management",
+    "productivity",
+    "pydantic-ai",
+    "task-decomposition",
+    "learning",
+    "prioritization",
+    "agent"
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
+    "Intended Audience :: End Users/Desktop",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.13",
-    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Office/Business :: Scheduling",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Typing :: Typed",
 ]
 dependencies = []

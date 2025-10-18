@@ -2,6 +2,10 @@
 
 Thank you for considering contributing to TaskWeaver! This document provides guidelines and instructions for contributing.
 
+## About TaskWeaver
+
+TaskWeaver is an AI-powered task organizer that helps users break down complex goals into manageable tasks. It uses intelligent decomposition, skill gap analysis, and Just-In-Time learning principles to help people achieve their goals efficiently. The project is currently in MVP stage with a focus on dogfooding - using TaskWeaver to improve itself.
+
 ## Code of Conduct
 
 Be respectful and inclusive. We aim to create a welcoming environment for all contributors.

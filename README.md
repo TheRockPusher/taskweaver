@@ -1,12 +1,12 @@
 # [TaskWeaver](https://github.com/TheRockPusher/taskweaver)
 
-AI task master agent
+An AI-powered task organizer and decomposer that helps you break down complex goals into manageable, actionable tasks.
 
-This is a [Python](https://www.python.org/) library and command-line tool built using [UV](https://github.com/astral-sh/uv) (a fast Python package manager) and released under the [AGPL-3.0 License](LICENSE).
+TaskWeaver is a conversational AI agent that intelligently organizes, prioritizes, and decomposes your tasks. It analyzes your skill level, identifies knowledge gaps, and creates learning paths to help you accomplish your goals efficiently.
 
-**Target Audience:** Python developers, command-line users, and software engineers looking for a modern, well-structured Python project foundation.
+**Target Audience:** Anyone looking to organize complex projects, learn new skills systematically, or improve task management through AI-powered decomposition and prioritization.
 
-**Project Status:** Version 0.1.0 (initial release)
+**Project Status:** Version 0.1.0 (early development - MVP stage)
 
 [![CI](https://github.com/TheRockPusher/taskweaver/actions/workflows/ci.yml/badge.svg)](https://github.com/TheRockPusher/taskweaver/actions/workflows/ci.yml)
 [![Python Version](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
@@ -14,48 +14,104 @@ This is a [Python](https://www.python.org/) library and command-line tool built 
 
 ## Getting Started
 
-This section will help you get up and running with TaskWeaver quickly.
+TaskWeaver helps you accomplish complex goals by breaking them down into achievable tasks, detecting skill gaps, and creating personalized learning paths.
 
 ### Quick Start
 
 ```bash
+# Clone the repository
+git clone https://github.com/TheRockPusher/taskweaver.git
+cd taskweaver
+
 # Install UV if you haven't already
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Install TaskWeaver
-make install taskweaver
+# Install dependencies
+make install
 
-# Use it in your code
-uv run ...
+# Run tests to verify installation
+make test
 ```
+
+Note: TaskWeaver is currently in active development. The CLI is not yet functional. Development focus is on core infrastructure and feature implementation. Check back soon for updates!
 
 ### Full Documentation
 
 - **Installation Guide**: See [Installation](#installation) section below
 - **Usage Examples**: See [Usage](#usage) section below
 - **Contributing**: See [Contributing](#contributing) section below
-- **API Reference**: Coming soon
+- **Project Goals**: See [Why TaskWeaver?](#why-taskweaver) section below
 
 ## Why TaskWeaver?
 
-This project was created to ai task master agent. It aims ...:
+TaskWeaver addresses a common challenge: **complex goals often fail because they're too overwhelming to start or unclear how to proceed.**
 
-- ...
-- ...
+### The Problem
 
-The goal is to ...
+- Large projects feel insurmountable without proper breakdown
+- You don't know what skills you're missing until you start
+- Learning feels disconnected from doing (violates JIT learning principles)
+- Task prioritization is subjective and inconsistent
+- Dependencies between tasks aren't always clear
 
-## Features
+### The Solution
 
-- Modern Python packaging with [UV](https://github.com/astral-sh/uv) - 10-100× faster than traditional tools
-- `src/` layout for better project structure and testing isolation
-- Comprehensive code quality tools:
-  - [Ruff](https://github.com/astral-sh/ruff) for linting and formatting (replaces Flake8, isort, Black)
-  - [Ty](https://github.com/python/ty) for static type checking
-  - [pytest](https://pytest.org/) with coverage reporting (80% minimum coverage enforced)
-- Pre-commit hooks for automated code quality checks on every commit
-- GitHub Actions CI/CD workflows with matrix testing across Python versions
-- Automated releases with version bumping and changelog generation
+TaskWeaver provides:
+
+- **Intelligent Task Decomposition**: Automatically breaks complex goals into manageable chunks
+- **Skill Gap Analysis**: Identifies what you need to learn before starting tasks
+- **Just-In-Time Learning**: Creates learning tasks that directly unblock your goals
+- **Smart Prioritization**: Uses multi-criteria decision analysis (MCDA) for objective task scoring
+- **Dependency Management**: Tracks task relationships and detects circular dependencies
+- **Adaptive Learning**: Remembers your preferences and adjusts recommendations over time
+
+### Core Principles
+
+1. **JIT Learning**: Learning without action isn't learning - all learning tasks directly support doing
+2. **Skill-Based Planning**: Tasks are matched to your current Dreyfus skill level
+3. **Progressive Disclosure**: Focus on what's immediately actionable, not everything at once
+4. **Dogfooding**: Built to improve itself - the first user is the project itself
+
+## Current Status
+
+**Project Stage:** Early Development - Scaffolding Only
+
+The project is currently in the initial scaffolding phase. Core infrastructure and project structure have been set up, but no features have been implemented yet. The roadmap below outlines the planned features for the MVP.
+
+## Features (Roadmap)
+
+### Planned Features for MVP
+
+🎯 **Conversational Task Management**
+- Add tasks naturally through conversation, no CLI flags needed
+- AI understands context and extracts task details automatically
+- **Status:** Not yet implemented
+
+🧠 **Intelligent Task Analysis**
+- Automatic decomposition of complex tasks into subtasks
+- Skill gap detection based on Dreyfus model
+- Multi-criteria priority scoring (MCDA)
+- **Status:** Not yet implemented
+
+🔗 **Dependency Management**
+- Task blocking relationships (DAG structure)
+- Circular dependency detection using DFS
+- Learning tasks that unblock parent tasks
+- **Status:** Not yet implemented
+
+📊 **Adaptive System**
+- Learns your preferences from task completion patterns
+- Updates skill assessments based on demonstrated capabilities
+- Adjusts scoring over time
+- **Status:** Not yet implemented
+
+### Technical Features
+
+- Built with [PydanticAI](https://ai.pydantic.dev/) for robust agent implementation
+- SQLite database for local-first task storage
+- Modern Python packaging with [UV](https://github.com/astral-sh/uv)
+- Comprehensive code quality tools (Ruff, Ty, pytest with 80% coverage)
+- Pre-commit hooks and CI/CD automation
 
 ## Installation
 
@@ -108,24 +164,63 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 ### Install the package
 
 ```bash
-# Install from PyPI (when published)
-uv pip install taskweaver
-
-# Install from source
+# Clone from source (currently the only installation method)
 git clone https://github.com/TheRockPusher/taskweaver.git
 cd taskweaver
+
+# Install dependencies
+make install
+
+# Or manually with UV
 uv sync
 ```
 
 ## Usage
 
-### Basic Usage
+TaskWeaver is currently in early development and is not yet ready for end-user usage. The following example illustrates the intended usage pattern once implementation is complete:
 
-...
+### Planned Usage Example
 
-### More Examples
+```bash
+# Start a conversation with TaskWeaver
+uv run taskweaver
 
-For more detailed usage examples and API documentation, see the [examples](examples/) directory in the repository (coming soon).
+# Example conversation (planned functionality):
+You: "I want to build a web application with authentication"
+
+TaskWeaver: I'll help you break this down. Let me analyze this task...
+
+[TaskWeaver will analyze your goal and create:]
+- Main task: Build web application with authentication
+  - Subtask: Design database schema for users
+  - Subtask: Implement authentication backend
+  - Subtask: Create login/signup UI
+  - Learning task: Learn JWT basics (blocks authentication backend)
+  - Learning task: Study password hashing best practices (blocks authentication backend)
+
+Based on your current skill level (beginner in web auth), I recommend starting with
+the learning tasks. Would you like me to add these to your task list?
+```
+
+**Status:** This functionality is currently being designed and implemented. Check the project roadmap for updates on feature availability.
+
+### Success Metrics (MVP Targets)
+
+The MVP implementation will aim to achieve these goals:
+
+- Add complex tasks via conversation (no CLI flags required)
+- Automatic task decomposition, gap detection, and prioritization
+- User approval and adjustment workflow before committing to database
+- Learning tasks correctly unblock parent tasks
+- Score inference accuracy >70% (user accepts without edits)
+- Decomposition acceptance rate >70%
+- System learns preferences after 20+ task completions
+
+### Development Approach
+
+The project is being developed using a "dogfooding" approach - TaskWeaver will be used to organize its own development. This means the project roadmap, development tasks, and progress will be managed through the system as it's being built, providing real-world validation of the approach.
+
+More detailed usage examples and workflows will be added as features are implemented.
 
 ## Development
 
@@ -270,14 +365,26 @@ This project aims to be welcoming and inclusive. While we don't currently have a
 
 ## Project Context
 
-This is an individual/community open source project created to ai task master agent. It is not affiliated with any corporate entity or commercial service offering. The software does not transmit any user data or telemetry off the device on which it runs.
+TaskWeaver is an individual open source project created to solve the challenge of managing complex goals through intelligent task decomposition and skill-based learning paths. It is not affiliated with any corporate entity or commercial service offering.
+
+**Privacy First**: All data stays local on your device. TaskWeaver uses SQLite for storage and does not transmit any user data or telemetry anywhere. Your tasks, skills, and preferences remain completely private.
 
 ## Acknowledgments
 
-- Built with [UV](https://github.com/astral-sh/uv) - Fast Python package manager (10-100× faster than pip)
-- Linting and formatting by [Ruff](https://github.com/astral-sh/ruff) - An extremely fast Python linter and formatter
-- Type checking with [Ty](https://github.com/python/ty) - Static type checker for Python
-- Testing with [pytest](https://pytest.org/) - A mature full-featured Python testing framework
+### Core Technologies
+
+- **AI Framework**: [PydanticAI](https://ai.pydantic.dev/) - Production-grade agent framework
+- **Package Manager**: [UV](https://github.com/astral-sh/uv) - Blazing fast Python package management
+- **Code Quality**: [Ruff](https://github.com/astral-sh/ruff) - Lightning-fast Python linter and formatter
+- **Type Checking**: [Ty](https://github.com/python/ty) - Static type analysis
+- **Testing**: [pytest](https://pytest.org/) - Comprehensive Python testing framework
+
+### Methodologies
+
+- **Skill Assessment**: Dreyfus Model of Skill Acquisition
+- **Prioritization**: Multi-Criteria Decision Analysis (MCDA)
+- **Learning Philosophy**: Just-In-Time (JIT) Learning principles
+- **Dependency Management**: Directed Acyclic Graphs (DAG) with DFS cycle detection
 
 ## Links
 
