@@ -1,0 +1,143 @@
+[project]
+name = "taskweaver"
+version = "0.1.0"
+description = "AI task master agent"
+readme = "README.md"
+requires-python = ">=3.13"
+license = {text = "AGPL-3.0"}
+authors = [
+    {name = "Nelson Sousa", email = "github@orvit.simplelogin.com"}
+]
+keywords = ["python", "template", "uv", "modern-python"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/TheRockPusher/taskweaver"
+Repository = "https://github.com/TheRockPusher/taskweaver"
+Documentation = "https://github.com/TheRockPusher/taskweaver#readme"
+Issues = "https://github.com/TheRockPusher/taskweaver/issues"
+
+[project.scripts]
+taskweaver = "taskweaver:main"
+
+[build-system]
+requires = ["uv_build>=0.9.2,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.14.1",
+    "ty>=0.0.1a23",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = [
+    "--import-mode=importlib",
+    "-ra",
+    "-v",
+    "--durations=10",
+    "--cov=taskweaver",
+    "--cov-report=term-missing",
+    "--cov-fail-under=80",
+    "--cov-report=xml"
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+fix = true
+
+[tool.ruff.lint]
+select = [
+    # Core linting rules
+    "E",      # pycodestyle errors - PEP 8 style violations (indentation, whitespace, etc.)
+    "W",      # pycodestyle warnings - PEP 8 style warnings
+    "F",      # Pyflakes - Detects various errors like unused imports, undefined names
+
+    # Code organization
+    "I",      # isort - Import statement sorting and organization
+    "N",      # pep8-naming - Enforces PEP 8 naming conventions (snake_case, UPPER_CASE, etc.)
+
+    # Modern Python
+    "UP",     # pyupgrade - Automatically upgrade syntax for newer Python versions
+
+    # Bug prevention
+    "B",      # flake8-bugbear - Finds likely bugs and design problems
+    "S",      # flake8-bandit - Security testing (SQL injection, hardcoded passwords, etc.)
+    "BLE",    # flake8-blind-except - Prevents catching too broad exceptions
+    "T10",    # flake8-debugger - Detects leftover debugger imports and breakpoints
+
+    # Code quality
+    "C4",     # flake8-comprehensions - Helps write better list/dict/set comprehensions
+    "SIM",    # flake8-simplify - Suggests simplifications to your code
+    "A",      # flake8-builtins - Prevents shadowing of Python builtins
+    "ARG",    # flake8-unused-arguments - Finds unused function arguments
+    "PTH",    # flake8-use-pathlib - Prefers pathlib over os.path for file operations
+
+    # Testing (pytest-specific)
+    "PT",     # flake8-pytest-style - Enforces pytest best practices
+
+    # Comprehensive linting
+    "PL",     # Pylint - Broad set of checks for errors, code smells, and conventions
+
+    # Documentation
+    "D",      # pydocstyle - Docstring style checking (Google convention)
+    "ANN",    # flake8-annotations - Enforces type annotations
+
+    # Ruff-specific
+    "RUF",    # Ruff-specific rules - Ruff's own linting rules (e.g., unused noqa)
+]
+
+ignore = [
+    # Docstring style conflicts (choose one style, these conflict with each other)
+    "D203",    # 1 blank line before class docstring (conflicts with D211)
+    "D213",    # Multi-line docstring summary should start on second line (conflicts with D212)
+]
+
+# Configure pydocstyle to use Google convention
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/*" = [
+    "S101",    # Use of assert
+    "ANN",     # Type annotations
+    "D",       # Docstrings
+]
+"**/__init__.py" = [
+    "D104",    # Missing docstring in public package
+]
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+parallel = true
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+]

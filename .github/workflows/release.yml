@@ -1,0 +1,97 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump type'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - stable
+      prerelease:
+        description: 'Pre-release type (optional)'
+        required: false
+        type: choice
+        options:
+          - none
+          - alpha
+          - beta
+          - rc
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Run Tests
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    name: Create Release
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify branch
+        run: |
+          if [ "${{ github.ref }}" != "refs/heads/main" ] && [ "${{ github.ref }}" != "refs/heads/master" ]; then
+            echo "❌ Releases must be from main or master branch"
+            echo "Current branch: ${{ github.ref }}"
+            exit 1
+          fi
+          echo "✅ Running on default branch"
+
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump version
+        id: bump
+        run: |
+          # Bump main version
+          if [ "${{ github.event.inputs.prerelease }}" != "none" ] && [ -n "${{ github.event.inputs.prerelease }}" ]; then
+            uv version --bump ${{ github.event.inputs.bump }} --bump ${{ github.event.inputs.prerelease }}
+          else
+            uv version --bump ${{ github.event.inputs.bump }}
+          fi
+
+          # Get new version
+          NEW_VERSION=$(uv version --short)
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "New version: $NEW_VERSION"
+
+      - name: Update lockfile
+        run: uv lock
+
+      - name: Commit and tag version bump
+        run: |
+          git add pyproject.toml uv.lock
+          git commit -m "chore: bump version to ${{ steps.bump.outputs.version }}"
+          git tag -a "v${{ steps.bump.outputs.version }}" -m "Release v${{ steps.bump.outputs.version }}"
+          git push && git push --tags
+
+      - name: Build package
+        run: uv build
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.bump.outputs.version }}
+          name: Release v${{ steps.bump.outputs.version }}
+          draft: false
+          prerelease: ${{ github.event.inputs.prerelease != 'none' && github.event.inputs.prerelease != '' }}
+          files: dist/*
+          generate_release_notes: true
