@@ -10,6 +10,7 @@ from loguru import logger
 from rich.console import Console
 from rich.table import Table
 
+from .config import get_paths
 from .database.models import Task, TaskCreate, TaskStatus, TaskUpdate
 from .database.repository import TaskRepository
 
@@ -19,7 +20,7 @@ app = typer.Typer(
     rich_markup_mode="rich",
 )
 console = Console()
-DEFAULT_DB = Path.home() / ".taskweaver" / "tasks.db"
+DEFAULT_DB = get_paths().database_file
 
 
 @app.command(name="create", help="Create a new task")
