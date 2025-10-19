@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from taskweaver import config as config_module
 from taskweaver.config import (
     Config,
     XDGPaths,
@@ -125,6 +126,10 @@ def test_get_config_returns_defaults_when_no_file(monkeypatch, tmp_path):
     """Test get_config returns defaults when config file doesn't exist."""
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
 
+    # Mock get_project_root to prevent loading project-local config
+
+    monkeypatch.setattr(config_module, "get_project_root", lambda: None)
+
     # Clear cache to force reload
     get_config.cache_clear()
     get_paths.cache_clear()
@@ -147,6 +152,10 @@ model = "gpt-4"
 api_endpoint = "http://localhost:1234/v1"
 auto_decompose = false
 """)
+
+    # Mock get_project_root to prevent loading project-local config
+
+    monkeypatch.setattr(config_module, "get_project_root", lambda: None)
 
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
 
