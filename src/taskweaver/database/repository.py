@@ -167,12 +167,14 @@ class TaskRepository:
         task.updated_at = datetime.now(UTC)
 
         with get_connection(self.db_path) as conn:
+            # Extract status value (handle both TaskStatus enum and string)
+            status_value = task.status.value if isinstance(task.status, TaskStatus) else task.status
             conn.execute(
                 UPDATE_TASK,
                 (
                     task.title,
                     task.description,
-                    task.status.value,
+                    status_value,
                     task.updated_at.isoformat(),
                     str(task_id),
                 ),

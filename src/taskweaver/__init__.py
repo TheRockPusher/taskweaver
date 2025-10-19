@@ -9,7 +9,4 @@ from taskweaver.cli import main
 
 __version__ = version("taskweaver")
 
-__all__ = [
-    "__version__",
-    "main"
-]
+__all__ = ["__version__", "main"]

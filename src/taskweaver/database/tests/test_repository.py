@@ -1,5 +1,6 @@
 """Tests for task repository."""
 
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -173,3 +174,27 @@ def test_delete_nonexistent_task(task_repo: TaskRepository) -> None:
         task_repo.delete_task(uuid4())
 
     assert "Task not found" in str(exc_info.value)
+
+
+def test_auto_initialize_database(tmp_path: Path) -> None:
+    """Test that database auto-initializes on first use."""
+    db_path = tmp_path / "auto_init.db"
+
+    # Verify database doesn't exist yet
+    assert not db_path.exists()
+
+    # Create repository - should auto-initialize
+    repo = TaskRepository(db_path)
+
+    # Create a task - should work without manual init
+    task_data = TaskCreate(title="Auto-init test")
+    task = repo.create_task(task_data)
+
+    # Verify database was created and task exists
+    assert db_path.exists()
+    assert task.title == "Auto-init test"
+
+    # Verify we can retrieve the task
+    retrieved = repo.get_task(task.task_id)
+    assert retrieved is not None
+    assert retrieved.task_id == task.task_id

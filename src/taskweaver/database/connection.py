@@ -39,9 +39,23 @@ def init_database(db_path: Path = DEFAULT_DB_PATH) -> None:
         logger.info(f"Database initialized successfully at {db_path} (schema version: {SCHEMA_VERSION})")
 
 
+def _ensure_database_exists(db_path: Path) -> None:
+    """Ensure database file and schema exist, initialize if needed.
+
+    Args:
+        db_path: Path to SQLite database file.
+
+    """
+    if not db_path.exists():
+        logger.debug(f"Database does not exist, initializing: {db_path}")
+        init_database(db_path)
+
+
 @contextmanager
 def get_connection(db_path: Path = DEFAULT_DB_PATH) -> Generator[sqlite3.Connection]:
     """Get database connection as context manager.
+
+    Automatically initializes the database if it doesn't exist.
 
     Args:
         db_path: Path to SQLite database file.
@@ -55,6 +69,9 @@ def get_connection(db_path: Path = DEFAULT_DB_PATH) -> Generator[sqlite3.Connect
         ...     tasks = cursor.fetchall()
 
     """
+    # Ensure database exists before attempting connection
+    _ensure_database_exists(db_path)
+
     logger.debug(f"Opening database connection: {db_path}")
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row  # Access columns by name

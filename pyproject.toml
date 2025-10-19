@@ -41,7 +41,7 @@ Documentation = "https://github.com/TheRockPusher/taskweaver#readme"
 Issues = "https://github.com/TheRockPusher/taskweaver/issues"
 
 [project.scripts]
-taskweaver = "taskweaver.main:"
+taskweaver = "taskweaver.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.9.2,<0.10.0"]
