@@ -10,6 +10,8 @@ from loguru import logger
 from rich.console import Console
 from rich.table import Table
 
+from .agents.chat_handler import CliChatHandler
+from .agents.task_agent import run_chat
 from .config import get_paths
 from .database.models import Task, TaskCreate, TaskStatus, TaskUpdate
 from .database.repository import TaskRepository
@@ -132,6 +134,12 @@ def show(
         table.add_row(field.replace("_", " ").title(), display_value)
 
     console.print(table)
+
+
+@app.command(name="chat", help="Start interactive conversation with AI agent.")
+def chat(db_path: Annotated[Path, typer.Option("--db", help="Database file path")] = DEFAULT_DB) -> None:
+    """Start an interactive conversation with the AI agent."""
+    run_chat(CliChatHandler(), db_path)
 
 
 def main() -> None:

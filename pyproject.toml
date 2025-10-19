@@ -120,6 +120,7 @@ ignore = [
     # Docstring style conflicts (choose one style, these conflict with each other)
     "D203",    # 1 blank line before class docstring (conflicts with D211)
     "D213",    # Multi-line docstring summary should start on second line (conflicts with D212)
+    "D107",    # Missing docstring in __init__ method (class docstring is usually sufficient)
 ]
 
 # Configure pydocstyle to use Google convention
