@@ -1,22 +1,22 @@
 # [TaskWeaver](https://github.com/TheRockPusher/taskweaver)
 
-An AI-powered task organizer and decomposer that helps you break down complex goals into manageable, actionable tasks.
+An AI-powered task organiser and decomposer that helps you break down complex goals into manageable, actionable tasks.
 
-TaskWeaver is a conversational AI agent that intelligently organizes, prioritizes, and decomposes your tasks. It analyzes your skill level, identifies knowledge gaps, and creates learning paths to help you accomplish your goals efficiently.
+TaskWeaver is a conversational AI agent that intelligently organises, prioritises, and decomposes your tasks. It analyses your skill level, identifies knowledge gaps, and creates learning paths to help you accomplish your goals efficiently.
 
-**Target Audience:** Anyone looking to organize complex projects, learn new skills systematically, or improve task management through AI-powered decomposition and prioritization.
+**Target Audience:** Anyone looking to organise complex projects, learn new skills systematically, or improve task management through AI-powered decomposition and prioritisation.
 
-**Project Status:** Version 0.1.0 (early development - MVP stage)
+**Project Status:** Version 0.1.0 (early development – MVP foundation stage)
 
 [![CI](https://github.com/TheRockPusher/taskweaver/actions/workflows/ci.yml/badge.svg)](https://github.com/TheRockPusher/taskweaver/actions/workflows/ci.yml)
 [![Python Version](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL-3.0-blue.svg)](LICENSE)
 
-## Getting Started
+## Quick Start
 
-TaskWeaver helps you accomplish complex goals by breaking them down into achievable tasks, detecting skill gaps, and creating personalized learning paths.
+TaskWeaver helps you accomplish complex goals by breaking them down into achievable tasks, detecting skill gaps, and creating personalised learning paths.
 
-### Quick Start
+### Installation
 
 ```bash
 # Clone the repository
@@ -33,14 +33,35 @@ make install
 make test
 ```
 
-Note: TaskWeaver is currently in active development. The CLI is not yet functional. Development focus is on core infrastructure and feature implementation. Check back soon for updates!
+**Prerequisites:**
+- Python 3.13 or higher
+- [UV](https://github.com/astral-sh/uv) package manager
 
-### Full Documentation
+### Current Capabilities
 
-- **Installation Guide**: See [Installation](#installation) section below
-- **Usage Examples**: See [Usage](#usage) section below
-- **Contributing**: See [Contributing](#contributing) section below
-- **Project Goals**: See [Why TaskWeaver?](#why-taskweaver) section below
+TaskWeaver currently provides a command-line interface for task management with a SQLite database backend:
+
+```bash
+# Create a new task
+uv run taskweaver create "Build authentication system" -d "Implement user login and registration"
+
+# List all tasks
+uv run taskweaver ls
+
+# Filter tasks by status
+uv run taskweaver ls --status pending
+
+# View task details
+uv run taskweaver show <task-uuid>
+
+# Update a task
+uv run taskweaver edit <task-uuid> --status in_progress
+
+# Delete a task
+uv run taskweaver rm <task-uuid> --force
+```
+
+**Note:** The AI-powered features (task decomposition, skill gap analysis, intelligent prioritisation) are under development and will be available in future releases.
 
 ## Why TaskWeaver?
 
@@ -51,204 +72,173 @@ TaskWeaver addresses a common challenge: **complex goals often fail because they
 - Large projects feel insurmountable without proper breakdown
 - You don't know what skills you're missing until you start
 - Learning feels disconnected from doing (violates JIT learning principles)
-- Task prioritization is subjective and inconsistent
+- Task prioritisation is subjective and inconsistent
 - Dependencies between tasks aren't always clear
 
-### The Solution
+### The Solution (Planned)
 
-TaskWeaver provides:
+TaskWeaver will provide:
 
-- **Intelligent Task Decomposition**: Automatically breaks complex goals into manageable chunks
-- **Skill Gap Analysis**: Identifies what you need to learn before starting tasks
-- **Just-In-Time Learning**: Creates learning tasks that directly unblock your goals
-- **Smart Prioritization**: Uses multi-criteria decision analysis (MCDA) for objective task scoring
-- **Dependency Management**: Tracks task relationships and detects circular dependencies
-- **Adaptive Learning**: Remembers your preferences and adjusts recommendations over time
+- **Intelligent Task Decomposition:** Automatically breaks complex goals into manageable chunks
+- **Skill Gap Analysis:** Identifies what you need to learn before starting tasks
+- **Just-In-Time Learning:** Creates learning tasks that directly unblock your goals
+- **Smart Prioritisation:** Uses multi-criteria decision analysis (MCDA) for objective task scoring
+- **Dependency Management:** Tracks task relationships and detects circular dependencies
+- **Adaptive Learning:** Remembers your preferences and adjusts recommendations over time
 
 ### Core Principles
 
-1. **JIT Learning**: Learning without action isn't learning - all learning tasks directly support doing
-2. **Skill-Based Planning**: Tasks are matched to your current Dreyfus skill level
-3. **Progressive Disclosure**: Focus on what's immediately actionable, not everything at once
-4. **Dogfooding**: Built to improve itself - the first user is the project itself
+1. **JIT Learning:** Learning without action isn't learning – all learning tasks directly support doing
+2. **Skill-Based Planning:** Tasks are matched to your current Dreyfus skill level
+3. **Progressive Disclosure:** Focus on what's immediately actionable, not everything at once
+4. **Dogfooding:** Built to improve itself – the first user is the project itself
 
-## Current Status
+## Development Status
 
-**Project Stage:** Early Development - Scaffolding Only
+**Current Implementation Status:** Database and CLI Foundation (✅ Complete)
+- SQLite database with schema versioning
+- Full CRUD operations via CLI
+- Auto-database initialisation
+- Comprehensive test coverage (80%+)
+- Type-safe Pydantic models
 
-The project is currently in the initial scaffolding phase. Core infrastructure and project structure have been set up, but no features have been implemented yet. The roadmap below outlines the planned features for the MVP.
-
-## Features (Roadmap)
-
-### Planned Features for MVP
-
-🎯 **Conversational Task Management**
-
-- Add tasks naturally through conversation, no CLI flags needed
-- AI understands context and extracts task details automatically
-- **Status:** Not yet implemented
-
-🧠 **Intelligent Task Analysis**
-
-- Automatic decomposition of complex tasks into subtasks
-- Skill gap detection based on Dreyfus model
+**Not Yet Implemented:** AI Features
+- Conversational interface with PydanticAI agent
+- Automatic task decomposition
+- Skill gap analysis (Dreyfus model)
 - Multi-criteria priority scoring (MCDA)
-- **Status:** Not yet implemented
+- Dependency DAG management
+- User preference learning
 
-🔗 **Dependency Management**
-- Task blocking relationships (DAG structure)
-- Circular dependency detection using DFS
-- Learning tasks that unblock parent tasks
-- **Status:** Not yet implemented
-
-📊 **Adaptive System**
-- Learns your preferences from task completion patterns
-- Updates skill assessments based on demonstrated capabilities
-- Adjusts scoring over time
-- **Status:** Not yet implemented
-
-### Technical Features
-
-- Built with [PydanticAI](https://ai.pydantic.dev/) for robust agent implementation
-- SQLite database for local-first task storage
-- Modern Python packaging with [UV](https://github.com/astral-sh/uv)
-- Comprehensive code quality tools (Ruff, Ty, pytest with 80% coverage)
-- Pre-commit hooks and CI/CD automation
-
-## Installation
-
-### Prerequisites
-
-- **Python 3.13 or higher**
-- **[UV](https://github.com/astral-sh/uv) package manager** (a fast Python package and project manager written in [Rust](https://www.rust-lang.org/))
-
-#### Installing Prerequisites
-
-**Ubuntu/Debian:**
-
-```bash
-# Install Python (if not already installed)
-sudo apt-get update
-sudo apt-get install -y python3 python3.13 python3-pip
-
-# Install UV
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-**macOS:**
-
-```bash
-# Install Python via Homebrew (if needed)
-brew install python@3.13
-
-# Install UV
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-**Windows:**
-
-```powershell
-# Install Python from python.org first, then:
-# Install UV
-powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
-
-**Arch Linux:**
-
-```bash
-# Install Python (usually pre-installed)
-sudo pacman -S python
-
-# Install UV
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-### Install the package
-
-```bash
-# Clone from source (currently the only installation method)
-git clone https://github.com/TheRockPusher/taskweaver.git
-cd taskweaver
-
-# Install dependencies
-make install
-
-# Or manually with UV
-uv sync
-```
+See [Development](#development) for contribution guidelines.
 
 ## Usage
 
-TaskWeaver is currently in early development and is not yet ready for end-user usage. The following example illustrates the intended usage pattern once implementation is complete:
+### Task Management Commands
 
-### Planned Usage Example
+#### Create a Task
 
 ```bash
-# Start a conversation with TaskWeaver
-uv run taskweaver
+# Minimal – title only
+uv run taskweaver create "Learn Python"
 
-# Example conversation (planned functionality):
-You: "I want to build a web application with authentication"
+# With description
+uv run taskweaver create "Learn Python" -d "Focus on async programming"
 
-TaskWeaver: I'll help you break this down. Let me analyze this task...
-
-[TaskWeaver will analyze your goal and create:]
-- Main task: Build web application with authentication
-  - Subtask: Design database schema for users
-  - Subtask: Implement authentication backend
-  - Subtask: Create login/signup UI
-  - Learning task: Learn JWT basics (blocks authentication backend)
-  - Learning task: Study password hashing best practices (blocks authentication backend)
-
-Based on your current skill level (beginner in web auth), I recommend starting with
-the learning tasks. Would you like me to add these to your task list?
+# Custom database location
+uv run taskweaver create "Task" --db /path/to/custom.db
 ```
 
-**Status:** This functionality is currently being designed and implemented. Check the project roadmap for updates on feature availability.
+#### List Tasks
 
-### Success Metrics (MVP Targets)
+```bash
+# List all tasks (most recent first)
+uv run taskweaver ls
 
-The MVP implementation will aim to achieve these goals:
+# Filter by status
+uv run taskweaver ls --status pending
+uv run taskweaver ls -s in_progress
+uv run taskweaver ls -s completed
+uv run taskweaver ls -s cancelled
+```
 
-- Add complex tasks via conversation (no CLI flags required)
-- Automatic task decomposition, gap detection, and prioritization
-- User approval and adjustment workflow before committing to database
-- Learning tasks correctly unblock parent tasks
-- Score inference accuracy >70% (user accepts without edits)
-- Decomposition acceptance rate >70%
-- System learns preferences after 20+ task completions
+Status values: `pending`, `in_progress`, `completed`, `cancelled`
 
-### Development Approach
+#### View Task Details
 
-The project is being developed using a "dogfooding" approach - TaskWeaver will be used to organize its own development. This means the project roadmap, development tasks, and progress will be managed through the system as it's being built, providing real-world validation of the approach.
+```bash
+# Show full task information
+uv run taskweaver show <task-uuid>
+```
 
-More detailed usage examples and workflows will be added as features are implemented.
+#### Update a Task
+
+```bash
+# Update title
+uv run taskweaver edit <task-uuid> --title "New Title"
+
+# Update description
+uv run taskweaver edit <task-uuid> -d "New description"
+
+# Update status
+uv run taskweaver edit <task-uuid> --status completed
+
+# Combine multiple updates
+uv run taskweaver edit <task-uuid> -t "Title" -d "Desc" -s in_progress
+```
+
+#### Delete a Task
+
+```bash
+# Delete with confirmation prompt
+uv run taskweaver rm <task-uuid>
+
+# Force delete without confirmation
+uv run taskweaver rm <task-uuid> --force
+```
+
+### Database Configuration
+
+By default, TaskWeaver stores tasks in `~/.taskweaver/tasks.db`. You can specify a custom location:
+
+```bash
+# All commands support custom database paths
+uv run taskweaver create "Task" --db /home/user/my-tasks.db
+uv run taskweaver ls --db /home/user/my-tasks.db
+```
+
+## Project Structure
+
+```tree
+taskweaver/
+├── src/taskweaver/              # Main package code
+│   ├── __init__.py              # Version and entry point
+│   ├── cli.py                   # Command-line interface (143 lines)
+│   ├── database/                # Database layer
+│   │   ├── __init__.py          # Module exports
+│   │   ├── connection.py        # SQLite connection management
+│   │   ├── models.py            # Pydantic data models
+│   │   ├── repository.py        # Task CRUD operations
+│   │   ├── schema.py            # SQL schema definitions
+│   │   ├── exceptions.py        # Custom exceptions
+│   │   └── tests/               # Database tests
+│   │       ├── conftest.py      # Pytest fixtures
+│   │       └── test_repository.py
+│   └── tests/
+│       ├── conftest.py
+│       └── test_cli.py          # CLI integration tests
+├── .github/
+│   └── workflows/
+│       ├── ci.yml               # Continuous integration
+│       └── release.yml          # Automated releases
+├── pyproject.toml               # Project configuration
+├── Makefile                     # Development commands
+├── CLAUDE.md                    # Development guidelines
+└── README.md                    # This file
+```
 
 ## Development
 
 ### Setup Development Environment
 
 ```bash
-# Clone the repository
+# Clone and install
 git clone https://github.com/TheRockPusher/taskweaver.git
 cd taskweaver
-
-# Install dependencies and pre-commit hooks
 make install
 ```
 
-### Available Make Commands
-
-Run `make help` to see all available commands:
+### Available Development Commands
 
 ```bash
-make install         # Install the virtual environment and pre-commit hooks
-make format          # Format code with ruff
-make format-check    # Check code formatting
-make lint-check      # Lint code with ruff
-make type-check      # Run static type checking with ty
-make check           # Run all code quality checks
-make test            # Run tests with pytest
+make help              # Show all available commands
+make install          # Install dependencies (uses UV)
+make format           # Format code with Ruff
+make format-check     # Check formatting without changes
+make lint-check       # Run linting checks
+make type-check       # Run static type checking
+make check            # Run all quality checks
+make test             # Run test suite with coverage
 ```
 
 ### Running Tests
@@ -258,66 +248,61 @@ make test            # Run tests with pytest
 make test
 
 # Run specific test file
-make test FILE=tests/test_main.py
+make test FILE=src/taskweaver/database/tests/test_repository.py
 
 # Run with coverage report
 uv run pytest --cov=taskweaver --cov-report=html
 ```
 
-### Code Quality
+### Code Quality Standards
 
 This project maintains high code quality standards:
 
-- **Formatting**: Automated with Ruff (120 character line length)
-- **Linting**: Comprehensive rules including security checks (Bandit)
-- **Type Checking**: Enforced with Ty
-- **Testing**: Minimum 80% code coverage required
-- **Documentation**: Google-style docstrings
+- **Formatting:** Automated with Ruff (120 character line length)
+- **Linting:** Comprehensive rules including security checks (Bandit)
+- **Type Checking:** Enforced with Ty
+- **Testing:** Minimum 80% code coverage required
+- **Documentation:** Google-style docstrings
 
 All checks run automatically via pre-commit hooks and CI/CD.
 
-## Project Structure
+### Python Version & Tools
 
-```bash
-taskweaver/
-├── src/
-│   └── taskweaver/     # Main package code
-│       ├── __init__.py
-│       └── py.typed                      # PEP 561 type marker
-├── tests/                                 # Test suite
-│   └── test_main.py
-├── .github/
-│   ├── actions/
-│   │   └── setup-python-env/             # Reusable setup action
-│   └── workflows/
-│       ├── ci.yml                        # CI pipeline
-│       └── release.yml                   # Release automation
-├── pyproject.toml                        # Project configuration
-├── Makefile                              # Development commands
-├── .pre-commit-config.yaml               # Pre-commit hooks
-└── README.md                             # This file
-```
+- **Python:** 3.13+
+- **Package Manager:** [UV](https://github.com/astral-sh/uv)
+- **Formatter:** [Ruff](https://github.com/astral-sh/ruff)
+- **Linter:** Ruff (includes security checks from Bandit)
+- **Type Checker:** [Ty](https://github.com/python/ty)
+- **Testing:** [pytest](https://pytest.org/) with coverage
+
+### Project Guidelines
+
+This project follows principles outlined in [CLAUDE.md](CLAUDE.md):
+
+- **KISS (Keep It Simple, Stupid):** Favour straightforward solutions
+- **YAGNI (You Aren't Gonna Need It):** Build features when needed, not speculatively
+- **Vertical Slice Architecture:** Tests live next to code
+- **File Limits:** Max 500 lines per file, 50 lines per function
+- **Pythonic Patterns:** Leverage Python's data model and built-in idioms
 
 ## Contributing
 
 Contributions are welcome! We actively encourage bug reports, feature requests, and pull requests from the community.
 
-**How to participate:**
+### How to Participate
 
-- **Bug Reports:** Please open an [issue](https://github.com/TheRockPusher/taskweaver/issues) on GitHub with detailed information about the problem.
-- **Feature Requests:** Open an [issue](https://github.com/TheRockPusher/taskweaver/issues) describing your proposed feature and use case.
-- **Pull Requests:** We accept and review pull requests. Please ensure your code passes all quality checks (`make check && make test`) before submitting.
-- **Questions/Discussions:** Use [GitHub Discussions](https://github.com/TheRockPusher/taskweaver/discussions) for general questions and community discussions.
+- **Bug Reports:** Open an [issue](https://github.com/TheRockPusher/taskweaver/issues) with detailed information
+- **Feature Requests:** Open an [issue](https://github.com/TheRockPusher/taskweaver/issues) describing the proposed feature
+- **Pull Requests:** We accept and review PRs – ensure your code passes all quality checks before submitting
+- **Questions/Discussions:** Use [GitHub Discussions](https://github.com/TheRockPusher/taskweaver/discussions)
 
-**Contribution Requirements:**
+### Contribution Requirements
 
 - All code must pass automated quality checks (Ruff formatting, Ruff linting, Ty type checking)
 - Test coverage must remain at or above 80%
 - New features should include tests and documentation
 - Follow the existing code style (Google-style docstrings, 120 character line length)
-- No Contributor License Agreement (CLA) is required - contributions are licensed under the same AGPL-3.0 license as the project
-
-For detailed contribution guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md).
+- No Contributor License Agreement required
 
 ### Quick Contribution Guide
 
@@ -345,51 +330,93 @@ This project uses automated releases via GitHub Actions:
    - Build the package
    - Create a GitHub release
 
+## Architecture
+
+TaskWeaver uses a clean vertical slice architecture:
+
+```architecture
+┌─────────────────────────────────────────────────┐
+│            CLI Layer (Typer)                    │
+│        Rich formatted output                    │
+└────────────────┬────────────────────────────────┘
+                 │
+┌────────────────▼────────────────────────────────┐
+│        Repository Pattern                       │
+│   (TaskRepository CRUD operations)              │
+└────────────────┬────────────────────────────────┘
+                 │
+┌────────────────▼────────────────────────────────┐
+│      Pydantic Models + Validation               │
+│   (Task, TaskCreate, TaskUpdate)                │
+└────────────────┬────────────────────────────────┘
+                 │
+┌────────────────▼────────────────────────────────┐
+│      SQLite Connection Management               │
+│    (Auto-initialisation, pooling)               │
+└────────────────┬────────────────────────────────┘
+                 │
+┌────────────────▼────────────────────────────────┐
+│         SQLite Database                         │
+│     (Local-first, encrypted ready)              │
+└─────────────────────────────────────────────────┘
+```
+
+See [AI/project.md](AI/project.md) for detailed architecture and roadmap.
+
 ## License
 
-This project is licensed under the AGPL-3.0 License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the AGPL-3.0 License – see the [LICENSE](LICENSE) file for details.
 
 ## Authors
 
-**Nelson Sousa** - Primary maintainer
+**Nelson Sousa** – Primary Maintainer
 
 - GitHub: [@TheRockPusher](https://github.com/TheRockPusher)
 - Email: [github@orvit.simplelogin.com](mailto:github@orvit.simplelogin.com)
 
 ## Community Guidelines
 
-This project aims to be welcoming and inclusive. While we don't currently have a formal Code of Conduct, we expect all contributors and participants to:
+This project aims to be welcoming and inclusive. We expect all contributors and participants to:
 
 - Be respectful and considerate in discussions
 - Provide constructive feedback
 - Focus on what is best for the community and project
 - Show empathy towards other community members
 
-## Project Context
+## Privacy First
 
-TaskWeaver is an individual open source project created to solve the challenge of managing complex goals through intelligent task decomposition and skill-based learning paths. It is not affiliated with any corporate entity or commercial service offering.
+All data stays local on your device. TaskWeaver uses SQLite for storage and does not transmit any user data or telemetry anywhere. Your tasks, skills, and preferences remain completely private.
 
-**Privacy First**: All data stays local on your device. TaskWeaver uses SQLite for storage and does not transmit any user data or telemetry anywhere. Your tasks, skills, and preferences remain completely private.
-
-## Acknowledgments
+## Acknowledgements
 
 ### Core Technologies
 
-- **AI Framework**: [PydanticAI](https://ai.pydantic.dev/) - Production-grade agent framework
-- **Package Manager**: [UV](https://github.com/astral-sh/uv) - Blazing fast Python package management
-- **Code Quality**: [Ruff](https://github.com/astral-sh/ruff) - Lightning-fast Python linter and formatter
-- **Type Checking**: [Ty](https://github.com/python/ty) - Static type analysis
-- **Testing**: [pytest](https://pytest.org/) - Comprehensive Python testing framework
+- **AI Framework:** [PydanticAI](https://ai.pydantic.dev/) – Production-grade agent framework
+- **Package Manager:** [UV](https://github.com/astral-sh/uv) – Blazing fast Python package management
+- **Code Quality:** [Ruff](https://github.com/astral-sh/ruff) – Lightning-fast Python linter and formatter
+- **Type Checking:** [Ty](https://github.com/python/ty) – Static type analysis
+- **Testing:** [pytest](https://pytest.org/) – Comprehensive Python testing framework
+- **CLI:** [Typer](https://typer.tiangolo.com/) – Modern CLI framework
+- **Output:** [Rich](https://rich.readthedocs.io/) – Beautiful terminal output
 
 ### Methodologies
 
-- **Skill Assessment**: Dreyfus Model of Skill Acquisition
-- **Prioritization**: Multi-Criteria Decision Analysis (MCDA)
-- **Learning Philosophy**: Just-In-Time (JIT) Learning principles
-- **Dependency Management**: Directed Acyclic Graphs (DAG) with DFS cycle detection
+- **Skill Assessment:** Dreyfus Model of Skill Acquisition
+- **Prioritisation:** Multi-Criteria Decision Analysis (MCDA)
+- **Learning Philosophy:** Just-In-Time (JIT) Learning principles
+- **Dependency Management:** Directed Acyclic Graphs (DAG) with DFS cycle detection
 
-## Links
+## Support
 
-- **Repository**: [https://github.com/TheRockPusher/taskweaver](https://github.com/TheRockPusher/taskweaver)
-- **Issues**: [https://github.com/TheRockPusher/taskweaver/issues](https://github.com/TheRockPusher/taskweaver/issues)
-- **Documentation**: [https://github.com/TheRockPusher/taskweaver#readme](https://github.com/TheRockPusher/taskweaver#readme)
+For help using or developing TaskWeaver:
+
+- **Documentation:** See [README.md](README.md) and [AI/project.md](AI/project.md)
+- **Issues:** [GitHub Issues](https://github.com/TheRockPusher/taskweaver/issues)
+- **Discussions:** [GitHub Discussions](https://github.com/TheRockPusher/taskweaver/discussions)
+- **Feedback:** Report issues at https://github.com/anthropics/claude-code/issues (for Claude Code–specific feedback)
+
+## Repository Links
+
+- **Repository:** [https://github.com/TheRockPusher/taskweaver](https://github.com/TheRockPusher/taskweaver)
+- **Issues:** [https://github.com/TheRockPusher/taskweaver/issues](https://github.com/TheRockPusher/taskweaver/issues)
+- **Discussions:** [https://github.com/TheRockPusher/taskweaver/discussions](https://github.com/TheRockPusher/taskweaver/discussions)
