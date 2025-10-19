@@ -1,21 +1,12 @@
-"""AI task master agent."""
+"""TaskWeaver - AI-powered task organizer with intelligent decomposition.
 
-__version__ = "0.1.0"
+This package provides tools for task management, decomposition, and skill-based learning.
+"""
 
+from importlib.metadata import version
 
-def example_function(value: str) -> str:
-    """Return the input value unchanged.
+from taskweaver.cli import main
 
-    Args:
-        value: The input string to return.
+__version__ = version("taskweaver")
 
-    Returns:
-        The same string that was passed in.
-
-    """
-    return value
-
-
-def main() -> None:
-    """CLI entry point."""
-    print("Hello from TaskWeaver!")
+__all__ = ["__version__", "main"]

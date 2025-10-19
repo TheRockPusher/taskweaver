@@ -83,11 +83,13 @@ The project is currently in the initial scaffolding phase. Core infrastructure a
 ### Planned Features for MVP
 
 🎯 **Conversational Task Management**
+
 - Add tasks naturally through conversation, no CLI flags needed
 - AI understands context and extracts task details automatically
 - **Status:** Not yet implemented
 
 🧠 **Intelligent Task Analysis**
+
 - Automatic decomposition of complex tasks into subtasks
 - Skill gap detection based on Dreyfus model
 - Multi-criteria priority scoring (MCDA)
