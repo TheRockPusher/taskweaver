@@ -27,11 +27,13 @@ Directory Structure:
 """
 
 import os
+import sys
 import tomllib
 from functools import lru_cache
 from pathlib import Path
 
 from dotenv import load_dotenv
+from loguru import logger
 from pydantic import BaseModel, Field
 
 
@@ -215,6 +217,10 @@ class Config(BaseModel):
         default=True,
         description="Automatically decompose complex tasks into subtasks",
     )
+    log_level: str = Field(
+        default="WARNING",
+        description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
+    )
 
     @property
     def api_key(self) -> str | None:
@@ -288,3 +294,10 @@ def get_config() -> Config:
 
 # Load .env file when module is imported
 _load_env_file()
+
+# Configure logging level from config
+logger.remove()  # Remove default handler
+logger.add(
+    sys.stderr,
+    level=os.getenv("LOGURU_LEVEL", "WARNING"),
+)
