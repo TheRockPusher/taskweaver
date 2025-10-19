@@ -10,7 +10,22 @@ Configuration Hierarchy (later overrides earlier):
 
 Environment Variables (.env):
     - Loaded from ./.env (project-local) or ~/.config/taskweaver/.env
-    - API_KEY: Your API key for the configured endpoint
+    - Provider-specific API keys (see examples below)
+
+    OpenAI models (gpt-4o, gpt-4o-mini, etc.):
+        OPENAI_API_KEY=sk-...
+
+    OpenRouter (multi-provider gateway):
+        OPENROUTER_API_KEY=sk-or-...
+
+    Anthropic models (claude-3-5-sonnet, etc.):
+        ANTHROPIC_API_KEY=sk-ant-...
+
+    Google models (gemini-1.5-flash, etc.):
+        GOOGLE_API_KEY=...
+
+    Note: TaskWeaver uses PydanticAI which requires provider-specific
+    environment variables. Set the appropriate key for your model provider.
 
 Directory Structure:
     # Project-local (for development)
