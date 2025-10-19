@@ -28,7 +28,10 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Typing :: Typed",
 ]
-dependencies = []
+dependencies = [
+    "loguru>=0.7.3",
+    "pydantic>=2.12.3",
+]
 
 [project.urls]
 Homepage = "https://github.com/TheRockPusher/taskweaver"
