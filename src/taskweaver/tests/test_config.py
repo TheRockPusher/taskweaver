@@ -333,19 +333,3 @@ api_endpoint = "https://api.anthropic.com/v1"
     assert config.api_endpoint == "https://api.anthropic.com/v1"
     # XDG auto_decompose is preserved
     assert config.auto_decompose is True
-
-
-def test_api_key_from_env(monkeypatch):
-    """Test config.api_key reads from API_KEY env var."""
-    monkeypatch.setenv("API_KEY", "test-api-key-123")
-
-    config = Config()
-    assert config.api_key == "test-api-key-123"
-
-
-def test_api_key_returns_none_when_not_set(monkeypatch):
-    """Test config.api_key returns None when API_KEY not set."""
-    monkeypatch.delenv("API_KEY", raising=False)
-
-    config = Config()
-    assert config.api_key is None

@@ -237,15 +237,6 @@ class Config(BaseModel):
         description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
     )
 
-    @property
-    def api_key(self) -> str | None:
-        """Get API key from environment variable.
-
-        Returns:
-            API key from API_KEY env var, or None if not set.
-        """
-        return os.getenv("API_KEY")
-
 
 @lru_cache
 def get_paths() -> XDGPaths:
