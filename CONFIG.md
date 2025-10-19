@@ -60,7 +60,7 @@ api_endpoint = "https://api.openai.com/v1"
 auto_decompose = true
 ```
 
-### 2. API Keys (`~/.config/taskweaver/.env`)
+### 2. API Key (`~/.config/taskweaver/.env`)
 
 Copy `.env.example` from the repository:
 
@@ -68,15 +68,23 @@ Copy `.env.example` from the repository:
 cp .env.example ~/.config/taskweaver/.env
 ```
 
-**Add your API keys:**
+**Add your API key:**
 
 ```bash
-# OpenAI API Key (required for OpenAI models)
-OPENAI_API_KEY=sk-...
+# Your API key (works with any provider)
+API_KEY=sk-...
 
-# Anthropic API Key (required for Claude models)
-ANTHROPIC_API_KEY=sk-ant-...
+# Examples:
+# OpenAI:     API_KEY=sk-proj-...
+# Anthropic:  API_KEY=sk-ant-...
+# Local LLM:  API_KEY=not-needed  (or leave empty)
 ```
+
+**How it works:**
+- Single `API_KEY` environment variable
+- Works with whichever `api_endpoint` you configured
+- Change providers by updating `config.toml`, keep same `.env`
+- Perfect for local models that don't need authentication
 
 **⚠️ Security Note:** Never commit `.env` files to version control!
 
@@ -182,6 +190,7 @@ config = get_config()
 print(config.model)  # "gpt-4o-mini"
 print(config.api_endpoint)  # "https://api.openai.com/v1"
 print(config.auto_decompose)  # True
+print(config.api_key)  # Your API key from .env (or None)
 
 # Get XDG paths (cached)
 paths = get_paths()

@@ -94,13 +94,19 @@ def test_xdg_paths_creates_directories(monkeypatch, tmp_path):
 
 
 def test_xdg_paths_file_paths(monkeypatch, tmp_path):
-    """Test XDGPaths returns correct file paths."""
+    """Test XDGPaths returns correct XDG file paths when no project detected."""
+    # Create a non-project directory
+    test_dir = tmp_path / "non_project"
+    test_dir.mkdir()
+
+    monkeypatch.chdir(test_dir)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
 
     paths = XDGPaths()
 
+    # Should return XDG paths when no project root detected
     assert paths.config_file == tmp_path / "config" / "taskweaver" / "config.toml"
     assert paths.env_file == tmp_path / "config" / "taskweaver" / ".env"
     assert paths.database_file == tmp_path / "data" / "taskweaver" / "tasks.db"
@@ -318,3 +324,19 @@ api_endpoint = "https://api.anthropic.com/v1"
     assert config.api_endpoint == "https://api.anthropic.com/v1"
     # XDG auto_decompose is preserved
     assert config.auto_decompose is True
+
+
+def test_api_key_from_env(monkeypatch):
+    """Test config.api_key reads from API_KEY env var."""
+    monkeypatch.setenv("API_KEY", "test-api-key-123")
+
+    config = Config()
+    assert config.api_key == "test-api-key-123"
+
+
+def test_api_key_returns_none_when_not_set(monkeypatch):
+    """Test config.api_key returns None when API_KEY not set."""
+    monkeypatch.delenv("API_KEY", raising=False)
+
+    config = Config()
+    assert config.api_key is None

@@ -8,6 +8,10 @@ Configuration Hierarchy (later overrides earlier):
     2. XDG user config (~/.config/taskweaver/config.toml)
     3. Project-local config (./config.toml) - takes precedence!
 
+Environment Variables (.env):
+    - Loaded from ./.env (project-local) or ~/.config/taskweaver/.env
+    - API_KEY: Your API key for the configured endpoint
+
 Directory Structure:
     # Project-local (for development)
     ./config.toml                      - Project-specific preferences
@@ -27,6 +31,7 @@ import tomllib
 from functools import lru_cache
 from pathlib import Path
 
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
 
@@ -167,6 +172,30 @@ class XDGPaths:
         return self.state_dir / "taskweaver.log"
 
 
+def _load_env_file() -> None:
+    """Load .env file with project-local precedence.
+
+    Loads from:
+    1. ./.env (project-local) if exists
+    2. ~/.config/taskweaver/.env (XDG) if exists
+
+    Called once during module import.
+    """
+    paths = XDGPaths()
+
+    # Try project-local .env first
+    if paths.project_root:
+        local_env = paths.project_root / ".env"
+        if local_env.exists():
+            load_dotenv(local_env, override=True)
+            return
+
+    # Fall back to XDG .env
+    xdg_env = paths.config_dir / ".env"
+    if xdg_env.exists():
+        load_dotenv(xdg_env, override=True)
+
+
 class Config(BaseModel):
     """Application configuration.
 
@@ -186,6 +215,15 @@ class Config(BaseModel):
         default=True,
         description="Automatically decompose complex tasks into subtasks",
     )
+
+    @property
+    def api_key(self) -> str | None:
+        """Get API key from environment variable.
+
+        Returns:
+            API key from API_KEY env var, or None if not set.
+        """
+        return os.getenv("API_KEY")
 
 
 @lru_cache
@@ -246,3 +284,7 @@ def get_config() -> Config:
         return Config()
 
     return Config(**config_data)
+
+
+# Load .env file when module is imported
+_load_env_file()
