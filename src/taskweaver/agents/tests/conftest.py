@@ -1,10 +1,14 @@
 """Shared fixtures for agents tests."""
 
+import os
 from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
 from pydantic_ai import Agent
+
+# Set dummy API key BEFORE importing task_agent to prevent OpenAI client initialization errors
+os.environ.setdefault("OPENAI_API_KEY", "sk-test-dummy-key-for-testing")
 
 from taskweaver.agents import task_agent
 
