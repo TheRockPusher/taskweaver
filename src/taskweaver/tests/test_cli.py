@@ -158,10 +158,13 @@ def test_show_command_existing_task(test_db: Path, sample_task: str) -> None:
     result = runner.invoke(app, ["show", sample_task, "--db", str(test_db)])
 
     assert result.exit_code == 0
-    assert "Task Details" in result.stdout
+    assert "Task:" in result.stdout  # Table title contains task ID
     assert "Sample task" in result.stdout
     assert "Sample description" in result.stdout
     assert sample_task in result.stdout
+    # Table should show field names
+    assert "Title" in result.stdout
+    assert "Status" in result.stdout
     # Full timestamp should be present in detail view
     assert "+00:00" in result.stdout
 

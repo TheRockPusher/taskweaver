@@ -44,7 +44,9 @@ def list_tasks(
 ) -> None:
     """List tasks with optional status filter. Use -s to filter by status."""
     columns = list(Task.model_fields.keys())
-    table = Table(*columns, title="📋 Tasks", show_lines=True)
+    table = Table(title="📋 Tasks", show_lines=True)
+    for col in columns:
+        table.add_column(col, header_style="bold blue")
 
     task_list = TaskRepository(db_path).list_tasks(status=status)
 
@@ -117,13 +119,18 @@ def show(
         console.print(f"[red]Task not found: {task_id}[/red]")
         raise typer.Exit(code=1)
 
-    console.print("\n[bold cyan]Task Details[/bold cyan]\n")
-    console.print(f"[bold]ID:[/bold]          {task.task_id}")
-    console.print(f"[bold]Title:[/bold]       {task.title}")
-    console.print(f"[bold]Description:[/bold] {task.description or '[dim]None[/dim]'}")
-    console.print(f"[bold]Status:[/bold]      {task.status}")
-    console.print(f"[bold]Created:[/bold]     {task.created_at}")
-    console.print(f"[bold]Updated:[/bold]     {task.updated_at}\n")
+    # Create a vertical table with field names and values
+    table = Table(show_header=False, title=f"📋 Task: {task.task_id}", show_lines=True)
+    table.add_column("Field", style="bold cyan")
+    table.add_column("Value")
+
+    for field in Task.model_fields:
+        value = getattr(task, field)
+        # Format None values
+        display_value = "[dim]None[/dim]" if value is None else str(value)
+        table.add_row(field.replace("_", " ").title(), display_value)
+
+    console.print(table)
 
 
 def main() -> None:
