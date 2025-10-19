@@ -1,5 +1,6 @@
 """Tests for CLI commands."""
 
+import re
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -10,7 +11,13 @@ from taskweaver.cli import app
 from taskweaver.database import TaskRepository, init_database
 from taskweaver.database.models import TaskCreate, TaskStatus, TaskUpdate
 
-runner = CliRunner()
+runner = CliRunner(env={"NO_COLOR": "1"})
+
+
+def strip_ansi(text: str) -> str:
+    """Remove ANSI escape codes from text."""
+    ansi_escape = re.compile(r"\x1b\[[0-9;]*m")
+    return ansi_escape.sub("", text)
 
 
 @pytest.fixture
@@ -64,13 +71,14 @@ def test_list_command_empty_database(test_db: Path) -> None:
 def test_list_command_with_tasks(test_db: Path, sample_task: str) -> None:  # noqa: ARG001
     """Test list command with tasks in database."""
     result = runner.invoke(app, ["ls", "--db", str(test_db)])
+    output = strip_ansi(result.stdout)
 
     assert result.exit_code == 0
-    assert "Sample task" in result.stdout
-    assert "Total: 1 task(s)" in result.stdout
+    assert "Sample task" in output
+    assert "Total: 1 task(s)" in output
     # Check that dates are formatted as yyyy-mm-dd (no time component)
-    assert "2025-" in result.stdout  # Year present
-    assert "+00:00" not in result.stdout  # No timezone in list view
+    assert "2025-" in output  # Year present
+    assert "+00:00" not in output  # No timezone in list view
 
 
 def test_list_command_filter_by_status(test_db: Path) -> None:
