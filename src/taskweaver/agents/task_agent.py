@@ -1,11 +1,12 @@
 """PydanticAI agent for task orchestration."""
 
+from functools import lru_cache
 from pathlib import Path
 
 from loguru import logger
 from pydantic_ai import Agent, AgentRunResult, ModelMessage
 
-from ..config import Config, get_config
+from ..config import get_config
 from ..database.repository import TaskRepository
 from .chat_handler import ChatHandler
 from .tools import (
@@ -38,24 +39,40 @@ def load_prompt(name: str) -> str:
     return prompt_path.read_text(encoding="utf-8")
 
 
-# Load system prompt
-system_prompt = load_prompt("orchestrator_prompt")
+@lru_cache
+def get_orchestrator_agent() -> Agent[TaskRepository, str]:
+    """Get cached orchestrator agent instance.
 
-# Initialize agent with TaskRepository as dependencies
-config: Config = get_config()
-orchestrator_agent: Agent[TaskRepository, str] = Agent[TaskRepository, str](
-    config.model,
-    deps_type=TaskRepository,
-    system_prompt=system_prompt,
-)
+    Lazy initialization ensures agent is only created when needed,
+    avoiding import-time API key requirements for tests.
 
-# Register tools
-orchestrator_agent.tool(create_task_tool)
-orchestrator_agent.tool(list_tasks_tool)
-orchestrator_agent.tool(mark_task_completed_tool)
-orchestrator_agent.tool(mark_task_in_progress_tool)
-orchestrator_agent.tool(mark_task_cancelled_tool)
-orchestrator_agent.tool(get_task_details_tool)
+    Returns:
+        Cached Agent instance with registered tools.
+
+    """
+    config = get_config()
+    system_prompt = load_prompt("orchestrator_prompt")
+
+    # Add provider prefix to model name (openai:gpt-4o-mini)
+    model_name = config.model
+    if ":" not in model_name:
+        model_name = f"openai:{model_name}"
+
+    agent: Agent[TaskRepository, str] = Agent[TaskRepository, str](
+        model_name,
+        deps_type=TaskRepository,
+        system_prompt=system_prompt,
+    )
+
+    # Register tools
+    agent.tool(create_task_tool)
+    agent.tool(list_tasks_tool)
+    agent.tool(mark_task_completed_tool)
+    agent.tool(mark_task_in_progress_tool)
+    agent.tool(mark_task_cancelled_tool)
+    agent.tool(get_task_details_tool)
+
+    return agent
 
 
 def run_chat(handler: ChatHandler, db_path: Path) -> None:
@@ -69,6 +86,9 @@ def run_chat(handler: ChatHandler, db_path: Path) -> None:
     handler.display_system_message(f"Current database path: {db_path}")
     message_history: list[ModelMessage] = []
     handler.display_system_message("🧵 TaskWeaver Chat - Type 'exit', 'quit', or Ctrl+C to end")
+
+    # Get agent instance (lazy initialization)
+    agent = get_orchestrator_agent()
 
     # Create repository instance for agent tools
     repository = TaskRepository(db_path)
@@ -85,7 +105,7 @@ def run_chat(handler: ChatHandler, db_path: Path) -> None:
 
         try:
             # Pass repository as dependencies to agent
-            result: AgentRunResult[str] = orchestrator_agent.run_sync(
+            result: AgentRunResult[str] = agent.run_sync(
                 user_input,
                 message_history=message_history,
                 deps=repository,

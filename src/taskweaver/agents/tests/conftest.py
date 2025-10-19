@@ -45,7 +45,7 @@ class MockChatHandler:
 def mock_agent(monkeypatch: pytest.MonkeyPatch) -> Mock:
     """Mock orchestrator agent to avoid API calls."""
     agent = Mock(spec=Agent)
-    monkeypatch.setattr(task_agent, "orchestrator_agent", agent)
+    monkeypatch.setattr(task_agent, "get_orchestrator_agent", lambda: agent)
     return agent
 
 
