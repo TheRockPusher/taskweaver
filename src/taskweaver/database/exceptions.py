@@ -20,3 +20,17 @@ class TaskNotFoundError(Exception):
         """
         self.task_id = task_id
         super().__init__(f"Task not found: {task_id}")
+
+
+class DependencyError(Exception):
+    """Raised when dependency operation fails."""
+
+    def __init__(self, message: str, task_id: str | None = None) -> None:
+        """Initialize the exception.
+
+        Args:
+            message: Error message describing the failure.
+            task_id: Optional task UUID related to the error.
+        """
+        self.task_id = task_id
+        super().__init__(message)

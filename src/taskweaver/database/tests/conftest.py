@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from taskweaver.database.connection import init_database
+from taskweaver.database.dependency_repository import TaskDependencyRepository
 from taskweaver.database.repository import TaskRepository
 
 
@@ -40,3 +41,17 @@ def task_repo(temp_db: Path) -> TaskRepository:
 
     """
     return TaskRepository(db_path=temp_db)
+
+
+@pytest.fixture
+def dep_repo(temp_db: Path) -> TaskDependencyRepository:
+    """Create dependency repository with temporary database.
+
+    Args:
+        temp_db: Temporary database path.
+
+    Returns:
+        TaskDependencyRepository instance.
+
+    """
+    return TaskDependencyRepository(db_path=temp_db)

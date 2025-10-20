@@ -6,7 +6,7 @@ TaskWeaver is a conversational AI agent that intelligently organizes, prioritize
 
 **Target Audience:** Anyone looking to organize complex projects, learn new skills systematically, or improve task management through AI-powered decomposition and prioritization.
 
-**Project Status:** Version 0.1.0 (early development - MVP stage)
+**Project Status:** Version 0.2.0 (active development - Phase 2)
 
 [![CI](https://github.com/TheRockPusher/taskweaver/actions/workflows/ci.yml/badge.svg)](https://github.com/TheRockPusher/taskweaver/actions/workflows/ci.yml)
 [![Python Version](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
@@ -14,7 +14,7 @@ TaskWeaver is a conversational AI agent that intelligently organizes, prioritize
 
 ## Getting Started
 
-TaskWeaver helps you accomplish complex goals by breaking them down into achievable tasks, detecting skill gaps, and creating personalized learning paths.
+TaskWeaver helps you accomplish complex goals by breaking them down into achievable tasks, detecting skill gaps, and creating personalised learning paths.
 
 ### Quick Start
 
@@ -33,7 +33,7 @@ make install
 make test
 ```
 
-Note: TaskWeaver is currently in active development. The CLI is not yet functional. Development focus is on core infrastructure and feature implementation. Check back soon for updates!
+Note: TaskWeaver is currently in active development. The CLI is functional for basic task management. Development focus is on AI-powered decomposition and intelligent analysis. Check back soon for updates on advanced features!
 
 ### Full Documentation
 
@@ -76,7 +76,7 @@ TaskWeaver provides:
 
 **Project Stage:** Phase 2 – AI Integration (In Progress)
 
-Core infrastructure complete (Phase 1 ✅). Now integrating PydanticAI agent for conversational task management (Phase 2 ⏳).
+Core infrastructure complete (Phase 1 ✅). PydanticAI agent integrated with task management tools (Phase 2 ⏳). Dependency management system now implemented with BFS-based cycle detection.
 
 ## Features (Roadmap)
 
@@ -87,7 +87,7 @@ Core infrastructure complete (Phase 1 ✅). Now integrating PydanticAI agent for
 - ✅ Pydantic models for validation
 - ✅ 80%+ test coverage
 
-### Phase 2: AI Integration ⏳ IN PROGRESS
+### Phase 2: AI Integration & Dependency Management ⏳ IN PROGRESS
 
 🤖 **Conversational Task Management** (NEW)
 
@@ -98,17 +98,20 @@ Core infrastructure complete (Phase 1 ✅). Now integrating PydanticAI agent for
 - ⏳ Integration testing with real API
 - **Status:** Core integration complete, API testing pending
 
+🔗 **Dependency Management** (NEW - Phase 2)
+
+- ✅ Task blocking relationships (DAG structure)
+- ✅ Circular dependency detection using BFS
+- ✅ TaskDependencyRepository with full CRUD operations
+- ✅ Active blocker retrieval (filters completed/cancelled tasks)
+- ✅ Comprehensive test suite (17 tests, all passing)
+- **Status:** Complete and thoroughly tested
+
 🧠 **Intelligent Task Analysis**
 
 - Automatic decomposition of complex tasks into subtasks
 - Skill gap detection based on Dreyfus model
 - Multi-criteria priority scoring (MCDA)
-- **Status:** Not yet implemented
-
-🔗 **Dependency Management**
-- Task blocking relationships (DAG structure)
-- Circular dependency detection using DFS
-- Learning tasks that unblock parent tasks
 - **Status:** Not yet implemented
 
 📊 **Adaptive System**
@@ -121,8 +124,9 @@ Core infrastructure complete (Phase 1 ✅). Now integrating PydanticAI agent for
 
 - Built with [PydanticAI](https://ai.pydantic.dev/) for robust agent implementation
 - SQLite database for local-first task storage
+- Comprehensive dependency tracking with cycle detection
 - Modern Python packaging with [UV](https://github.com/astral-sh/uv)
-- Comprehensive code quality tools (Ruff, Ty, pytest with 80% coverage)
+- Comprehensive code quality tools (Ruff, Ty, pytest with 85%+ coverage)
 - Pre-commit hooks and CI/CD automation
 
 ## Installation
@@ -237,6 +241,10 @@ uv run taskweaver edit <task-id> -s completed
 uv run taskweaver rm <task-id>
 ```
 
+### Dependency Management (Phase 2 - Foundation Layer)
+
+The dependency system provides a foundation for task relationship tracking and cycle detection. This will power future features like smart task ordering and unblocking analysis.
+
 ### Configuration
 
 Set your LLM provider:
@@ -334,19 +342,47 @@ taskweaver/
 ├── src/
 │   └── taskweaver/     # Main package code
 │       ├── __init__.py
-│       └── py.typed                      # PEP 561 type marker
-├── tests/                                 # Test suite
-│   └── test_main.py
+│       ├── cli.py                          # CLI commands
+│       ├── config.py                       # Configuration management
+│       ├── database/                       # Data layer
+│       │   ├── __init__.py
+│       │   ├── connection.py               # Database connection
+│       │   ├── models.py                   # Pydantic models
+│       │   ├── repository.py               # Task CRUD operations
+│       │   ├── dependency_repository.py    # Dependency management
+│       │   ├── schema.py                   # SQL schema definitions
+│       │   ├── exceptions.py               # Custom exceptions
+│       │   └── tests/
+│       │       ├── conftest.py
+│       │       ├── test_repository.py
+│       │       └── test_dependency_repository.py
+│       ├── agents/                         # AI agent layer
+│       │   ├── __init__.py
+│       │   ├── task_agent.py               # Agent setup
+│       │   ├── tools.py                    # Tool definitions
+│       │   ├── chat_handler.py             # I/O protocol
+│       │   ├── prompts/
+│       │   │   └── orchestrator_prompt.md  # Agent system prompt
+│       │   └── tests/
+│       │       ├── conftest.py
+│       │       └── test_task_agent.py
+│       ├── tests/
+│       │   ├── conftest.py
+│       │   ├── test_cli.py
+│       │   └── test_config.py
+│       └── py.typed                        # PEP 561 type marker
 ├── .github/
 │   ├── actions/
-│   │   └── setup-python-env/             # Reusable setup action
+│   │   └── setup-python-env/               # Reusable setup action
 │   └── workflows/
-│       ├── ci.yml                        # CI pipeline
-│       └── release.yml                   # Release automation
-├── pyproject.toml                        # Project configuration
-├── Makefile                              # Development commands
-├── .pre-commit-config.yaml               # Pre-commit hooks
-└── README.md                             # This file
+│       ├── ci.yml                          # CI pipeline
+│       └── release.yml                     # Release automation
+├── pyproject.toml                          # Project configuration
+├── Makefile                                # Development commands
+├── CLAUDE.md                               # Claude Code guidance
+├── AI/project.md                           # Technical documentation
+├── .pre-commit-config.yaml                 # Pre-commit hooks
+└── README.md                               # This file
 ```
 
 ## Contributing
@@ -437,7 +473,7 @@ TaskWeaver is an individual open source project created to solve the challenge o
 - **Skill Assessment**: Dreyfus Model of Skill Acquisition
 - **Prioritization**: Multi-Criteria Decision Analysis (MCDA)
 - **Learning Philosophy**: Just-In-Time (JIT) Learning principles
-- **Dependency Management**: Directed Acyclic Graphs (DAG) with DFS cycle detection
+- **Dependency Management**: Directed Acyclic Graphs (DAG) with BFS cycle detection
 
 ## Links
 

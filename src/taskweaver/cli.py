@@ -13,6 +13,7 @@ from rich.table import Table
 from .agents.chat_handler import CliChatHandler
 from .agents.task_agent import run_chat
 from .config import get_paths
+from .database.connection import init_database
 from .database.models import Task, TaskCreate, TaskStatus, TaskUpdate
 from .database.repository import TaskRepository
 
@@ -140,6 +141,12 @@ def show(
 def chat(db_path: Annotated[Path, typer.Option("--db", help="Database file path")] = DEFAULT_DB) -> None:
     """Start an interactive conversation with the AI agent."""
     run_chat(CliChatHandler(), db_path)
+
+
+@app.command(name="restartDB", help="Initiates the DB even if it already exists.")
+def restart(db_path: Annotated[Path, typer.Option("--db", help="Database file path")] = DEFAULT_DB) -> None:
+    """Runs the DB Create."""
+    init_database(db_path=db_path)
 
 
 def main() -> None:

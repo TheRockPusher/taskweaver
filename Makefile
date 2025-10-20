@@ -17,11 +17,11 @@ install: ## Install the virtual environment
 format: ## Format with ruff (use FILE=path to check specific file)
 	@echo "🚀 Formatting code: Running ruff format"
 ifdef FILE
-	@uv run ruff check --fix $(FILE)
 	@uv run ruff format $(FILE)
+	@uv run ruff check --fix $(FILE)
 else
-	@uv run ruff check --fix
 	@uv run ruff format
+	@uv run ruff check --fix
 endif
 
 .PHONY: format-check
