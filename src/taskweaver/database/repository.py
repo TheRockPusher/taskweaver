@@ -159,8 +159,8 @@ class TaskRepository:
             changes.append("description updated")
             task.description = task_data.description
         if task_data.status is not None:
-            old_status = task.status.value if isinstance(task.status, TaskStatus) else task.status
-            new_status = task_data.status.value if isinstance(task_data.status, TaskStatus) else task_data.status
+            old_status = task.status
+            new_status = task_data.status
             changes.append(f"status: {old_status} -> {new_status}")
             task.status = task_data.status
 
@@ -168,7 +168,7 @@ class TaskRepository:
 
         with get_connection(self.db_path) as conn:
             # Extract status value (handle both TaskStatus enum and string)
-            status_value = task.status.value if isinstance(task.status, TaskStatus) else task.status
+            status_value = task.status
             conn.execute(
                 UPDATE_TASK,
                 (
