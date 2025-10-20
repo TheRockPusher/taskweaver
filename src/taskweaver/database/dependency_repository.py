@@ -24,8 +24,8 @@ class TaskDependencyRepository:
 
         """
         self.db_path = db_path
-        self.task_repository = TaskRepository()
-        logger.debug(f"TaskRepository initialized with database: {db_path}")
+        self.task_repository = TaskRepository(db_path=db_path)
+        logger.debug(f"TaskDependencyRepository initialized with database: {db_path}")
 
     def add_dependency(self, task_id: UUID, blocker_id: UUID) -> TaskDependency:
         """Create a dependency between two tasks.
@@ -47,17 +47,22 @@ class TaskDependencyRepository:
                 for ids in [task_id, blocker_id]
             ):  # type: ignore fail fast
                 raise DependencyError("task is closed")
-        except KeyError as exc:
+        except AttributeError as exc:
             raise TaskNotFoundError(task_id) from exc
 
         dependency = TaskDependency(task_id=task_id, blocker_id=blocker_id)
         with get_connection(self.db_path) as conn:
             conn.execute(
                 INSERT_DEPENDENCY,
-                (dependency.dependency_id, dependency.task_id, dependency.blocker_id, dependency.created_at),
+                (
+                    str(dependency.dependency_id),
+                    str(dependency.task_id),
+                    str(dependency.blocker_id),
+                    dependency.created_at.isoformat(),
+                ),
             )
             conn.commit()
-            logger.info(f"Created dependency: task-{dependency.dependency_id}, blocker-{dependency.blocker_id}")
+            logger.info(f"Created dependency: task-{dependency.task_id}, blocker-{dependency.blocker_id}")
         return dependency
 
     def remove_dependency(self, task_id: str, blocker_id: str) -> None:
@@ -93,7 +98,7 @@ class TaskDependencyRepository:
             cursor = conn.execute(SELECT_ACTIVE_BLOCKERS, (task_id,))
             rows = cursor.fetchall()
 
-        blockers = [task for row in rows if (task := self.task_repository.get_task(task_id=row["blocker_id"]))]
+        blockers = [task for row in rows if (task := self.task_repository.get_task(task_id=UUID(row["blocker_id"])))]
         logger.debug(f"Found {len(blockers)} active blocker(s) for task {task_id}")
         return blockers
 
@@ -111,12 +116,15 @@ class TaskDependencyRepository:
             cursor = conn.execute(SELECT_BLOCKED_TASKS, (blocker_id,))
             rows = cursor.fetchall()
 
-        blocked = [task for row in rows if (task := self.task_repository.get_task(task_id=row["task_id"]))]
+        blocked = [task for row in rows if (task := self.task_repository.get_task(task_id=UUID(row["task_id"])))]
         logger.debug(f"Found {len(blocked)} blocked task(s) by {blocker_id}")
         return blocked
 
     def _cycle_check(self, task_id: str, blocker_id: str) -> bool:
         """Detect circular dependencies using BFS.
+
+        Checks if blocker_id transitively depends on task_id.
+        If true, adding "task_id blocked by blocker_id" would create a cycle.
 
         Args:
             task_id: Task that would be blocked.
@@ -137,7 +145,8 @@ class TaskDependencyRepository:
             if current in visited:
                 continue
             visited.add(current)
-            queue.extend(str(blocked.task_id) for blocked in self.get_blocked(current))
+            # Follow the blocking chain upward: who blocks current?
+            queue.extend(str(blocker.task_id) for blocker in self.get_blockers(current))
 
         logger.debug(f"No circular dependency found for task-{task_id}, blocker-{blocker_id}")
         return False
