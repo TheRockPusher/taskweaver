@@ -9,6 +9,7 @@ from loguru import logger
 
 from ..config import get_paths
 from .schema import (
+    CREATE_DEPENDENCY_TABLE,
     CREATE_SCHEMA_VERSION_TABLE,
     CREATE_TASKS_TABLE,
     INSERT_SCHEMA_VERSION,
@@ -36,6 +37,8 @@ def init_database(db_path: Path = DEFAULT_DB_PATH) -> None:
         logger.debug("Creating schema_version table")
         conn.execute(CREATE_SCHEMA_VERSION_TABLE)
         conn.execute(INSERT_SCHEMA_VERSION, (SCHEMA_VERSION,))
+        logger.debug("Creating dependency table")
+        conn.execute(CREATE_DEPENDENCY_TABLE)
         conn.commit()
         logger.info(f"Database initialized successfully at {db_path} (schema version: {SCHEMA_VERSION})")
 
