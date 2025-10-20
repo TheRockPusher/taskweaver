@@ -13,11 +13,14 @@ CREATE TABLE IF NOT EXISTS tasks (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_tasks_task
-ON tasks(task_id);
+"""
 
-CREATE INDEX IF NOT EXISTS idx_tasks_status
-ON tasks(status);
+CREATE_TASKS_INDEX_ID = """
+CREATE INDEX IF NOT EXISTS idx_tasks_task ON tasks(task_id);
+"""
+
+CREATE_TASKS_INDEX_STATUS = """
+CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 """
 
 
@@ -70,11 +73,14 @@ CREATE TABLE IF NOT EXISTS task_dependencies(
     UNIQUE(task_id, blocker_id),
     CHECK(task_id != blocker_id)
 );
-CREATE INDEX IF NOT EXISTS idx_task_dependencies_task
-ON task_dependencies(task_id);
+"""
 
-CREATE INDEX IF NOT EXISTS idx_task_dependencies_blocker
-ON task_dependencies(blocker_id);
+CREATE_DEPENDENCY_INDEX_TASK = """
+CREATE INDEX IF NOT EXISTS idx_task_dependencies_task ON task_dependencies(task_id);
+"""
+
+CREATE_DEPENDENCY_INDEX_BLOCKER = """
+CREATE INDEX IF NOT EXISTS idx_task_dependencies_blocker ON task_dependencies(blocker_id);
 """
 
 INSERT_DEPENDENCY = """
