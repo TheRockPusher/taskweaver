@@ -20,24 +20,6 @@ CREATE INDEX IF NOT EXISTS idx_tasks_status
 ON tasks(status);
 """
 
-CREATE_DEPENDENCY_TABLE = """
-CREATE TABLE IF NOT EXISTS task_dependencies(
-    dependency_id TEXT PRIMARY KEY,
-    task_id TEXT NOT NULL,
-    blocker_id TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE,
-    FOREIGN KEY (blocker_id) REFERENCES tasks(task_id) ON DELETE CASCADE,
-    UNIQUE(task_id, blocker_id),
-    CHECK(task_id != blocker_id)
-);
-CREATE INDEX IF NOT EXISTS idx_task_dependencies_task
-ON task_dependencies(task_id);
-
-CREATE INDEX IF NOT EXISTS idx_task_dependencies_blocker
-ON task_dependencies(blocker_task_id);
-"""
-
 
 CREATE_SCHEMA_VERSION_TABLE = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -74,4 +56,63 @@ WHERE task_id = ?;
 
 DELETE_TASK = """
 DELETE FROM tasks WHERE task_id = ?;
+"""
+
+# Task Dependency CRUD queries
+CREATE_DEPENDENCY_TABLE = """
+CREATE TABLE IF NOT EXISTS task_dependencies(
+    dependency_id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    blocker_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE,
+    FOREIGN KEY (blocker_id) REFERENCES tasks(task_id) ON DELETE CASCADE,
+    UNIQUE(task_id, blocker_id),
+    CHECK(task_id != blocker_id)
+);
+CREATE INDEX IF NOT EXISTS idx_task_dependencies_task
+ON task_dependencies(task_id);
+
+CREATE INDEX IF NOT EXISTS idx_task_dependencies_blocker
+ON task_dependencies(blocker_id);
+"""
+
+INSERT_DEPENDENCY = """
+INSERT INTO task_dependencies (dependency_id, task_id, blocker_id, created_at)
+VALUES (?, ?, ?, ?);
+"""
+
+SELECT_DEPENDENCY_BY_ID = """
+SELECT * FROM task_dependencies WHERE dependency_id = ?;
+"""
+
+SELECT_BLOCKERS = """
+SELECT blocker_id FROM task_dependencies
+WHERE task_id = ?
+ORDER BY created_at;
+"""
+
+SELECT_BLOCKED_TASKS = """
+SELECT task_id FROM task_dependencies
+WHERE blocker_id = ?
+ORDER BY created_at;
+"""
+
+SELECT_ACTIVE_BLOCKERS = """
+SELECT td.blocker_id
+FROM task_dependencies td
+JOIN tasks t ON td.blocker_id = t.task_id
+WHERE td.task_id = ?
+AND t.status IN ('pending', 'in_progress')
+ORDER BY td.created_at;
+"""
+
+DELETE_DEPENDENCY = """
+DELETE FROM task_dependencies
+WHERE task_id = ? AND blocker_id = ?;
+"""
+
+CHECK_DEPENDENCY_EXISTS = """
+SELECT dependency_id FROM task_dependencies
+WHERE task_id = ? AND blocker_id = ?;
 """
