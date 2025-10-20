@@ -33,7 +33,6 @@ class Task(BaseModel):
 
     model_config = ConfigDict(
         use_enum_values=True,  # Store enum values, not names
-        populate_by_name=True,
     )
 
 
@@ -50,3 +49,15 @@ class TaskUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=500)
     description: str | None = None
     status: TaskStatus | None = None
+    model_config = ConfigDict(
+        use_enum_values=True,  # Store enum values, not names
+    )
+
+
+class TaskDependency(BaseModel):
+    """Model Storing the dependency between 2 tasks."""
+
+    dependency_id: UUID = Field(default_factory=uuid4)
+    task_id: UUID
+    blocker_id: UUID
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
