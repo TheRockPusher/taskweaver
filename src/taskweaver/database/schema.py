@@ -1,6 +1,6 @@
 """Database schema definitions and queries."""
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # Schema creation SQL
 CREATE_TASKS_TABLE = """
@@ -13,7 +13,31 @@ CREATE TABLE IF NOT EXISTS tasks (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_tasks_task
+ON tasks(task_id);
+
+CREATE INDEX IF NOT EXISTS idx_tasks_status
+ON tasks(status);
 """
+
+CREATE_DEPENDENCY_TABLE = """
+CREATE TABLE IF NOT EXISTS task_dependencies(
+    dependency_id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    blocker_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE,
+    FOREIGN KEY (blocker_id) REFERENCES tasks(task_id) ON DELETE CASCADE,
+    UNIQUE(task_id, blocker_id),
+    CHECK(task_id != blocker_id)
+);
+CREATE INDEX IF NOT EXISTS idx_task_dependencies_task
+ON task_dependencies(task_id);
+
+CREATE INDEX IF NOT EXISTS idx_task_dependencies_blocker
+ON task_dependencies(blocker_task_id);
+"""
+
 
 CREATE_SCHEMA_VERSION_TABLE = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -21,6 +45,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
     applied_at TEXT NOT NULL
 );
 """
+
 
 INSERT_SCHEMA_VERSION = """
 INSERT OR IGNORE INTO schema_version (version, applied_at)
