@@ -43,12 +43,15 @@ class TaskDependencyRepository:
         """
         try:
             if any(
-                self.task_repository.get_task(ids).status in ([TaskStatus.CANCELLED, TaskStatus.COMPLETED])  # type: ignore
+                self.task_repository.get_task(ids).status in ([TaskStatus.CANCELLED.value, TaskStatus.COMPLETED.value])  # type: ignore
                 for ids in [task_id, blocker_id]
             ):  # type: ignore fail fast
                 raise DependencyError("task is closed")
         except AttributeError as exc:
             raise TaskNotFoundError(task_id) from exc
+
+        if self._cycle_check(str(task_id), str(blocker_id)):
+            raise DependencyError("Dependency causes a cycle")
 
         dependency = TaskDependency(task_id=task_id, blocker_id=blocker_id)
         with get_connection(self.db_path) as conn:
