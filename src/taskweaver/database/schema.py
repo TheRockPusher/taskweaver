@@ -99,7 +99,7 @@ ORDER BY created_at;
 """
 
 SELECT_ACTIVE_BLOCKERS = """
-SELECT td.blocker_id
+SELECT td.blocker_id as blocker_id
 FROM task_dependencies td
 JOIN tasks t ON td.blocker_id = t.task_id
 WHERE td.task_id = ?
