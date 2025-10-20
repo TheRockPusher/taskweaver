@@ -1,0 +1,15 @@
+# TaskWeaver Configuration
+# Copy to ~/.config/taskweaver/config.toml or ./config.toml (project-local)
+
+# Model name - PydanticAI auto-detects provider from prefix
+# OpenAI: "gpt-4o-mini", "gpt-4o"
+# OpenRouter: "openrouter:anthropic/claude-3.5-sonnet"
+# Anthropic: "anthropic:claude-3-5-sonnet-latest"
+# Google: "google-gla:gemini-1.5-flash"
+model = "gpt-4o-mini"
+
+# Auto-decompose complex tasks (future feature)
+auto_decompose = true
+
+# Logging level
+log_level = "WARNING"

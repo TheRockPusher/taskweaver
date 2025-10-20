@@ -74,19 +74,29 @@ TaskWeaver provides:
 
 ## Current Status
 
-**Project Stage:** Early Development - Scaffolding Only
+**Project Stage:** Phase 2 – AI Integration (In Progress)
 
-The project is currently in the initial scaffolding phase. Core infrastructure and project structure have been set up, but no features have been implemented yet. The roadmap below outlines the planned features for the MVP.
+Core infrastructure complete (Phase 1 ✅). Now integrating PydanticAI agent for conversational task management (Phase 2 ⏳).
 
 ## Features (Roadmap)
 
-### Planned Features for MVP
+### Phase 1: Foundation ✅ COMPLETE
 
-🎯 **Conversational Task Management**
+- ✅ SQLite database with schema versioning
+- ✅ Full CRUD CLI interface (Typer + Rich)
+- ✅ Pydantic models for validation
+- ✅ 80%+ test coverage
 
-- Add tasks naturally through conversation, no CLI flags needed
-- AI understands context and extracts task details automatically
-- **Status:** Not yet implemented
+### Phase 2: AI Integration ⏳ IN PROGRESS
+
+🤖 **Conversational Task Management** (NEW)
+
+- ✅ PydanticAI agent framework integrated
+- ✅ 6 task management tools registered
+- ✅ Interactive `taskweaver chat` command
+- ✅ Production orchestrator prompt (543 lines, optimised)
+- ⏳ Integration testing with real API
+- **Status:** Core integration complete, API testing pending
 
 🧠 **Intelligent Task Analysis**
 
@@ -179,32 +189,73 @@ uv sync
 
 ## Usage
 
-TaskWeaver is currently in early development and is not yet ready for end-user usage. The following example illustrates the intended usage pattern once implementation is complete:
+### Interactive Chat Mode (Phase 2 - NEW)
 
-### Planned Usage Example
+Start an interactive conversation with the AI task orchestrator:
 
 ```bash
-# Start a conversation with TaskWeaver
-uv run taskweaver
+# Start chat session
+uv run taskweaver chat
 
-# Example conversation (planned functionality):
-You: "I want to build a web application with authentication"
+# Example conversation:
+You: "I want to build a web app with authentication"
 
-TaskWeaver: I'll help you break this down. Let me analyze this task...
+TaskWeaver: Let me break this down strategically...
 
-[TaskWeaver will analyze your goal and create:]
-- Main task: Build web application with authentication
-  - Subtask: Design database schema for users
-  - Subtask: Implement authentication backend
-  - Subtask: Create login/signup UI
-  - Learning task: Learn JWT basics (blocks authentication backend)
-  - Learning task: Study password hashing best practices (blocks authentication backend)
+You: "I'm new to web development"
 
-Based on your current skill level (beginner in web auth), I recommend starting with
-the learning tasks. Would you like me to add these to your task list?
+TaskWeaver: [Creates a structured breakdown with foundational tasks first]
+- Learn HTTP basics and REST principles
+- Set up development environment (Python/Flask)
+- Design database schema for users
+- Implement basic authentication
+- Create login UI
+- Add security hardening
+
+Ready to get started? Which task interests you most?
 ```
 
-**Status:** This functionality is currently being designed and implemented. Check the project roadmap for updates on feature availability.
+### CLI Task Management (Phase 1 - Available Now)
+
+```bash
+# Create a task
+uv run taskweaver create "Build authentication system" -d "Implement OAuth2 or JWT"
+
+# List tasks
+uv run taskweaver ls
+
+# Show task details
+uv run taskweaver show <task-id>
+
+# Mark tasks as in progress
+uv run taskweaver edit <task-id> -s in_progress
+
+# Complete a task
+uv run taskweaver edit <task-id> -s completed
+
+# Delete a task
+uv run taskweaver rm <task-id>
+```
+
+### Configuration
+
+Set your LLM provider:
+
+```bash
+# Option 1: Environment variable
+export API_KEY="sk-..."
+
+# Option 2: .env file
+echo "API_KEY=sk-..." > .env
+
+# Option 3: config.toml
+cat > config.toml << EOF
+model = "gpt-4o-mini"
+api_endpoint = "https://api.openai.com/v1"
+EOF
+```
+
+Supports any LLM provider compatible with the endpoint format (OpenAI, Anthropic, local models).
 
 ### Success Metrics (MVP Targets)
 

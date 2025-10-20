@@ -7,6 +7,7 @@ from pathlib import Path
 
 from loguru import logger
 
+from ..config import get_paths
 from .schema import (
     CREATE_SCHEMA_VERSION_TABLE,
     CREATE_TASKS_TABLE,
@@ -14,8 +15,8 @@ from .schema import (
     SCHEMA_VERSION,
 )
 
-# Default database location
-DEFAULT_DB_PATH = Path.home() / ".taskweaver" / "tasks.db"
+# Default database location (XDG-compliant)
+DEFAULT_DB_PATH = get_paths().database_file
 
 
 def init_database(db_path: Path = DEFAULT_DB_PATH) -> None:

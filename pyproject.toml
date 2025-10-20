@@ -31,6 +31,8 @@ classifiers = [
 dependencies = [
     "loguru>=0.7.3",
     "pydantic>=2.12.3",
+    "pydantic-ai>=1.1.0",
+    "python-dotenv>=1.1.1",
     "typer>=0.19.2",
 ]
 
@@ -118,6 +120,7 @@ ignore = [
     # Docstring style conflicts (choose one style, these conflict with each other)
     "D203",    # 1 blank line before class docstring (conflicts with D211)
     "D213",    # Multi-line docstring summary should start on second line (conflicts with D212)
+    "D107",    # Missing docstring in __init__ method (class docstring is usually sufficient)
 ]
 
 # Configure pydocstyle to use Google convention
