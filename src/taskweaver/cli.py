@@ -78,7 +78,7 @@ def list_tasks(
 def list_open(
     db_path: Annotated[Path, typer.Option("--db", help="Database file path")] = DEFAULT_DB,
 ) -> None:
-    """List tasks with optional status filter. Use -s to filter by status."""
+    """List open tasks with dependency counts."""
     columns = list(TaskWithDependencies.model_fields.keys())
     table = Table(title="📋 Tasks", show_lines=True)
     for col in columns:
@@ -198,17 +198,17 @@ def remove_dependency(
     blocker_id: Annotated[UUID, typer.Argument(help="Blocker UUID")],
     db_path: Annotated[Path, typer.Option("--db", help="Database file path")] = DEFAULT_DB,
 ) -> None:
-    """Creates a dependency between two tasks."""
+    """removes a dependency between two tasks."""
     TaskDependencyRepository(db_path).remove_dependency(task_id, blocker_id)
     console.print(f"Dependency removed:\n[cyan]task:[/cyan]{task_id} -> [red]blocker:{blocker_id}[/red]")
 
 
-@app.command(name="blocker", help="Remove a dependency")
+@app.command(name="blocker", help="List all of the blockers of a task.")
 def blockers(
     task_id: Annotated[UUID, typer.Argument(help="Task UUID")],
     db_path: Annotated[Path, typer.Option("--db", help="Database file path")] = DEFAULT_DB,
 ) -> None:
-    """Creates a dependency between two tasks."""
+    """List all of the blockers of a task."""
     blockers: list[Task] = TaskDependencyRepository(db_path).get_blockers(task_id)
     table = Table(show_header=True, title=f"📋 Task: {task_id} blockers", show_lines=True)
     table.add_column("Blockers ID", style="bold cyan")

@@ -116,7 +116,7 @@ class TaskDependencyRepository:
         """
         logger.debug(f"Retrieving tasks blocked by: {blocker_id}")
         with get_connection(self.db_path) as conn:
-            cursor = conn.execute(SELECT_BLOCKED_TASKS, (blocker_id,))
+            cursor = conn.execute(SELECT_BLOCKED_TASKS, (str(blocker_id),))
             rows = cursor.fetchall()
 
         blocked = [task for row in rows if (task := self.task_repository.get_task(task_id=UUID(row["task_id"])))]
