@@ -16,6 +16,7 @@ from .schema import (
     CREATE_TASKS_INDEX_ID,
     CREATE_TASKS_INDEX_STATUS,
     CREATE_TASKS_TABLE,
+    CREATE_VIEW_TASKS_FULL,
     INSERT_SCHEMA_VERSION,
     SCHEMA_VERSION,
 )
@@ -50,6 +51,9 @@ def init_database(db_path: Path = DEFAULT_DB_PATH) -> None:
             conn.execute(CREATE_DEPENDENCY_TABLE)
             conn.execute(CREATE_DEPENDENCY_INDEX_TASK)
             conn.execute(CREATE_DEPENDENCY_INDEX_BLOCKER)
+
+            logger.debug("Create Views")
+            conn.execute(CREATE_VIEW_TASKS_FULL)
 
             # Transaction auto-commits on successful exit
         logger.info(f"Database initialized successfully at {db_path} (schema version: {SCHEMA_VERSION})")

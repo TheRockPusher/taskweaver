@@ -15,7 +15,7 @@ from .agents.task_agent import run_chat
 from .config import get_paths
 from .database.connection import init_database
 from .database.dependency_repository import TaskDependencyRepository
-from .database.models import Task, TaskCreate, TaskStatus, TaskUpdate
+from .database.models import Task, TaskCreate, TaskStatus, TaskUpdate, TaskWithDependencies
 from .database.repository import TaskRepository
 
 app = typer.Typer(
@@ -54,6 +54,37 @@ def list_tasks(
         table.add_column(col, header_style="bold blue")
 
     task_list = TaskRepository(db_path).list_tasks(status=status)
+
+    if not task_list:
+        console.print("[yellow]No tasks found[/yellow]")
+        return
+
+    for task in task_list:
+        row_values = []
+        for field in columns:
+            value = getattr(task, field)
+            # Format datetime fields as yyyy-mm-dd
+            if field in ("created_at", "updated_at") and isinstance(value, datetime):
+                row_values.append(value.strftime("%Y-%m-%d"))
+            else:
+                row_values.append(str(value))
+        table.add_row(*row_values)
+
+    console.print(table)
+    console.print(f"\n[dim]Total: {len(task_list)} task(s)[/dim]")
+
+
+@app.command(name="lso", help="List all open tasks")
+def list_open(
+    db_path: Annotated[Path, typer.Option("--db", help="Database file path")] = DEFAULT_DB,
+) -> None:
+    """List tasks with optional status filter. Use -s to filter by status."""
+    columns = list(TaskWithDependencies.model_fields.keys())
+    table = Table(title="📋 Tasks", show_lines=True)
+    for col in columns:
+        table.add_column(col, header_style="bold blue")
+
+    task_list: list[TaskWithDependencies] = TaskRepository(db_path).list_tasks_with_deps()
 
     if not task_list:
         console.print("[yellow]No tasks found[/yellow]")

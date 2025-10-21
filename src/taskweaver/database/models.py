@@ -86,11 +86,6 @@ class TaskWithDependencies(Task):
         default=0, ge=0, description="Number of active tasks (pending/in_progress) blocking this task"
     )
 
-    model_config = ConfigDict(
-        use_enum_values=True,  # Store enum values, not names
-        from_attributes=True,  # Enable ORM mode for SQLite Row objects
-    )
-
     @property
     def is_blocked(self) -> bool:
         """Check if this task has any active blockers."""

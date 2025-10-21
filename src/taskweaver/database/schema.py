@@ -144,3 +144,6 @@ LEFT JOIN (
 ) as n_blocker ON t.task_id = n_blocker.blocked_id
 WHERE t.status IN ('pending', 'in_progress')
 """
+SELECT_ALL_TASKS_DEPENDENCY = """
+SELECT * FROM tasks_full ORDER BY created_at DESC;
+"""
