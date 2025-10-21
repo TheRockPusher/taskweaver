@@ -63,9 +63,9 @@ check: ## Run all code quality tools (format-check, lint-check, type-check)
 test: ## Test the code with pytest (use FILE=path to test specific file)
 	@echo "🚀 Testing code: Running pytest"
 ifdef FILE
-	@uv run python -m pytest $(FILE)
+	@PYTHONTRACEMALLOC=20 uv run python -m pytest $(FILE)
 else
-	@uv run python -m pytest
+	@PYTHONTRACEMALLOC=20 uv run python -m pytest
 endif
 
 .PHONY: help
