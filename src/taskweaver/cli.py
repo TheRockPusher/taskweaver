@@ -14,7 +14,8 @@ from .agents.chat_handler import CliChatHandler
 from .agents.task_agent import run_chat
 from .config import get_paths
 from .database.connection import init_database
-from .database.models import Task, TaskCreate, TaskStatus, TaskUpdate
+from .database.dependency_repository import TaskDependencyRepository
+from .database.models import Task, TaskCreate, TaskStatus, TaskUpdate, TaskWithDependencies
 from .database.repository import TaskRepository
 
 app = typer.Typer(
@@ -53,6 +54,37 @@ def list_tasks(
         table.add_column(col, header_style="bold blue")
 
     task_list = TaskRepository(db_path).list_tasks(status=status)
+
+    if not task_list:
+        console.print("[yellow]No tasks found[/yellow]")
+        return
+
+    for task in task_list:
+        row_values = []
+        for field in columns:
+            value = getattr(task, field)
+            # Format datetime fields as yyyy-mm-dd
+            if field in ("created_at", "updated_at") and isinstance(value, datetime):
+                row_values.append(value.strftime("%Y-%m-%d"))
+            else:
+                row_values.append(str(value))
+        table.add_row(*row_values)
+
+    console.print(table)
+    console.print(f"\n[dim]Total: {len(task_list)} task(s)[/dim]")
+
+
+@app.command(name="lso", help="List all open tasks")
+def list_open(
+    db_path: Annotated[Path, typer.Option("--db", help="Database file path")] = DEFAULT_DB,
+) -> None:
+    """List open tasks with dependency counts."""
+    columns = list(TaskWithDependencies.model_fields.keys())
+    table = Table(title="📋 Tasks", show_lines=True)
+    for col in columns:
+        table.add_column(col, header_style="bold blue")
+
+    task_list: list[TaskWithDependencies] = TaskRepository(db_path).list_tasks_with_deps()
 
     if not task_list:
         console.print("[yellow]No tasks found[/yellow]")
@@ -147,6 +179,43 @@ def chat(db_path: Annotated[Path, typer.Option("--db", help="Database file path"
 def restart(db_path: Annotated[Path, typer.Option("--db", help="Database file path")] = DEFAULT_DB) -> None:
     """Runs the DB Create."""
     init_database(db_path=db_path)
+
+
+@app.command(name="createDep", help="Creates a dependency between two tasks")
+def create_dependency(
+    task_id: Annotated[UUID, typer.Argument(help="Task UUID")],
+    blocker_id: Annotated[UUID, typer.Argument(help="Blocker UUID")],
+    db_path: Annotated[Path, typer.Option("--db", help="Database file path")] = DEFAULT_DB,
+) -> None:
+    """Creates a dependency between two tasks."""
+    TaskDependencyRepository(db_path).add_dependency(task_id, blocker_id)
+    console.print(f"Dependency added:\n[cyan]task:[/cyan]{task_id} -> [red]blocker:{blocker_id}[/red]")
+
+
+@app.command(name="rmdep", help="Remove a dependency")
+def remove_dependency(
+    task_id: Annotated[UUID, typer.Argument(help="Task UUID")],
+    blocker_id: Annotated[UUID, typer.Argument(help="Blocker UUID")],
+    db_path: Annotated[Path, typer.Option("--db", help="Database file path")] = DEFAULT_DB,
+) -> None:
+    """Removes a dependency between two tasks."""
+    TaskDependencyRepository(db_path).remove_dependency(task_id, blocker_id)
+    console.print(f"Dependency removed:\n[cyan]task:[/cyan]{task_id} -> [red]blocker:{blocker_id}[/red]")
+
+
+@app.command(name="blocker", help="List all of the blockers of a task.")
+def blockers(
+    task_id: Annotated[UUID, typer.Argument(help="Task UUID")],
+    db_path: Annotated[Path, typer.Option("--db", help="Database file path")] = DEFAULT_DB,
+) -> None:
+    """List all of the blockers of a task."""
+    blockers: list[Task] = TaskDependencyRepository(db_path).get_blockers(task_id)
+    table = Table(show_header=True, title=f"📋 Task: {task_id} blockers", show_lines=True)
+    table.add_column("Blockers ID", style="bold cyan")
+    table.add_column("Blocker Title", style="bold cyan")
+    for blocker in blockers:
+        table.add_row(str(blocker.task_id), blocker.title)
+    console.print(table)
 
 
 def main() -> None:

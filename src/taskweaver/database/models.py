@@ -61,3 +61,37 @@ class TaskDependency(BaseModel):
     task_id: UUID
     blocker_id: UUID
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class TaskWithDependencies(Task):
+    """Task enriched with dependency counts from tasks_full view.
+
+    Extends base Task model with aggregated dependency metrics:
+    - tasks_blocked_count: Number of tasks blocked by this task
+    - active_blocker_count: Number of active tasks blocking this task
+
+    Use this model when querying the tasks_full view or when you need
+    dependency counts without separate database queries.
+
+    Example:
+        >>> task = TaskWithDependencies(
+        ...     title="Implement feature X",
+        ...     tasks_blocked_count=3,  # Blocks 3 other tasks
+        ...     active_blocker_count=1,  # 1 task blocking this
+        ... )
+    """
+
+    tasks_blocked_count: int = Field(default=0, ge=0, description="Number of tasks blocked by this task")
+    active_blocker_count: int = Field(
+        default=0, ge=0, description="Number of active tasks (pending/in_progress) blocking this task"
+    )
+
+    @property
+    def is_blocked(self) -> bool:
+        """Check if this task has any active blockers."""
+        return self.active_blocker_count > 0
+
+    @property
+    def is_blocking_others(self) -> bool:
+        """Check if this task is blocking other tasks."""
+        return self.tasks_blocked_count > 0

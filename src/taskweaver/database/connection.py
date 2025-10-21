@@ -2,7 +2,7 @@
 
 import sqlite3
 from collections.abc import Generator
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 
 from loguru import logger
@@ -16,6 +16,7 @@ from .schema import (
     CREATE_TASKS_INDEX_ID,
     CREATE_TASKS_INDEX_STATUS,
     CREATE_TASKS_TABLE,
+    CREATE_VIEW_TASKS_FULL,
     INSERT_SCHEMA_VERSION,
     SCHEMA_VERSION,
 )
@@ -34,23 +35,27 @@ def init_database(db_path: Path = DEFAULT_DB_PATH) -> None:
     logger.debug(f"Initializing database at: {db_path}")
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with sqlite3.connect(db_path) as conn:
-        # Create tables and indexes separately
-        logger.debug("Creating tasks table")
-        conn.execute(CREATE_TASKS_TABLE)
-        conn.execute(CREATE_TASKS_INDEX_ID)
-        conn.execute(CREATE_TASKS_INDEX_STATUS)
+    with closing(sqlite3.connect(db_path)) as conn:
+        with conn:  # Transaction management
+            # Create tables and indexes separately
+            logger.debug("Creating tasks table")
+            conn.execute(CREATE_TASKS_TABLE)
+            conn.execute(CREATE_TASKS_INDEX_ID)
+            conn.execute(CREATE_TASKS_INDEX_STATUS)
 
-        logger.debug("Creating schema_version table")
-        conn.execute(CREATE_SCHEMA_VERSION_TABLE)
-        conn.execute(INSERT_SCHEMA_VERSION, (SCHEMA_VERSION,))
+            logger.debug("Creating schema_version table")
+            conn.execute(CREATE_SCHEMA_VERSION_TABLE)
+            conn.execute(INSERT_SCHEMA_VERSION, (SCHEMA_VERSION,))
 
-        logger.debug("Creating dependency table")
-        conn.execute(CREATE_DEPENDENCY_TABLE)
-        conn.execute(CREATE_DEPENDENCY_INDEX_TASK)
-        conn.execute(CREATE_DEPENDENCY_INDEX_BLOCKER)
+            logger.debug("Creating dependency table")
+            conn.execute(CREATE_DEPENDENCY_TABLE)
+            conn.execute(CREATE_DEPENDENCY_INDEX_TASK)
+            conn.execute(CREATE_DEPENDENCY_INDEX_BLOCKER)
 
-        conn.commit()
+            logger.debug("Create Views")
+            conn.execute(CREATE_VIEW_TASKS_FULL)
+
+            # Transaction auto-commits on successful exit
         logger.info(f"Database initialized successfully at {db_path} (schema version: {SCHEMA_VERSION})")
 
 

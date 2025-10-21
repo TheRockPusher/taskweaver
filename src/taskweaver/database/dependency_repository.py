@@ -50,7 +50,7 @@ class TaskDependencyRepository:
         except AttributeError as exc:
             raise TaskNotFoundError(task_id) from exc
 
-        if self._cycle_check(str(task_id), str(blocker_id)):
+        if self._cycle_check(task_id, blocker_id):
             raise DependencyError("Dependency causes a cycle")
 
         dependency = TaskDependency(task_id=task_id, blocker_id=blocker_id)
@@ -68,7 +68,7 @@ class TaskDependencyRepository:
             logger.info(f"Created dependency: task-{dependency.task_id}, blocker-{dependency.blocker_id}")
         return dependency
 
-    def remove_dependency(self, task_id: str, blocker_id: str) -> None:
+    def remove_dependency(self, task_id: UUID, blocker_id: UUID) -> None:
         """Remove a dependency between two tasks.
 
         Args:
@@ -80,14 +80,14 @@ class TaskDependencyRepository:
         """
         logger.debug(f"Removing dependency: task-{task_id}, blocker-{blocker_id}")
         with get_connection(self.db_path) as conn:
-            cursor = conn.execute(DELETE_DEPENDENCY, (task_id, blocker_id))
+            cursor = conn.execute(DELETE_DEPENDENCY, (str(task_id), str(blocker_id)))
             if not cursor.rowcount:
                 logger.error(f"Cannot remove dependency: not found (task-{task_id}, blocker-{blocker_id})")
                 raise DependencyError(f"Dependency not found: blocker-{blocker_id} -> task-{task_id}")
             conn.commit()
             logger.info(f"Removed dependency: task-{task_id}, blocker-{blocker_id}")
 
-    def get_blockers(self, task_id: str) -> list[Task]:
+    def get_blockers(self, task_id: UUID) -> list[Task]:
         """Get all active tasks blocking this task.
 
         Args:
@@ -98,14 +98,14 @@ class TaskDependencyRepository:
         """
         logger.debug(f"Retrieving active blockers for task: {task_id}")
         with get_connection(self.db_path) as conn:
-            cursor = conn.execute(SELECT_ACTIVE_BLOCKERS, (task_id,))
+            cursor = conn.execute(SELECT_ACTIVE_BLOCKERS, (str(task_id),))
             rows = cursor.fetchall()
 
         blockers = [task for row in rows if (task := self.task_repository.get_task(task_id=UUID(row["blocker_id"])))]
         logger.debug(f"Found {len(blockers)} active blocker(s) for task {task_id}")
         return blockers
 
-    def get_blocked(self, blocker_id: str) -> list[Task]:
+    def get_blocked(self, blocker_id: UUID) -> list[Task]:
         """Get all tasks blocked by this task.
 
         Args:
@@ -116,14 +116,14 @@ class TaskDependencyRepository:
         """
         logger.debug(f"Retrieving tasks blocked by: {blocker_id}")
         with get_connection(self.db_path) as conn:
-            cursor = conn.execute(SELECT_BLOCKED_TASKS, (blocker_id,))
+            cursor = conn.execute(SELECT_BLOCKED_TASKS, (str(blocker_id),))
             rows = cursor.fetchall()
 
         blocked = [task for row in rows if (task := self.task_repository.get_task(task_id=UUID(row["task_id"])))]
         logger.debug(f"Found {len(blocked)} blocked task(s) by {blocker_id}")
         return blocked
 
-    def _cycle_check(self, task_id: str, blocker_id: str) -> bool:
+    def _cycle_check(self, task_id: UUID, blocker_id: UUID) -> bool:
         """Detect circular dependencies using BFS.
 
         Checks if blocker_id transitively depends on task_id.
@@ -137,8 +137,8 @@ class TaskDependencyRepository:
             True if adding dependency would create a cycle.
         """
         logger.debug(f"Checking for circular dependency: task-{task_id}, blocker-{blocker_id}")
-        visited: set[str] = set()
-        queue: deque[str] = deque([blocker_id])
+        visited: set[UUID] = set()
+        queue: deque[UUID] = deque([blocker_id])
 
         while queue:
             current = queue.popleft()
@@ -149,7 +149,7 @@ class TaskDependencyRepository:
                 continue
             visited.add(current)
             # Follow the blocking chain upward: who blocks current?
-            queue.extend(str(blocker.task_id) for blocker in self.get_blockers(current))
+            queue.extend(blocker.task_id for blocker in self.get_blockers(current))
 
         logger.debug(f"No circular dependency found for task-{task_id}, blocker-{blocker_id}")
         return False

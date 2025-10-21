@@ -122,3 +122,28 @@ CHECK_DEPENDENCY_EXISTS = """
 SELECT dependency_id FROM task_dependencies
 WHERE task_id = ? AND blocker_id = ?;
 """
+
+CREATE_VIEW_TASKS_FULL = """
+CREATE VIEW IF NOT EXISTS tasks_full AS
+SELECT
+    t.*,
+    COALESCE(n_blocked.blocked_count, 0) as tasks_blocked_count,
+    COALESCE(n_blocker.blocker_count, 0) as active_blocker_count
+FROM tasks as t
+LEFT JOIN (
+    SELECT blocker_id, COUNT(*) as blocked_count
+    FROM task_dependencies
+    GROUP BY blocker_id
+) as n_blocked ON t.task_id = n_blocked.blocker_id
+LEFT JOIN (
+    SELECT td.task_id as blocked_id, COUNT(*) as blocker_count
+    FROM task_dependencies td
+    JOIN tasks blocker ON td.blocker_id = blocker.task_id
+    WHERE blocker.status IN ('pending', 'in_progress')
+    GROUP BY td.task_id
+) as n_blocker ON t.task_id = n_blocker.blocked_id
+WHERE t.status IN ('pending', 'in_progress')
+"""
+SELECT_ALL_TASKS_DEPENDENCY = """
+SELECT * FROM tasks_full ORDER BY created_at DESC;
+"""

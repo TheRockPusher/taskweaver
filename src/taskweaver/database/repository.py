@@ -8,8 +8,15 @@ from loguru import logger
 
 from .connection import DEFAULT_DB_PATH, get_connection
 from .exceptions import TaskNotFoundError
-from .models import Task, TaskCreate, TaskStatus, TaskUpdate
-from .schema import DELETE_TASK, INSERT_TASK, SELECT_ALL_TASKS, SELECT_TASK_BY_ID, UPDATE_TASK
+from .models import Task, TaskCreate, TaskStatus, TaskUpdate, TaskWithDependencies
+from .schema import (
+    DELETE_TASK,
+    INSERT_TASK,
+    SELECT_ALL_TASKS,
+    SELECT_ALL_TASKS_DEPENDENCY,
+    SELECT_TASK_BY_ID,
+    UPDATE_TASK,
+)
 
 
 class TaskRepository:
@@ -124,6 +131,36 @@ class TaskRepository:
                 status=TaskStatus(row["status"]),
                 created_at=datetime.fromisoformat(row["created_at"]),
                 updated_at=datetime.fromisoformat(row["updated_at"]),
+            )
+            for row in rows
+        ]
+
+    def list_tasks_with_deps(self) -> list[TaskWithDependencies]:
+        """List all tasks with a count of blockers and blocked.
+
+        Returns:
+            list[TaskWithDependencies]: _description_
+        """
+        logger.debug("Listing dependency tasks")
+
+        with get_connection(self.db_path) as conn:
+            cursor = conn.execute(SELECT_ALL_TASKS_DEPENDENCY)
+
+            rows = cursor.fetchall()
+
+        task_count = len(rows)
+        logger.info(f"Retrieved {task_count} task(s)")
+
+        return [
+            TaskWithDependencies(
+                task_id=UUID(row["task_id"]),
+                title=row["title"],
+                description=row["description"],
+                status=TaskStatus(row["status"]),
+                created_at=datetime.fromisoformat(row["created_at"]),
+                updated_at=datetime.fromisoformat(row["updated_at"]),
+                tasks_blocked_count=row["tasks_blocked_count"],
+                active_blocker_count=row["active_blocker_count"],
             )
             for row in rows
         ]
