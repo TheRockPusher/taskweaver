@@ -60,17 +60,17 @@ def test_remove_dependency_success(dep_repo: TaskDependencyRepository, tasks: di
     """Test removing an existing dependency."""
     dep_repo.add_dependency(task_id=tasks["A"], blocker_id=tasks["B"])
 
-    dep_repo.remove_dependency(task_id=str(tasks["A"]), blocker_id=str(tasks["B"]))
+    dep_repo.remove_dependency(task_id=tasks["A"], blocker_id=tasks["B"])
 
     # Verify removal - no blockers should exist
-    blockers = dep_repo.get_blockers(str(tasks["A"]))
+    blockers = dep_repo.get_blockers(tasks["A"])
     assert len(blockers) == 0
 
 
 def test_remove_nonexistent_dependency_fails(dep_repo: TaskDependencyRepository, tasks: dict[str, UUID]) -> None:
     """Test removing non-existent dependency raises error."""
     with pytest.raises(DependencyError, match="Dependency not found"):
-        dep_repo.remove_dependency(task_id=str(tasks["A"]), blocker_id=str(tasks["B"]))
+        dep_repo.remove_dependency(task_id=tasks["A"], blocker_id=tasks["B"])
 
 
 # Get Blockers Tests
@@ -78,7 +78,7 @@ def test_remove_nonexistent_dependency_fails(dep_repo: TaskDependencyRepository,
 
 def test_get_blockers_empty(dep_repo: TaskDependencyRepository, tasks: dict[str, UUID]) -> None:
     """Test getting blockers when none exist."""
-    blockers = dep_repo.get_blockers(str(tasks["A"]))
+    blockers = dep_repo.get_blockers(tasks["A"])
     assert blockers == []
 
 
@@ -86,7 +86,7 @@ def test_get_blockers_single(dep_repo: TaskDependencyRepository, tasks: dict[str
     """Test getting single blocker."""
     dep_repo.add_dependency(task_id=tasks["A"], blocker_id=tasks["B"])
 
-    blockers = dep_repo.get_blockers(str(tasks["A"]))
+    blockers = dep_repo.get_blockers(tasks["A"])
 
     assert len(blockers) == 1
     assert blockers[0].task_id == tasks["B"]
@@ -97,7 +97,7 @@ def test_get_blockers_multiple(dep_repo: TaskDependencyRepository, tasks: dict[s
     dep_repo.add_dependency(task_id=tasks["A"], blocker_id=tasks["B"])
     dep_repo.add_dependency(task_id=tasks["A"], blocker_id=tasks["C"])
 
-    blockers = dep_repo.get_blockers(str(tasks["A"]))
+    blockers = dep_repo.get_blockers(tasks["A"])
 
     expected_blocker_count = 2
     assert len(blockers) == expected_blocker_count
@@ -115,7 +115,7 @@ def test_get_blockers_only_active(
     # Complete one blocker
     task_repo.mark_completed(tasks["B"])
 
-    blockers = dep_repo.get_blockers(str(tasks["A"]))
+    blockers = dep_repo.get_blockers(tasks["A"])
 
     # Only C should remain (B is completed)
     assert len(blockers) == 1
@@ -163,7 +163,7 @@ def test_cycle_check_no_cycle(dep_repo: TaskDependencyRepository, tasks: dict[st
     dep_repo.add_dependency(task_id=tasks["B"], blocker_id=tasks["C"])
 
     # D -> A should not create a cycle
-    has_cycle = dep_repo._cycle_check(str(tasks["A"]), str(tasks["D"]))
+    has_cycle = dep_repo._cycle_check(tasks["A"], tasks["D"])
     assert has_cycle is False
 
 
@@ -172,7 +172,7 @@ def test_cycle_check_direct_cycle(dep_repo: TaskDependencyRepository, tasks: dic
     dep_repo.add_dependency(task_id=tasks["A"], blocker_id=tasks["B"])
 
     # B -> A would create direct cycle
-    has_cycle = dep_repo._cycle_check(str(tasks["B"]), str(tasks["A"]))
+    has_cycle = dep_repo._cycle_check(tasks["B"], tasks["A"])
     assert has_cycle is True
 
 
@@ -182,13 +182,13 @@ def test_cycle_check_transitive_cycle(dep_repo: TaskDependencyRepository, tasks:
     dep_repo.add_dependency(task_id=tasks["B"], blocker_id=tasks["C"])
 
     # C -> A would create transitive cycle
-    has_cycle = dep_repo._cycle_check(str(tasks["C"]), str(tasks["A"]))
+    has_cycle = dep_repo._cycle_check(tasks["C"], tasks["A"])
     assert has_cycle is True
 
 
 def test_cycle_check_self_reference(dep_repo: TaskDependencyRepository, tasks: dict[str, UUID]) -> None:
     """Test detection of self-referencing cycle (A -> A)."""
-    has_cycle = dep_repo._cycle_check(str(tasks["A"]), str(tasks["A"]))
+    has_cycle = dep_repo._cycle_check(tasks["A"], tasks["A"])
     assert has_cycle is True
 
 
@@ -201,12 +201,12 @@ def test_cycle_check_complex_graph(dep_repo: TaskDependencyRepository, tasks: di
     dep_repo.add_dependency(task_id=tasks["C"], blocker_id=tasks["D"])
 
     # D -> A would create cycle through multiple paths (D->B->A or D->C->A)
-    has_cycle = dep_repo._cycle_check(str(tasks["D"]), str(tasks["A"]))
+    has_cycle = dep_repo._cycle_check(tasks["D"], tasks["A"])
     assert has_cycle is True
 
     # D -> B would also create cycle (D->B->D already exists)
-    has_cycle = dep_repo._cycle_check(str(tasks["D"]), str(tasks["B"]))
+    has_cycle = dep_repo._cycle_check(tasks["D"], tasks["B"])
     assert has_cycle is True
 
-    has_cycle = dep_repo._cycle_check(str(tasks["A"]), str(tasks["D"]))
+    has_cycle = dep_repo._cycle_check(tasks["A"], tasks["D"])
     assert has_cycle is False
