@@ -6,7 +6,7 @@ TaskWeaver is a conversational AI agent that intelligently organizes, prioritize
 
 **Target Audience:** Anyone looking to organize complex projects, learn new skills systematically, or improve task management through AI-powered decomposition and prioritization.
 
-**Project Status:** Version 0.2.0 (active development - Phase 2)
+**Project Status:** Version 0.2.0 (active development - Phase 2 - 95% complete)
 
 [![CI](https://github.com/TheRockPusher/taskweaver/actions/workflows/ci.yml/badge.svg)](https://github.com/TheRockPusher/taskweaver/actions/workflows/ci.yml)
 [![Python Version](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
@@ -74,9 +74,9 @@ TaskWeaver provides:
 
 ## Current Status
 
-**Project Stage:** Phase 2 – AI Integration (In Progress)
+**Project Stage:** Phase 2 – AI Integration & Dependency Management (95% Complete)
 
-Core infrastructure complete (Phase 1 ✅). PydanticAI agent integrated with task management tools (Phase 2 ⏳). Dependency management system now implemented with BFS-based cycle detection.
+Core infrastructure complete (Phase 1 ✅). PydanticAI agent fully integrated with 11 task management and dependency tools. Dependency management system implemented with BFS-based cycle detection. Ready for integration testing with real LLM API.
 
 ## Features (Roadmap)
 
@@ -87,24 +87,27 @@ Core infrastructure complete (Phase 1 ✅). PydanticAI agent integrated with tas
 - ✅ Pydantic models for validation
 - ✅ 80%+ test coverage
 
-### Phase 2: AI Integration & Dependency Management ⏳ IN PROGRESS
+### Phase 2: AI Integration & Dependency Management ✅ 95% COMPLETE
 
-🤖 **Conversational Task Management** (NEW)
+🤖 **Conversational Task Management** (COMPLETE)
 
 - ✅ PydanticAI agent framework integrated
-- ✅ 6 task management tools registered
+- ✅ 11 agent tools registered (6 task management + 5 dependency tools)
 - ✅ Interactive `taskweaver chat` command
-- ✅ Production orchestrator prompt (543 lines, optimised)
-- ⏳ Integration testing with real API
-- **Status:** Core integration complete, API testing pending
+- ✅ Production orchestrator prompt (1,161 lines, extensively optimised)
+- ✅ Dependency-aware task analysis
+- **Status:** Feature complete, ready for API integration testing
 
-🔗 **Dependency Management** (NEW - Phase 2)
+🔗 **Dependency Management** (COMPLETE - Phase 2)
 
 - ✅ Task blocking relationships (DAG structure)
-- ✅ Circular dependency detection using BFS
+- ✅ Circular dependency detection using BFS algorithm
 - ✅ TaskDependencyRepository with full CRUD operations
 - ✅ Active blocker retrieval (filters completed/cancelled tasks)
-- ✅ Comprehensive test suite (17 tests, all passing)
+- ✅ TaskWithDependencies model with aggregated counts
+- ✅ tasks_full database view with dependency metrics
+- ✅ CLI commands: `lso` (list open), `createDep`, `rmdep`, `blocker`
+- ✅ Comprehensive test suite (17 dependency tests, all passing)
 - **Status:** Complete and thoroughly tested
 
 🧠 **Intelligent Task Analysis**
@@ -225,8 +228,11 @@ Ready to get started? Which task interests you most?
 # Create a task
 uv run taskweaver create "Build authentication system" -d "Implement OAuth2 or JWT"
 
-# List tasks
+# List all tasks
 uv run taskweaver ls
+
+# List open tasks with dependency counts
+uv run taskweaver lso
 
 # Show task details
 uv run taskweaver show <task-id>
@@ -241,9 +247,27 @@ uv run taskweaver edit <task-id> -s completed
 uv run taskweaver rm <task-id>
 ```
 
-### Dependency Management (Phase 2 - Foundation Layer)
+### Dependency Management (Phase 2 - Complete)
 
-The dependency system provides a foundation for task relationship tracking and cycle detection. This will power future features like smart task ordering and unblocking analysis.
+Create and manage task relationships with automatic cycle detection:
+
+```bash
+# Create a dependency (task is blocked by blocker)
+uv run taskweaver createDep <task-id> <blocker-id>
+
+# Remove a dependency
+uv run taskweaver rmdep <task-id> <blocker-id>
+
+# View tasks blocking a specific task
+uv run taskweaver blocker <task-id>
+```
+
+**Key Features:**
+
+- Automatic circular dependency detection using breadth-first search
+- Active blocker filtering (only pending/in_progress tasks block)
+- Prevented dependencies on completed/cancelled tasks
+- Dependency counts aggregated in tasks_full view
 
 ### Configuration
 
