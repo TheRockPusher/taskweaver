@@ -127,7 +127,7 @@ def test_get_blockers_only_active(
 
 def test_get_blocked_empty(dep_repo: TaskDependencyRepository, tasks: dict[str, UUID]) -> None:
     """Test getting blocked tasks when none exist."""
-    blocked = dep_repo.get_blocked(str(tasks["A"]))
+    blocked = dep_repo.get_blocked(tasks["A"])
     assert blocked == []
 
 
@@ -135,7 +135,7 @@ def test_get_blocked_single(dep_repo: TaskDependencyRepository, tasks: dict[str,
     """Test getting single blocked task."""
     dep_repo.add_dependency(task_id=tasks["A"], blocker_id=tasks["B"])
 
-    blocked = dep_repo.get_blocked(str(tasks["B"]))
+    blocked = dep_repo.get_blocked(tasks["B"])
 
     assert len(blocked) == 1
     assert blocked[0].task_id == tasks["A"]
@@ -146,7 +146,7 @@ def test_get_blocked_multiple(dep_repo: TaskDependencyRepository, tasks: dict[st
     dep_repo.add_dependency(task_id=tasks["A"], blocker_id=tasks["C"])
     dep_repo.add_dependency(task_id=tasks["B"], blocker_id=tasks["C"])
 
-    blocked = dep_repo.get_blocked(str(tasks["C"]))
+    blocked = dep_repo.get_blocked(tasks["C"])
 
     expected_blocked_count = 2
     assert len(blocked) == expected_blocked_count

@@ -12,13 +12,17 @@ from ..database.repository import TaskRepository
 from .chat_handler import ChatHandler
 from .dependencies import TaskDependencies
 from .tools import (
+    add_dependency_tool,
     create_task_tool,
+    get_blocked_tool,
+    get_blockers_tool,
     get_task_details_tool,
     list_open_tasks_dep_count_tool,
     list_tasks_tool,
     mark_task_cancelled_tool,
     mark_task_completed_tool,
     mark_task_in_progress_tool,
+    remove_dependency_tool,
 )
 
 # Prompts directory
@@ -75,6 +79,10 @@ def get_orchestrator_agent() -> Agent[TaskDependencies, str]:
     agent.tool(mark_task_cancelled_tool)
     agent.tool(get_task_details_tool)
     agent.tool(list_open_tasks_dep_count_tool)
+    agent.tool(add_dependency_tool)
+    agent.tool(remove_dependency_tool)
+    agent.tool(get_blocked_tool)
+    agent.tool(get_blockers_tool)
 
     return agent
 

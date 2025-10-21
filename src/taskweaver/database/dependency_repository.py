@@ -105,7 +105,7 @@ class TaskDependencyRepository:
         logger.debug(f"Found {len(blockers)} active blocker(s) for task {task_id}")
         return blockers
 
-    def get_blocked(self, blocker_id: str) -> list[Task]:
+    def get_blocked(self, blocker_id: UUID) -> list[Task]:
         """Get all tasks blocked by this task.
 
         Args:
