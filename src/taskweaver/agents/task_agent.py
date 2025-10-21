@@ -1,5 +1,6 @@
 """PydanticAI agent for task orchestration."""
 
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
@@ -7,16 +8,34 @@ from loguru import logger
 from pydantic_ai import Agent, AgentRunResult, ModelMessage
 
 from ..config import get_config
+from ..database.dependency_repository import TaskDependencyRepository
 from ..database.repository import TaskRepository
 from .chat_handler import ChatHandler
 from .tools import (
     create_task_tool,
     get_task_details_tool,
+    list_open_tasks_dep_count_tool,
     list_tasks_tool,
     mark_task_cancelled_tool,
     mark_task_completed_tool,
     mark_task_in_progress_tool,
 )
+
+
+@dataclass
+class TaskDependencies:
+    """Container for task-related repositories.
+
+    Provides both task and dependency repositories to agent tools,
+    enabling dependency-aware operations.
+
+    Attributes:
+        task_repo: Repository for task CRUD operations.
+        dep_repo: Repository for task dependency management.
+    """
+
+    task_repo: TaskRepository
+    dep_repo: TaskDependencyRepository
 
 # Prompts directory
 PROMPTS_DIR = Path(__file__).parent / "prompts"
@@ -40,14 +59,14 @@ def load_prompt(name: str) -> str:
 
 
 @lru_cache
-def get_orchestrator_agent() -> Agent[TaskRepository, str]:
+def get_orchestrator_agent() -> Agent[TaskDependencies, str]:
     """Get cached orchestrator agent instance.
 
     Lazy initialization ensures agent is only created when needed,
     avoiding import-time API key requirements for tests.
 
     Returns:
-        Cached Agent instance with registered tools.
+        Cached Agent instance with TaskDependencies and registered tools.
 
     """
     config = get_config()
@@ -58,9 +77,9 @@ def get_orchestrator_agent() -> Agent[TaskRepository, str]:
     if ":" not in model_name:
         model_name = f"openai:{model_name}"
 
-    agent: Agent[TaskRepository, str] = Agent[TaskRepository, str](
+    agent: Agent[TaskDependencies, str] = Agent[TaskDependencies, str](
         model_name,
-        deps_type=TaskRepository,
+        deps_type=TaskDependencies,
         system_prompt=system_prompt,
     )
 
@@ -71,6 +90,7 @@ def get_orchestrator_agent() -> Agent[TaskRepository, str]:
     agent.tool(mark_task_in_progress_tool)
     agent.tool(mark_task_cancelled_tool)
     agent.tool(get_task_details_tool)
+    agent.tool(list_open_tasks_dep_count_tool)
 
     return agent
 
@@ -90,8 +110,12 @@ def run_chat(handler: ChatHandler, db_path: Path) -> None:
     # Get agent instance (lazy initialization)
     agent = get_orchestrator_agent()
 
-    # Create repository instance for agent tools
-    repository = TaskRepository(db_path)
+    # Create both repository instances for agent tools
+    task_repo = TaskRepository(db_path)
+    dep_repo = TaskDependencyRepository(db_path)
+
+    # Wrap repositories in dependencies container
+    dependencies = TaskDependencies(task_repo=task_repo, dep_repo=dep_repo)
 
     turn_count = 0
     while True:
@@ -104,11 +128,11 @@ def run_chat(handler: ChatHandler, db_path: Path) -> None:
             continue
 
         try:
-            # Pass repository as dependencies to agent
+            # Pass dependencies container to agent
             result: AgentRunResult[str] = agent.run_sync(
                 user_input,
                 message_history=message_history,
-                deps=repository,
+                deps=dependencies,
             )
             handler.display_agent_message(result.output)
             message_history = result.all_messages()
