@@ -198,7 +198,7 @@ def remove_dependency(
     blocker_id: Annotated[UUID, typer.Argument(help="Blocker UUID")],
     db_path: Annotated[Path, typer.Option("--db", help="Database file path")] = DEFAULT_DB,
 ) -> None:
-    """removes a dependency between two tasks."""
+    """Removes a dependency between two tasks."""
     TaskDependencyRepository(db_path).remove_dependency(task_id, blocker_id)
     console.print(f"Dependency removed:\n[cyan]task:[/cyan]{task_id} -> [red]blocker:{blocker_id}[/red]")
 
