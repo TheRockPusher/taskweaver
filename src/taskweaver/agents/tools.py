@@ -11,7 +11,7 @@ from pydantic_ai import RunContext
 from taskweaver.database.models import TaskDependency, TaskWithDependencies
 
 from ..database.models import Task, TaskCreate, TaskStatus
-from .task_agent import TaskDependencies
+from .dependencies import TaskDependencies
 
 # Display constants
 MAX_TITLE_LENGTH = 60
