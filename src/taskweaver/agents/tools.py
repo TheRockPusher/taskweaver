@@ -4,22 +4,19 @@ This module defines PydanticAI tools that wrap TaskRepository methods,
 providing a clean interface for the orchestrator agent to interact with tasks.
 """
 
-from typing import TYPE_CHECKING
 from uuid import UUID
 
 from pydantic_ai import RunContext
 
 from ..database.models import TaskCreate, TaskStatus
-
-if TYPE_CHECKING:
-    from .task_agent import TaskDependencies
+from .task_agent import TaskDependencies
 
 # Display constants
 MAX_TITLE_LENGTH = 60
 MAX_DESCRIPTION_LENGTH = 40
 
 
-def create_task_tool(ctx: "RunContext[TaskDependencies]", title: str, description: str | None = None) -> str:
+def create_task_tool(ctx: RunContext[TaskDependencies], title: str, description: str | None = None) -> str:
     """Create a new task.
 
     Args:
@@ -39,7 +36,7 @@ def create_task_tool(ctx: "RunContext[TaskDependencies]", title: str, descriptio
     return f"✅ Created task '{task.title}' (ID: {task.task_id})"
 
 
-def list_tasks_tool(ctx: "RunContext[TaskDependencies]", status: str | None = None) -> str:
+def list_tasks_tool(ctx: RunContext[TaskDependencies], status: str | None = None) -> str:
     r"""List all tasks or filter by status.
 
     Args:
@@ -82,7 +79,7 @@ def list_tasks_tool(ctx: "RunContext[TaskDependencies]", status: str | None = No
     return "\n".join(lines)
 
 
-def mark_task_completed_tool(ctx: "RunContext[TaskDependencies]", task_id: str) -> str:
+def mark_task_completed_tool(ctx: RunContext[TaskDependencies], task_id: str) -> str:
     """Mark a task as completed.
 
     Args:
@@ -104,7 +101,7 @@ def mark_task_completed_tool(ctx: "RunContext[TaskDependencies]", task_id: str) 
     return f"✅ Task '{task.title}' marked as completed"
 
 
-def mark_task_in_progress_tool(ctx: "RunContext[TaskDependencies]", task_id: str) -> str:
+def mark_task_in_progress_tool(ctx: RunContext[TaskDependencies], task_id: str) -> str:
     """Mark a task as in progress.
 
     Args:
@@ -126,7 +123,7 @@ def mark_task_in_progress_tool(ctx: "RunContext[TaskDependencies]", task_id: str
     return f"🚀 Task '{task.title}' marked as in progress"
 
 
-def mark_task_cancelled_tool(ctx: "RunContext[TaskDependencies]", task_id: str) -> str:
+def mark_task_cancelled_tool(ctx: RunContext[TaskDependencies], task_id: str) -> str:
     """Mark a task as cancelled.
 
     Args:
@@ -148,7 +145,7 @@ def mark_task_cancelled_tool(ctx: "RunContext[TaskDependencies]", task_id: str) 
     return f"❌ Task '{task.title}' marked as cancelled"
 
 
-def get_task_details_tool(ctx: "RunContext[TaskDependencies]", task_id: str) -> str:
+def get_task_details_tool(ctx: RunContext[TaskDependencies], task_id: str) -> str:
     r"""Get detailed information about a specific task.
 
     Args:
@@ -184,7 +181,7 @@ def get_task_details_tool(ctx: "RunContext[TaskDependencies]", task_id: str) -> 
     return "\n".join(lines)
 
 
-def list_open_tasks_dep_count_tool(ctx: "RunContext[TaskDependencies]") -> str:
+def list_open_tasks_dep_count_tool(ctx: RunContext[TaskDependencies]) -> str:
     r"""List open tasks sorted by dependency priority.
 
     Uses list_tasks_with_deps() to efficiently retrieve tasks with
@@ -205,10 +202,7 @@ def list_open_tasks_dep_count_tool(ctx: "RunContext[TaskDependencies]") -> str:
     all_tasks = ctx.deps.task_repo.list_tasks_with_deps()
 
     # Filter to only open tasks (pending or in_progress)
-    open_tasks = [
-        task for task in all_tasks
-        if task.status in (TaskStatus.PENDING, TaskStatus.IN_PROGRESS)
-    ]
+    open_tasks = [task for task in all_tasks if task.status in (TaskStatus.PENDING, TaskStatus.IN_PROGRESS)]
 
     if not open_tasks:
         return "No open tasks found. All tasks are completed or cancelled."
@@ -224,7 +218,7 @@ def list_open_tasks_dep_count_tool(ctx: "RunContext[TaskDependencies]") -> str:
 
         # Additional info about blocking others
         blocking_info = f" (blocks {task.tasks_blocked_count})" if task.tasks_blocked_count > 0 else ""
-        status_badge = f" [{task.status.value}]"
+        status_badge = f" [{task.status}]"
 
         lines.append(f"{idx}. {status_icon}: {task.title}{blocking_info}{status_badge}")
 

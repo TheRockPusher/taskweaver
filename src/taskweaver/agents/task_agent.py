@@ -1,6 +1,5 @@
 """PydanticAI agent for task orchestration."""
 
-from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
@@ -11,6 +10,7 @@ from ..config import get_config
 from ..database.dependency_repository import TaskDependencyRepository
 from ..database.repository import TaskRepository
 from .chat_handler import ChatHandler
+from .dependencies import TaskDependencies
 from .tools import (
     create_task_tool,
     get_task_details_tool,
@@ -20,22 +20,6 @@ from .tools import (
     mark_task_completed_tool,
     mark_task_in_progress_tool,
 )
-
-
-@dataclass
-class TaskDependencies:
-    """Container for task-related repositories.
-
-    Provides both task and dependency repositories to agent tools,
-    enabling dependency-aware operations.
-
-    Attributes:
-        task_repo: Repository for task CRUD operations.
-        dep_repo: Repository for task dependency management.
-    """
-
-    task_repo: TaskRepository
-    dep_repo: TaskDependencyRepository
 
 # Prompts directory
 PROMPTS_DIR = Path(__file__).parent / "prompts"
