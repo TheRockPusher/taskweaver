@@ -8,7 +8,7 @@ from loguru import logger
 
 from .connection import DEFAULT_DB_PATH, get_connection
 from .exceptions import DependencyError, TaskNotFoundError
-from .models import TaskDependency, TaskStatus
+from .models import TaskDependency, TaskStatus, TaskWithDependencies, TaskWithPriority
 from .repository import Task, TaskRepository
 from .schema import DELETE_DEPENDENCY, INSERT_DEPENDENCY, SELECT_ACTIVE_BLOCKERS, SELECT_BLOCKED_TASKS
 
@@ -153,3 +153,105 @@ class TaskDependencyRepository:
 
         logger.debug(f"No circular dependency found for task-{task_id}, blocker-{blocker_id}")
         return False
+
+    def calculate_effective_priorities(self, tasks: list[TaskWithDependencies] | None = None) -> dict[UUID, float]:
+        """Calculate effective priorities for all tasks in batch.
+
+        Priority flows upstream: if a high-priority task is blocked by a low-priority task,
+        the blocker inherits the higher priority.
+
+        Formula: effective_priority = max(intrinsic_priority, max(downstream_priorities))
+
+        This method calculates all priorities in a single pass, avoiding redundant calculations.
+
+        Args:
+            tasks: Optional list of tasks to calculate priorities for. If None, uses all tasks.
+
+        Returns:
+            Dict mapping task_id to effective_priority.
+
+        Example:
+            >>> priorities = repo.calculate_effective_priorities()
+            >>> print(f"Task A: {priorities[task_a_id]:.3f}")
+            0.90
+        """
+        task_repo = TaskRepository(self.db_path)
+        # Import here to avoid circular dependency
+        if tasks is None:
+            tasks = task_repo.list_tasks_with_deps()
+
+        memo: dict[UUID, float] = {}
+
+        def _calculate_recursive(task_id: UUID) -> float:
+            """Recursive helper with memoization."""
+            # Already calculated
+            if task_id in memo:
+                return memo[task_id]
+
+            # Get intrinsic priority
+            task = task_repo.get_task(task_id)
+            if not task:
+                logger.warning(f"Task not found during priority calculation: {task_id}")
+                memo[task_id] = 0.0
+                return 0.0
+
+            intrinsic = task.priority
+
+            # Get tasks this blocks (downstream)
+            blocked_tasks = self.get_blocked(task_id)
+
+            if not blocked_tasks:
+                # Leaf node - no downstream tasks to inherit from
+                memo[task_id] = intrinsic
+                return intrinsic
+
+            # Recursively calculate downstream priorities
+            downstream_priorities = [_calculate_recursive(blocked.task_id) for blocked in blocked_tasks]
+
+            # Inherit max downstream priority
+            effective = max(intrinsic, *downstream_priorities)
+            memo[task_id] = effective
+
+            logger.debug(f"Task {task_id} effective priority: {effective:.3f} (intrinsic: {intrinsic:.3f})")
+            return effective
+
+        # Calculate for all tasks
+        for task in tasks:
+            if task.task_id not in memo:
+                _calculate_recursive(task.task_id)
+
+        return memo
+
+    def list_tasks_with_priority(self, status: TaskStatus | None = None) -> list[TaskWithPriority]:
+        """List tasks with dependency counts and effective priorities.
+
+        Combines data from tasks_full view with calculated effective priorities.
+
+        Args:
+            status: Optional status filter.
+
+        Returns:
+            List of TaskWithPriority models with all enriched data.
+
+        Example:
+            >>> tasks = repo.list_tasks_with_priority(TaskStatus.PENDING)
+            >>> for task in sorted(tasks, key=lambda t: t.effective_priority, reverse=True):
+            ...     print(f"{task.title}: {task.effective_priority:.3f}")
+        """
+        # Get tasks with dependency counts
+        tasks_with_deps = self.task_repository.list_tasks_with_deps()
+
+        # Filter by status if provided
+        if status:
+            tasks_with_deps = [t for t in tasks_with_deps if t.status == status]
+
+        # Calculate effective priorities for all tasks
+        priorities = self.calculate_effective_priorities(
+            [TaskWithDependencies(**t.model_dump()) for t in tasks_with_deps]
+        )
+
+        # Build TaskWithPriority models
+        return [
+            TaskWithPriority(**task.model_dump(), effective_priority=priorities[task.task_id])
+            for task in tasks_with_deps
+        ]

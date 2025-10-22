@@ -125,3 +125,27 @@ class TaskWithDependencies(Task):
     def is_blocking_others(self) -> bool:
         """Check if this task is blocking other tasks."""
         return self.tasks_blocked_count > 0
+
+
+class TaskWithPriority(TaskWithDependencies):
+    """Task enriched with dependency counts AND effective priority.
+
+    Extends TaskWithDependencies with calculated effective priority from DAG.
+
+    Example:
+        >>> task = TaskWithPriority(
+        ...     title="Setup CI/CD",
+        ...     duration_min=120,
+        ...     llm_value=3.0,
+        ...     requirement="Setup pipeline",
+        ...     tasks_blocked_count=1,
+        ...     active_blocker_count=0,
+        ...     effective_priority=0.90
+        ... )
+        >>> task.priority  # intrinsic
+        0.025
+        >>> task.effective_priority  # inherited from downstream
+        0.90
+    """
+
+    effective_priority: float = Field(description="Effective priority considering DAG inheritance")
