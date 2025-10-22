@@ -17,7 +17,7 @@ from .tools import (
     get_blocked_tool,
     get_blockers_tool,
     get_task_details_tool,
-    list_open_tasks_dep_count_tool,
+    list_open_tasks_full,
     list_tasks_tool,
     mark_task_cancelled_tool,
     mark_task_completed_tool,
@@ -80,7 +80,7 @@ def get_orchestrator_agent() -> Agent[TaskDependencies, str]:
     # Toolset 2: Dependency Management DAG
     dependency_toolset = FunctionToolset(
         tools=[
-            list_open_tasks_dep_count_tool,
+            list_open_tasks_full,
             add_dependency_tool,
             remove_dependency_tool,
             get_blockers_tool,
