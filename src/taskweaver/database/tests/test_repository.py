@@ -244,4 +244,5 @@ def test_task_priority_calculation(task_repo: TaskRepository) -> None:
     max_priority_task = task_repo.create_task(
         TaskCreate(title="Ultra priority", duration_min=1, llm_value=10.0, requirement="Instant win")
     )
-    assert max_priority_task.priority == 10.0  # Maximum possible priority
+    max_prio = 10.0
+    assert max_priority_task.priority == max_prio  # Maximum possible priority
