@@ -16,7 +16,7 @@ from pydantic_ai import RunContext
 from pydantic_ai.exceptions import ModelRetry
 
 from taskweaver.database.exceptions import DependencyError, TaskNotFoundError
-from taskweaver.database.models import TaskDependency, TaskWithDependencies
+from taskweaver.database.models import TaskDependency, TaskWithDependencies, TaskWithPriority
 
 from ..database.models import Task, TaskCreate, TaskStatus
 from .dependencies import TaskDependencies
@@ -224,6 +224,22 @@ def list_open_tasks_dep_count_tool(ctx: RunContext[TaskDependencies]) -> list[Ta
     all_tasks: list[TaskWithDependencies] = ctx.deps.task_repo.list_tasks_with_deps()
 
     return all_tasks
+
+
+def list_open_tasks_full(ctx: RunContext[TaskDependencies]) -> list[TaskWithPriority]:
+    """List open tasks with dependency counts and effective priorities.
+
+    Returns tasks enriched with:
+    - Dependency counts (tasks_blocked_count, active_blocker_count)
+    - Effective priority (considering DAG inheritance)
+
+    Args:
+        ctx: Runtime context containing TaskDependencies.
+
+    Returns:
+        List of TaskWithPriority objects.
+    """
+    return ctx.deps.dep_repo.list_tasks_with_priority()
 
 
 def add_dependency_tool(ctx: RunContext[TaskDependencies], task_id: UUID, blocker_id: UUID) -> TaskDependency:
