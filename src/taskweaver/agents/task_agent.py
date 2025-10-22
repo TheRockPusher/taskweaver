@@ -5,6 +5,7 @@ from pathlib import Path
 
 from loguru import logger
 from pydantic_ai import Agent, AgentRunResult, FunctionToolset, ModelMessage
+from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
 
 from ..config import get_config
 from ..database.dependency_repository import TaskDependencyRepository
@@ -66,7 +67,7 @@ def get_orchestrator_agent() -> Agent[TaskDependencies, str]:
         model_name = f"openai:{model_name}"
 
     # Toolset 1: Task Management CRUD
-    task_toolset = FunctionToolset(
+    task_toolset: FunctionToolset[TaskDependencies] = FunctionToolset(
         tools=[
             create_task_tool,
             list_tasks_tool,
@@ -93,6 +94,7 @@ def get_orchestrator_agent() -> Agent[TaskDependencies, str]:
         model_name,
         deps_type=TaskDependencies,
         system_prompt=system_prompt,
+        tools=[duckduckgo_search_tool()],
         toolsets=[task_toolset, dependency_toolset],
     )
 

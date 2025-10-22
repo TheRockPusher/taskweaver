@@ -5,7 +5,7 @@ providing a clean interface for the orchestrator agent to interact with tasks.
 
 Error Handling Strategy:
 - ModelRetry: Raised when tool fails due to invalid input that LLM can fix
-  (circular dependencies, invalid task IDs, validation errors)
+    (circular dependencies, invalid task IDs, validation errors)
 - The LLM receives the error message and can retry with corrected parameters
 """
 
