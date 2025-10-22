@@ -8,6 +8,8 @@ TaskWeaver is a conversational AI agent that intelligently organizes, prioritize
 
 **Project Status:** Version 0.3.0 (active development - Phase 2 complete, Phase 3 in progress)
 
+**Technology:** Python 3.13+ | PydanticAI 1.1.0 | SQLite | Typer CLI | UV package manager
+
 [![CI](https://github.com/TheRockPusher/taskweaver/actions/workflows/ci.yml/badge.svg)](https://github.com/TheRockPusher/taskweaver/actions/workflows/ci.yml)
 [![Python Version](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL-3.0-blue.svg)](LICENSE)
@@ -33,7 +35,15 @@ make install
 make test
 ```
 
-Note: TaskWeaver is currently in active development. The CLI is functional for basic task management. Development focus is on AI-powered decomposition and intelligent analysis. Check back soon for updates on advanced features!
+**Current Capabilities:**
+
+- ✅ Full CLI CRUD operations for tasks
+- ✅ Dependency tracking with cycle detection (BFS algorithm)
+- ✅ Interactive AI chat with conversational task decomposition
+- ✅ Priority calculation (value per minute)
+- ✅ Requirement verification workflow
+
+**Note:** Advanced features like automated skill gap detection and alternative priority algorithms are in research/planning phases.
 
 ### Full Documentation
 
@@ -111,28 +121,35 @@ Phase 1 (Foundation) ✅ and Phase 2 (AI Integration & Dependency Management) �
 
 ### Phase 3: Intelligence & Priority System 🚧 IN PROGRESS
 
-⚡ **Basic Priority System** (In Development)
+⚡ **Basic Priority System** ✅ IMPLEMENTED
 
-- Basic priority field (integer 1-5, default 3)
-- Priority-based task filtering and sorting
-- CLI support for setting and viewing priorities
-- Agent tool integration for priority management
-- **Status:** Implementation in progress
+- Calculated priority field (`llm_value / duration_min`)
+- Higher priority = higher value delivered per minute
+- Automatic calculation on all tasks
+- Used by agent for tie-breaking and quick-win identification
+- **Status:** Complete - DAG-aware priority (considering dependencies) not yet implemented
 
-📝 **Task Conclusions** (In Development)
+📝 **Task Requirement/Conclusion Field** ✅ SEMI-IMPLEMENTED
 
-- Conclusion field for task completion reflections
-- Learning capture (what was learned from completing tasks)
-- CLI support for adding conclusions
-- Agent integration for prompting conclusions
-- **Status:** Implementation in progress
+- Single `requirement` field serves dual purpose
+- **Before task**: Specifies measurable completion criteria
+- **After task**: Can store what was learned/concluded
+- Agent verifies requirements before marking tasks complete
+- **Status:** Field exists, learning capture workflow partially implemented
 
-🧠 **Intelligent Task Analysis** (Planned - Phase 4)
+🧠 **Conversational Task Decomposition** ✅ IMPLEMENTED
 
-- Automatic decomposition of complex tasks into subtasks
-- Skill gap detection based on Dreyfus model
-- Multi-criteria priority scoring (MCDA)
-- **Status:** Not yet implemented
+- LLM-assisted task breakdown through natural conversation
+- Agent guides users to create well-structured subtasks
+- Dependency-aware recommendations
+- Verification of completion criteria
+- **Status:** Fully operational via 1,161-line orchestrator prompt
+
+🔮 **Planned Intelligence Features** (Phase 4-5)
+
+- Dreyfus skill gap detection
+- Alternative priority calculation methods (replacing/augmenting current MCDA approach)
+- **Status:** Research and design phase
 
 📊 **Adaptive System** (Planned - Phase 4)
 - Learns your preferences from task completion patterns
@@ -242,8 +259,12 @@ Ready to get started? Which task interests you most?
 ### CLI Task Management (Phase 1 - Available Now)
 
 ```bash
-# Create a task
-uv run taskweaver create "Build authentication system" -d "Implement OAuth2 or JWT"
+# Create a task (title is required, rest optional)
+uv run taskweaver create "Build authentication system" \
+  --duration 120 \
+  --value 8.5 \
+  --req "JWT tokens working with test coverage" \
+  --desc "Implement OAuth2 or JWT"
 
 # List all tasks
 uv run taskweaver ls
