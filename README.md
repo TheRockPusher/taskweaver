@@ -6,7 +6,7 @@ TaskWeaver is a conversational AI agent that intelligently organizes, prioritize
 
 **Target Audience:** Anyone looking to organize complex projects, learn new skills systematically, or improve task management through AI-powered decomposition and prioritization.
 
-**Project Status:** Version 0.2.0 (active development - Phase 2 - 95% complete)
+**Project Status:** Version 0.3.0 (active development - Phase 2 complete, Phase 3 in progress)
 
 [![CI](https://github.com/TheRockPusher/taskweaver/actions/workflows/ci.yml/badge.svg)](https://github.com/TheRockPusher/taskweaver/actions/workflows/ci.yml)
 [![Python Version](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
@@ -74,9 +74,9 @@ TaskWeaver provides:
 
 ## Current Status
 
-**Project Stage:** Phase 2 – AI Integration & Dependency Management (95% Complete)
+**Project Stage:** Phase 3 – Intelligence & Priority System (In Progress)
 
-Core infrastructure complete (Phase 1 ✅). PydanticAI agent fully integrated with 11 task management and dependency tools. Dependency management system implemented with BFS-based cycle detection. Ready for integration testing with real LLM API.
+Phase 1 (Foundation) ✅ and Phase 2 (AI Integration & Dependency Management) ✅ are complete. PydanticAI agent fully integrated with 11 task management and dependency tools. Dependency management system implemented with BFS-based cycle detection. Currently implementing basic priority scoring and task conclusion tracking.
 
 ## Features (Roadmap)
 
@@ -87,18 +87,18 @@ Core infrastructure complete (Phase 1 ✅). PydanticAI agent fully integrated wi
 - ✅ Pydantic models for validation
 - ✅ 80%+ test coverage
 
-### Phase 2: AI Integration & Dependency Management ✅ 95% COMPLETE
+### Phase 2: AI Integration & Dependency Management ✅ COMPLETE
 
-🤖 **Conversational Task Management** (COMPLETE)
+🤖 **Conversational Task Management** ✅ COMPLETE
 
 - ✅ PydanticAI agent framework integrated
 - ✅ 11 agent tools registered (6 task management + 5 dependency tools)
 - ✅ Interactive `taskweaver chat` command
 - ✅ Production orchestrator prompt (1,161 lines, extensively optimised)
 - ✅ Dependency-aware task analysis
-- **Status:** Feature complete, ready for API integration testing
+- ✅ API integration tested and operational
 
-🔗 **Dependency Management** (COMPLETE - Phase 2)
+🔗 **Dependency Management** ✅ COMPLETE
 
 - ✅ Task blocking relationships (DAG structure)
 - ✅ Circular dependency detection using BFS algorithm
@@ -108,16 +108,33 @@ Core infrastructure complete (Phase 1 ✅). PydanticAI agent fully integrated wi
 - ✅ tasks_full database view with dependency metrics
 - ✅ CLI commands: `lso` (list open), `createDep`, `rmdep`, `blocker`
 - ✅ Comprehensive test suite (17 dependency tests, all passing)
-- **Status:** Complete and thoroughly tested
 
-🧠 **Intelligent Task Analysis**
+### Phase 3: Intelligence & Priority System 🚧 IN PROGRESS
+
+⚡ **Basic Priority System** (In Development)
+
+- Basic priority field (integer 1-5, default 3)
+- Priority-based task filtering and sorting
+- CLI support for setting and viewing priorities
+- Agent tool integration for priority management
+- **Status:** Implementation in progress
+
+📝 **Task Conclusions** (In Development)
+
+- Conclusion field for task completion reflections
+- Learning capture (what was learned from completing tasks)
+- CLI support for adding conclusions
+- Agent integration for prompting conclusions
+- **Status:** Implementation in progress
+
+🧠 **Intelligent Task Analysis** (Planned - Phase 4)
 
 - Automatic decomposition of complex tasks into subtasks
 - Skill gap detection based on Dreyfus model
 - Multi-criteria priority scoring (MCDA)
 - **Status:** Not yet implemented
 
-📊 **Adaptive System**
+📊 **Adaptive System** (Planned - Phase 4)
 - Learns your preferences from task completion patterns
 - Updates skill assessments based on demonstrated capabilities
 - Adjusts scoring over time
