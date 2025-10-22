@@ -194,10 +194,25 @@ def chat(db_path: Annotated[Path, typer.Option("--db", help="Database file path"
     run_chat(CliChatHandler(), db_path)
 
 
-@app.command(name="restartDB", help="Initiates the DB even if it already exists.")
-def restart(db_path: Annotated[Path, typer.Option("--db", help="Database file path")] = DEFAULT_DB) -> None:
-    """Runs the DB Create."""
+@app.command(name="restartDB", help="Reinitialize database schema (optionally delete existing data).")
+def restart(
+    db_path: Annotated[Path, typer.Option("--db", help="Database file path")] = DEFAULT_DB,
+    delete: Annotated[
+        bool, typer.Option("--delete", "-d", help="Delete existing database before reinitializing")
+    ] = False,
+) -> None:
+    """Reinitialize database schema.
+
+    By default, reinitializes schema without deleting existing data.
+    Use --delete to remove the database file first (all data will be lost).
+    """
+    if delete and db_path.exists():
+        console.print(f"[yellow]Deleting existing database: {db_path}[/yellow]")
+        db_path.unlink()
+        console.print("[green]Database deleted[/green]")
+
     init_database(db_path=db_path)
+    console.print(f"[green]✅ Database initialized: {db_path}[/green]")
 
 
 @app.command(name="createDep", help="Creates a dependency between two tasks")
