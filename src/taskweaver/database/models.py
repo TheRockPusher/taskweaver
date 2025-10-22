@@ -38,6 +38,26 @@ class Task(BaseModel):
         use_enum_values=True,  # Store enum values, not names
     )
 
+    @property
+    def priority(self) -> float:
+        """Calculate priority score as value per minute (llm_value / duration_min).
+
+        Higher priority = higher value delivered per minute of effort.
+
+        Returns:
+            Priority score (higher is better). Ranges from ~0.004 (value=1, duration=240min)
+            to 10.0 (value=10, duration=1min).
+
+        Example:
+            >>> task = Task(title="Quick win", duration_min=30, llm_value=9.0, requirement="Done")
+            >>> task.priority
+            0.3  # High value, short duration = good priority
+            >>> task2 = Task(title="Long grind", duration_min=240, llm_value=3.0, requirement="Done")
+            >>> task2.priority
+            0.0125  # Low value, long duration = poor priority
+        """
+        return self.llm_value / self.duration_min
+
 
 class TaskCreate(BaseModel):
     """Model for creating new tasks."""

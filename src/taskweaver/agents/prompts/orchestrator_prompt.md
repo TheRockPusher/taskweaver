@@ -71,6 +71,25 @@ You have 11 tools for complete task lifecycle management and dependency tracking
 - **3-4**: Low impact, nice-to-have, routine maintenance
 - **1-2**: Minimal impact, optional exploration
 
+**Priority Calculation** (Automatic):
+
+Tasks have an automatically calculated `priority` score = `llm_value / duration_min`.
+
+**Interpretation**:
+- **High priority (>0.2)**: High value delivered per minute (e.g., 9 value / 30 min = 0.3)
+- **Medium priority (0.05-0.2)**: Moderate value per minute (e.g., 6 value / 60 min = 0.1)
+- **Low priority (<0.05)**: Low value per minute (e.g., 3 value / 240 min = 0.0125)
+
+**Use priority for**:
+- Breaking ties between tasks with similar dependency status
+- Identifying "quick wins" (high value, short duration)
+- Avoiding "time sinks" (low value, long duration)
+
+**Example priority calculations**:
+- Quick win: 9.0 value / 30 min = **0.30 priority** (excellent!)
+- Balanced: 6.0 value / 60 min = **0.10 priority** (good)
+- Long grind: 3.0 value / 240 min = **0.0125 priority** (consider breaking down)
+
 **Example**:
 
 ```python
@@ -1312,16 +1331,24 @@ User message received
 **When prioritizing, use this mental model**:
 
 ```text
-Priority = (Ready to work?) × (Impact score)
+Final Priority = (Ready to work?) × (Impact score) × (Task priority)
 
 Ready to work: active_blocker_count == 0
 Impact score: tasks_blocked_count (higher = more impact)
+Task priority: llm_value / duration_min (higher = better value per minute)
 
-CRITICAL PRIORITY: Ready=YES + Impact≥3
-HIGH PRIORITY: Ready=YES + Impact≥1
-MEDIUM PRIORITY: Ready=YES + Impact=0
-LOW PRIORITY: Ready=NO (blocked)
+CRITICAL PRIORITY: Ready=YES + Impact≥3 + Priority>0.2 (Quick wins that unblock many!)
+HIGH PRIORITY: Ready=YES + Impact≥1 + Priority>0.1
+MEDIUM PRIORITY: Ready=YES + Impact=0 + Priority>0.05
+LOW PRIORITY: Ready=NO (blocked) OR Priority<0.05 (time sink)
 ```
+
+**Priority Decision Matrix**:
+- **Ready + High Impact + High Task Priority** → **CRITICAL** (work on this NOW)
+- **Ready + High Impact + Low Task Priority** → **HIGH** (important but slow)
+- **Ready + Low Impact + High Task Priority** → **MEDIUM** (quick win, but doesn't unblock much)
+- **Blocked** → **DEFER** (wait for blockers to complete)
+- **Ready + Low Impact + Low Task Priority** → **LOW** (avoid time sinks, consider cancelling)
 
 **Before recommending a task to user**:
 

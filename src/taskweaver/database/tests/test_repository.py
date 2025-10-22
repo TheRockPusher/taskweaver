@@ -210,3 +210,38 @@ def test_auto_initialize_database(tmp_path: Path) -> None:
     retrieved = repo.get_task(task.task_id)
     assert retrieved is not None
     assert retrieved.task_id == task.task_id
+
+
+def test_task_priority_calculation(task_repo: TaskRepository) -> None:
+    """Test that priority is correctly calculated as llm_value / duration_min."""
+    # High value, short duration = high priority
+    quick_win = task_repo.create_task(
+        TaskCreate(title="Quick win", duration_min=30, llm_value=9.0, requirement="Complete fast task")
+    )
+    assert quick_win.priority == 9.0 / 30  # 0.3
+
+    # Low value, long duration = low priority
+    long_grind = task_repo.create_task(
+        TaskCreate(title="Long grind", duration_min=240, llm_value=3.0, requirement="Complete slow task")
+    )
+    assert long_grind.priority == 3.0 / 240  # 0.0125
+
+    # Verify priority changes when updating duration or value
+    task_data = TaskCreate(title="Adjustable task", duration_min=60, llm_value=6.0, requirement="Initial requirement")
+    task = task_repo.create_task(task_data)
+    initial_priority = task.priority
+    assert initial_priority == 6.0 / 60  # 0.1
+
+    # Update duration - priority should change
+    updated_task = task_repo.update_task(task.task_id, TaskUpdate(duration_min=30))
+    assert updated_task.priority == 6.0 / 30  # 0.2 (doubled because duration halved)
+
+    # Update value - priority should change
+    updated_task = task_repo.update_task(task.task_id, TaskUpdate(llm_value=9.0))
+    assert updated_task.priority == 9.0 / 30  # 0.3
+
+    # Edge case: minimum duration (1 minute)
+    max_priority_task = task_repo.create_task(
+        TaskCreate(title="Ultra priority", duration_min=1, llm_value=10.0, requirement="Instant win")
+    )
+    assert max_priority_task.priority == 10.0  # Maximum possible priority
