@@ -71,18 +71,19 @@ def get_orchestrator_agent() -> Agent[TaskDependencies, str]:
         system_prompt=system_prompt,
     )
 
-    # Register tools
-    agent.tool(create_task_tool)
-    agent.tool(list_tasks_tool)
-    agent.tool(mark_task_completed_tool)
-    agent.tool(mark_task_in_progress_tool)
-    agent.tool(mark_task_cancelled_tool)
-    agent.tool(get_task_details_tool)
-    agent.tool(list_open_tasks_dep_count_tool)
-    agent.tool(add_dependency_tool)
-    agent.tool(remove_dependency_tool)
-    agent.tool(get_blocked_tool)
-    agent.tool(get_blockers_tool)
+    # Register tools with retry limits
+    # Tools that can fail with recoverable errors get 2 retries (3 attempts total)
+    agent.tool(create_task_tool, retries=2)
+    agent.tool(list_tasks_tool)  # No retries needed (read-only, always succeeds)
+    agent.tool(mark_task_completed_tool, retries=2)
+    agent.tool(mark_task_in_progress_tool, retries=2)
+    agent.tool(mark_task_cancelled_tool, retries=2)
+    agent.tool(get_task_details_tool)  # No retries needed (read-only)
+    agent.tool(list_open_tasks_dep_count_tool)  # No retries needed (read-only)
+    agent.tool(add_dependency_tool, retries=2)
+    agent.tool(remove_dependency_tool, retries=2)
+    agent.tool(get_blocked_tool)  # No retries needed (read-only)
+    agent.tool(get_blockers_tool)  # No retries needed (read-only)
 
     return agent
 
