@@ -67,7 +67,7 @@ def get_orchestrator_agent() -> Agent[TaskDependencies, str]:
         model_name = f"openai:{model_name}"
 
     # Toolset 1: Task Management CRUD
-    task_toolset: FunctionToolset[TaskDependencies] = FunctionToolset(
+    task_toolset = FunctionToolset(
         tools=[
             create_task_tool,
             list_tasks_tool,
