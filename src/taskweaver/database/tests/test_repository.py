@@ -5,8 +5,9 @@ from uuid import uuid4
 
 import pytest
 
+from taskweaver.database.dependency_repository import TaskDependencyRepository
 from taskweaver.database.exceptions import TaskNotFoundError
-from taskweaver.database.models import TaskCreate, TaskStatus, TaskUpdate
+from taskweaver.database.models import TaskCreate, TaskStatus, TaskUpdate, TaskWithDependencies, TaskWithPriority
 from taskweaver.database.repository import TaskRepository
 
 
@@ -246,3 +247,218 @@ def test_task_priority_calculation(task_repo: TaskRepository) -> None:
     )
     max_prio = 10.0
     assert max_priority_task.priority == max_prio  # Maximum possible priority
+
+
+def test_task_with_dependencies_is_blocked() -> None:
+    """Test TaskWithDependencies.is_blocked property."""
+    # Task with no blockers
+    unblocked_task = TaskWithDependencies(
+        title="Unblocked task",
+        duration_min=30,
+        llm_value=5.0,
+        requirement="No blockers",
+        active_blocker_count=0,
+    )
+    assert unblocked_task.is_blocked is False
+
+    # Task with active blockers
+    blocked_task = TaskWithDependencies(
+        title="Blocked task",
+        duration_min=30,
+        llm_value=5.0,
+        requirement="Has blockers",
+        active_blocker_count=2,
+    )
+    assert blocked_task.is_blocked is True
+
+
+def test_task_with_dependencies_is_blocking_others() -> None:
+    """Test TaskWithDependencies.is_blocking_others property."""
+    # Task blocking no others
+    non_blocking_task = TaskWithDependencies(
+        title="Non-blocking task",
+        duration_min=30,
+        llm_value=5.0,
+        requirement="Blocks nothing",
+        tasks_blocked_count=0,
+    )
+    assert non_blocking_task.is_blocking_others is False
+
+    # Task blocking others
+    blocking_task = TaskWithDependencies(
+        title="Blocking task",
+        duration_min=30,
+        llm_value=5.0,
+        requirement="Blocks others",
+        tasks_blocked_count=3,
+    )
+    assert blocking_task.is_blocking_others is True
+
+
+def test_effective_priority_no_dependencies(task_repo: TaskRepository) -> None:
+    """Test effective priority equals intrinsic when no dependencies."""
+    dep_repo = TaskDependencyRepository(task_repo.db_path)
+
+    task = task_repo.create_task(
+        TaskCreate(title="Solo task", duration_min=60, llm_value=6.0, requirement="Test requirement")
+    )
+
+    priorities = dep_repo.calculate_effective_priorities()
+    effective = priorities[task.task_id]
+
+    # No dependencies = effective priority equals intrinsic
+    assert effective == task.priority  # 6.0 / 60 = 0.1
+
+
+def test_effective_priority_inherits_from_blocked_task(task_repo: TaskRepository) -> None:
+    """Test that blocker inherits priority from high-priority blocked task."""
+    dep_repo = TaskDependencyRepository(task_repo.db_path)
+
+    # Low priority blocker
+    blocker = task_repo.create_task(
+        TaskCreate(title="Setup CI", duration_min=120, llm_value=3.0, requirement="Test requirement")
+    )
+    # blocker.priority = 3.0 / 120 = 0.025
+
+    # High priority task blocked by blocker
+    blocked = task_repo.create_task(
+        TaskCreate(title="Fix critical bug", duration_min=30, llm_value=9.0, requirement="Test requirement")
+    )
+    # blocked.priority = 9.0 / 30 = 0.3
+
+    # Create dependency: blocked is blocked by blocker
+    dep_repo.add_dependency(blocked.task_id, blocker.task_id)
+
+    # Blocker should inherit high priority from blocked task
+    priorities = dep_repo.calculate_effective_priorities()
+    effective = priorities[blocker.task_id]
+    assert effective == 0.3  # noqa: PLR2004 - Inherited from blocked task
+    assert effective > blocker.priority  # 0.3 > 0.025
+
+
+def test_effective_priority_chain_inheritance(task_repo: TaskRepository) -> None:
+    """Test priority inheritance through chain: A blocks B blocks C."""
+    dep_repo = TaskDependencyRepository(task_repo.db_path)
+
+    # Task A: Low priority (0.05)
+    task_a = task_repo.create_task(
+        TaskCreate(title="Task A", duration_min=100, llm_value=5.0, requirement="Test requirement")
+    )
+
+    # Task B: Medium priority (0.07)
+    task_b = task_repo.create_task(
+        TaskCreate(title="Task B", duration_min=100, llm_value=7.0, requirement="Test requirement")
+    )
+
+    # Task C: High priority (0.10)
+    task_c = task_repo.create_task(
+        TaskCreate(title="Task C", duration_min=100, llm_value=10.0, requirement="Test requirement")
+    )
+
+    # Chain: A blocks B blocks C
+    dep_repo.add_dependency(task_b.task_id, task_a.task_id)
+    dep_repo.add_dependency(task_c.task_id, task_b.task_id)
+
+    # A should inherit C's priority through B
+    priorities = dep_repo.calculate_effective_priorities()
+    effective_a = priorities[task_a.task_id]
+    effective_b = priorities[task_b.task_id]
+    effective_c = priorities[task_c.task_id]
+
+    assert effective_c == 0.1  # noqa: PLR2004 - C keeps its own priority (10.0/100)
+    assert effective_b == 0.1  # noqa: PLR2004 - B inherits from C
+    assert effective_a == 0.1  # noqa: PLR2004 - A inherits through chain
+
+
+def test_effective_priority_batch_calculation(task_repo: TaskRepository) -> None:
+    """Test batch calculation of all priorities in one pass."""
+    dep_repo = TaskDependencyRepository(task_repo.db_path)
+
+    # Create two tasks
+    blocker = task_repo.create_task(
+        TaskCreate(title="Blocker", duration_min=100, llm_value=10.0, requirement="Test requirement")
+    )
+    blocked = task_repo.create_task(
+        TaskCreate(title="Blocked", duration_min=50, llm_value=10.0, requirement="Test requirement")
+    )
+
+    dep_repo.add_dependency(blocked.task_id, blocker.task_id)
+
+    # Calculate all priorities at once
+    priorities = dep_repo.calculate_effective_priorities()
+
+    # Both tasks should be in result
+    assert blocker.task_id in priorities
+    assert blocked.task_id in priorities
+
+    # Blocker inherits from blocked
+    assert priorities[blocker.task_id] == 0.2  # noqa: PLR2004 - 10.0/50
+    assert priorities[blocked.task_id] == 0.2  # noqa: PLR2004 - Its own priority
+
+
+def test_effective_priority_multiple_blocked_tasks(task_repo: TaskRepository) -> None:
+    """Test blocker inherits max priority when blocking multiple tasks."""
+    dep_repo = TaskDependencyRepository(task_repo.db_path)
+
+    # One blocker
+    blocker = task_repo.create_task(
+        TaskCreate(title="Blocker", duration_min=100, llm_value=5.0, requirement="Test requirement")
+    )  # priority = 0.05
+
+    # Three blocked tasks with different priorities
+    blocked1 = task_repo.create_task(
+        TaskCreate(title="Blocked 1", duration_min=200, llm_value=10.0, requirement="Test requirement")
+    )  # priority = 0.05
+
+    blocked2 = task_repo.create_task(
+        TaskCreate(title="Blocked 2", duration_min=50, llm_value=10.0, requirement="Test requirement")
+    )  # priority = 0.20
+
+    blocked3 = task_repo.create_task(
+        TaskCreate(title="Blocked 3", duration_min=100, llm_value=10.0, requirement="Test requirement")
+    )  # priority = 0.10
+
+    # All blocked by same blocker
+    dep_repo.add_dependency(blocked1.task_id, blocker.task_id)
+    dep_repo.add_dependency(blocked2.task_id, blocker.task_id)
+    dep_repo.add_dependency(blocked3.task_id, blocker.task_id)
+
+    # Blocker should inherit max priority (0.20 from blocked2)
+    priorities = dep_repo.calculate_effective_priorities()
+    effective = priorities[blocker.task_id]
+    assert effective == 0.2  # noqa: PLR2004
+
+
+def test_list_tasks_with_priority(task_repo: TaskRepository) -> None:
+    """Test listing tasks with TaskWithPriority model."""
+    dep_repo = TaskDependencyRepository(task_repo.db_path)
+
+    # Create tasks
+    blocker = task_repo.create_task(
+        TaskCreate(title="Blocker", duration_min=100, llm_value=5.0, requirement="Test requirement")
+    )
+    blocked = task_repo.create_task(
+        TaskCreate(title="Blocked", duration_min=50, llm_value=10.0, requirement="Test requirement")
+    )
+
+    dep_repo.add_dependency(blocked.task_id, blocker.task_id)
+
+    # Get all tasks with priorities
+    tasks_with_priority = dep_repo.list_tasks_with_priority()
+
+    # Should return TaskWithPriority instances
+    assert len(tasks_with_priority) == 2  # noqa: PLR2004
+    assert all(isinstance(t, TaskWithPriority) for t in tasks_with_priority)
+
+    # Find blocker task
+    blocker_enriched = next(t for t in tasks_with_priority if t.task_id == blocker.task_id)
+
+    # Should have all fields
+    assert blocker_enriched.task_id == blocker.task_id
+    assert blocker_enriched.tasks_blocked_count == 1  # Blocks 1 task
+    assert blocker_enriched.active_blocker_count == 0  # Not blocked
+    assert blocker_enriched.priority == 0.05  # noqa: PLR2004 - Intrinsic
+    assert blocker_enriched.effective_priority == 0.2  # noqa: PLR2004 - Inherited from blocked
+
+    # Can easily compare intrinsic vs effective
+    assert blocker_enriched.effective_priority > blocker_enriched.priority

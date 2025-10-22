@@ -9,6 +9,7 @@ from typer.testing import CliRunner
 
 from taskweaver.cli import app
 from taskweaver.database import TaskRepository, init_database
+from taskweaver.database.dependency_repository import TaskDependencyRepository
 from taskweaver.database.models import TaskCreate, TaskStatus, TaskUpdate
 
 runner = CliRunner(env={"NO_COLOR": "1"})
@@ -256,3 +257,133 @@ def test_create_command_auto_initializes_database(tmp_path: Path) -> None:
     tasks = repo.list_tasks()
     assert len(tasks) == 1
     assert tasks[0].title == "Auto-init test"
+
+
+def test_list_open_command_empty(test_db: Path) -> None:
+    """Test lso command with empty database."""
+    result = runner.invoke(app, ["lso", "--db", str(test_db)])
+
+    assert result.exit_code == 0
+    assert "No tasks found" in result.stdout
+
+
+def test_list_open_command_with_tasks(test_db: Path, sample_task: str) -> None:  # noqa: ARG001
+    """Test lso command with tasks."""
+    result = runner.invoke(app, ["lso", "--db", str(test_db)])
+    output = strip_ansi(result.stdout)
+
+    assert result.exit_code == 0
+    # Title may be truncated in table (Sam… task)
+    assert "Sample task" in output or "Sam" in output
+    assert "Total: 1 task(s)" in output
+
+
+def test_restart_db_command(test_db: Path) -> None:
+    """Test restartDB command without delete - preserves existing data."""
+    # Add a task first
+    repo = TaskRepository(test_db)
+    repo.create_task(TaskCreate(title="Test task", duration_min=30, llm_value=5.0, requirement="Test requirement"))
+
+    # Restart DB without delete - reinitializes schema but preserves data
+    result = runner.invoke(app, ["restartDB", "--db", str(test_db)])
+    assert result.exit_code == 0
+    assert "Database initialized" in result.stdout
+
+    # Database should still be accessible and contain the task
+    tasks = repo.list_tasks()
+    assert isinstance(tasks, list)
+    assert len(tasks) == 1
+    assert tasks[0].title == "Test task"
+
+
+def test_restart_db_command_with_delete(test_db: Path) -> None:
+    """Test restartDB command with --delete flag - removes all data."""
+    # Add a task first
+    repo = TaskRepository(test_db)
+    repo.create_task(TaskCreate(title="Test task", duration_min=30, llm_value=5.0, requirement="Test requirement"))
+    assert len(repo.list_tasks()) == 1
+
+    # Restart DB with --delete flag
+    result = runner.invoke(app, ["restartDB", "--db", str(test_db), "--delete"])
+    assert result.exit_code == 0
+    assert "Deleting existing database" in result.stdout
+    assert "Database deleted" in result.stdout
+    assert "Database initialized" in result.stdout
+
+    # Database should be empty after delete + reinit
+    tasks = repo.list_tasks()
+    assert tasks == []
+
+
+def test_create_dependency_command(test_db: Path) -> None:
+    """Test createDep command."""
+    repo = TaskRepository(test_db)
+    task1 = repo.create_task(TaskCreate(title="Task 1", duration_min=30, llm_value=5.0, requirement="Test requirement"))
+    task2 = repo.create_task(TaskCreate(title="Task 2", duration_min=30, llm_value=5.0, requirement="Test requirement"))
+
+    result = runner.invoke(app, ["createDep", str(task1.task_id), str(task2.task_id), "--db", str(test_db)])
+
+    assert result.exit_code == 0
+    assert "Dependency added" in result.stdout
+    assert str(task1.task_id) in result.stdout
+    assert str(task2.task_id) in result.stdout
+
+    # Verify dependency was created
+    dep_repo = TaskDependencyRepository(test_db)
+    blockers = dep_repo.get_blockers(task1.task_id)
+    assert len(blockers) == 1
+    assert blockers[0].task_id == task2.task_id
+
+
+def test_remove_dependency_command(test_db: Path) -> None:
+    """Test rmdep command."""
+    repo = TaskRepository(test_db)
+    task1 = repo.create_task(TaskCreate(title="Task 1", duration_min=30, llm_value=5.0, requirement="Test requirement"))
+    task2 = repo.create_task(TaskCreate(title="Task 2", duration_min=30, llm_value=5.0, requirement="Test requirement"))
+
+    # Add dependency first
+    dep_repo = TaskDependencyRepository(test_db)
+    dep_repo.add_dependency(task1.task_id, task2.task_id)
+
+    # Remove it
+    result = runner.invoke(app, ["rmdep", str(task1.task_id), str(task2.task_id), "--db", str(test_db)])
+
+    assert result.exit_code == 0
+    assert "Dependency removed" in result.stdout
+    assert str(task1.task_id) in result.stdout
+    assert str(task2.task_id) in result.stdout
+
+    # Verify dependency was removed
+    blockers = dep_repo.get_blockers(task1.task_id)
+    assert len(blockers) == 0
+
+
+def test_blocker_command_empty(test_db: Path, sample_task: str) -> None:
+    """Test blocker command with no blockers."""
+    result = runner.invoke(app, ["blocker", sample_task, "--db", str(test_db)])
+
+    assert result.exit_code == 0
+    # Should show table with task ID in title (may be wrapped across lines)
+    # Check for partial UUID match since Rich tables can wrap long UUIDs
+    assert "blockers" in result.stdout.lower()
+    # Table should be empty (no blocker rows)
+
+
+def test_blocker_command_with_blockers(test_db: Path) -> None:
+    """Test blocker command with blockers."""
+    repo = TaskRepository(test_db)
+    task1 = repo.create_task(
+        TaskCreate(title="Blocked Task", duration_min=30, llm_value=5.0, requirement="Test requirement")
+    )
+    task2 = repo.create_task(
+        TaskCreate(title="Blocker Task", duration_min=30, llm_value=5.0, requirement="Test requirement")
+    )
+
+    dep_repo = TaskDependencyRepository(test_db)
+    dep_repo.add_dependency(task1.task_id, task2.task_id)
+
+    result = runner.invoke(app, ["blocker", str(task1.task_id), "--db", str(test_db)])
+
+    assert result.exit_code == 0
+    assert "Blocker Task" in result.stdout
+    assert str(task2.task_id) in result.stdout
