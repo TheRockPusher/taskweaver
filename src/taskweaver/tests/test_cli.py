@@ -38,7 +38,7 @@ def sample_task(test_db: Path) -> str:
             title="Sample task",
             description="Sample description",
             duration_min=30,
-            llm_value=5.0,
+            llm_value=50.0,
             requirement="Test requirement",
         )
     )
@@ -123,8 +123,8 @@ def test_list_command_with_tasks(test_db: Path, sample_task: str) -> None:  # no
 def test_list_command_filter_by_status(test_db: Path) -> None:
     """Test list command with status filter."""
     repo = TaskRepository(test_db)
-    repo.create_task(TaskCreate(title="Pending task", duration_min=30, llm_value=5.0, requirement="Test requirement"))
-    task = repo.create_task(TaskCreate(title="Active", duration_min=30, llm_value=5.0, requirement="Test requirement"))
+    repo.create_task(TaskCreate(title="Pending task", duration_min=30, llm_value=50.0, requirement="Test requirement"))
+    task = repo.create_task(TaskCreate(title="Active", duration_min=30, llm_value=50.0, requirement="Test requirement"))
     repo.update_task(task.task_id, TaskUpdate(status=TaskStatus.IN_PROGRESS))
 
     result = runner.invoke(app, ["ls", "-s", "in_progress", "--db", str(test_db)])
@@ -282,7 +282,7 @@ def test_restart_db_command(test_db: Path) -> None:
     """Test restartDB command without delete - preserves existing data."""
     # Add a task first
     repo = TaskRepository(test_db)
-    repo.create_task(TaskCreate(title="Test task", duration_min=30, llm_value=5.0, requirement="Test requirement"))
+    repo.create_task(TaskCreate(title="Test task", duration_min=30, llm_value=50.0, requirement="Test requirement"))
 
     # Restart DB without delete - reinitializes schema but preserves data
     result = runner.invoke(app, ["restartDB", "--db", str(test_db)])
@@ -300,7 +300,7 @@ def test_restart_db_command_with_delete(test_db: Path) -> None:
     """Test restartDB command with --delete flag - removes all data."""
     # Add a task first
     repo = TaskRepository(test_db)
-    repo.create_task(TaskCreate(title="Test task", duration_min=30, llm_value=5.0, requirement="Test requirement"))
+    repo.create_task(TaskCreate(title="Test task", duration_min=30, llm_value=50.0, requirement="Test requirement"))
     assert len(repo.list_tasks()) == 1
 
     # Restart DB with --delete flag
@@ -318,8 +318,12 @@ def test_restart_db_command_with_delete(test_db: Path) -> None:
 def test_create_dependency_command(test_db: Path) -> None:
     """Test createDep command."""
     repo = TaskRepository(test_db)
-    task1 = repo.create_task(TaskCreate(title="Task 1", duration_min=30, llm_value=5.0, requirement="Test requirement"))
-    task2 = repo.create_task(TaskCreate(title="Task 2", duration_min=30, llm_value=5.0, requirement="Test requirement"))
+    task1 = repo.create_task(
+        TaskCreate(title="Task 1", duration_min=30, llm_value=50.0, requirement="Test requirement")
+    )
+    task2 = repo.create_task(
+        TaskCreate(title="Task 2", duration_min=30, llm_value=50.0, requirement="Test requirement")
+    )
 
     result = runner.invoke(app, ["createDep", str(task1.task_id), str(task2.task_id), "--db", str(test_db)])
 
@@ -338,8 +342,12 @@ def test_create_dependency_command(test_db: Path) -> None:
 def test_remove_dependency_command(test_db: Path) -> None:
     """Test rmdep command."""
     repo = TaskRepository(test_db)
-    task1 = repo.create_task(TaskCreate(title="Task 1", duration_min=30, llm_value=5.0, requirement="Test requirement"))
-    task2 = repo.create_task(TaskCreate(title="Task 2", duration_min=30, llm_value=5.0, requirement="Test requirement"))
+    task1 = repo.create_task(
+        TaskCreate(title="Task 1", duration_min=30, llm_value=50.0, requirement="Test requirement")
+    )
+    task2 = repo.create_task(
+        TaskCreate(title="Task 2", duration_min=30, llm_value=50.0, requirement="Test requirement")
+    )
 
     # Add dependency first
     dep_repo = TaskDependencyRepository(test_db)
@@ -373,10 +381,10 @@ def test_blocker_command_with_blockers(test_db: Path) -> None:
     """Test blocker command with blockers."""
     repo = TaskRepository(test_db)
     task1 = repo.create_task(
-        TaskCreate(title="Blocked Task", duration_min=30, llm_value=5.0, requirement="Test requirement")
+        TaskCreate(title="Blocked Task", duration_min=30, llm_value=50.0, requirement="Test requirement")
     )
     task2 = repo.create_task(
-        TaskCreate(title="Blocker Task", duration_min=30, llm_value=5.0, requirement="Test requirement")
+        TaskCreate(title="Blocker Task", duration_min=30, llm_value=50.0, requirement="Test requirement")
     )
 
     dep_repo = TaskDependencyRepository(test_db)

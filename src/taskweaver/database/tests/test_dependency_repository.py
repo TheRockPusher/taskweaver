@@ -19,16 +19,16 @@ def tasks(task_repo: TaskRepository) -> dict[str, UUID]:
     """
     return {
         "A": task_repo.create_task(
-            TaskCreate(title="Task A", duration_min=30, llm_value=5.0, requirement="Test requirement")
+            TaskCreate(title="Task A", duration_min=30, llm_value=50.0, requirement="Test requirement")
         ).task_id,
         "B": task_repo.create_task(
-            TaskCreate(title="Task B", duration_min=30, llm_value=5.0, requirement="Test requirement")
+            TaskCreate(title="Task B", duration_min=30, llm_value=50.0, requirement="Test requirement")
         ).task_id,
         "C": task_repo.create_task(
-            TaskCreate(title="Task C", duration_min=30, llm_value=5.0, requirement="Test requirement")
+            TaskCreate(title="Task C", duration_min=30, llm_value=50.0, requirement="Test requirement")
         ).task_id,
         "D": task_repo.create_task(
-            TaskCreate(title="Task D", duration_min=30, llm_value=5.0, requirement="Test requirement")
+            TaskCreate(title="Task D", duration_min=30, llm_value=50.0, requirement="Test requirement")
         ).task_id,
     }
 

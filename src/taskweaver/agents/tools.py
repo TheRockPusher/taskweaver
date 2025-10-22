@@ -43,7 +43,7 @@ def create_task_tool(  # noqa: PLR0913
         ctx: Runtime context containing TaskDependencies.
         title: Task title (1-500 characters). Be specific and actionable.
         duration_min: Estimated duration in minutes (must be >= 1).
-        llm_value: LLM-assigned value score (0-10 scale).
+        llm_value: LLM-assigned value score (0-100 scale).
         requirement: Task requirement or conclusion field (1-500 characters).
         description: Optional task description for context.
 
@@ -54,7 +54,7 @@ def create_task_tool(  # noqa: PLR0913
         ModelRetry: If validation fails. LLM receives error and can retry.
 
     Example:
-        >>> create_task_tool(ctx, "Build login feature", 120, 8.5, "OAuth2 implementation", "Implement OAuth2")
+        >>> create_task_tool(ctx, "Build login feature", 120, 85.0, "OAuth2 implementation", "Implement OAuth2")
         "✅ Created task 'Build login feature' (ID: 123e4567-...)"
     """
     try:

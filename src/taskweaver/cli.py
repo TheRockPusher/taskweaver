@@ -31,7 +31,7 @@ DEFAULT_DB = get_paths().database_file
 def create(
     title: Annotated[str, typer.Argument(help="Task title")],
     duration_min: Annotated[int, typer.Option("--duration", "-t", help="Duration in minutes")],
-    llm_value: Annotated[float, typer.Option("--value", "-v", help="LLM value score (0-10)")],
+    llm_value: Annotated[float, typer.Option("--value", "-v", help="LLM value score (0-100)")],
     requirement: Annotated[str, typer.Option("--req", "-r", help="Task requirement/conclusion")],
     description: Annotated[str | None, typer.Option("--desc", "-d", help="Task description")] = None,
     db_path: Annotated[Path, typer.Option("--db", help="Database file path")] = DEFAULT_DB,
@@ -124,7 +124,7 @@ def update(
         typer.Option("--status", "-s", help="New status (pending/in_progress/completed/cancelled)"),
     ] = None,
     duration_min: Annotated[int | None, typer.Option("--duration", "-t", help="Duration in minutes")] = None,
-    llm_value: Annotated[float | None, typer.Option("--value", "-v", help="LLM value score (0-10)")] = None,
+    llm_value: Annotated[float | None, typer.Option("--value", "-v", help="LLM value score (0-100)")] = None,
     requirement: Annotated[str | None, typer.Option("--req", "-r", help="Task requirement/conclusion")] = None,
     db_path: Annotated[Path, typer.Option("--db", help="Database file path")] = DEFAULT_DB,
 ) -> None:

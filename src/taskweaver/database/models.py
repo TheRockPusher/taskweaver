@@ -31,7 +31,7 @@ class Task(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     duration_min: int = Field(ge=1)
-    llm_value: float = Field(ge=0, le=10)
+    llm_value: float = Field(ge=0, le=100, description="LLM-assigned value score (0-100)")
     requirement: str = Field(min_length=1, max_length=500)
 
     model_config = ConfigDict(
@@ -43,18 +43,19 @@ class Task(BaseModel):
         """Calculate priority score as value per minute (llm_value / duration_min).
 
         Higher priority = higher value delivered per minute of effort.
+        Uses CD3 (Cost of Delay Divided by Duration) from WSJF framework.
 
         Returns:
-            Priority score (higher is better). Ranges from ~0.004 (value=1, duration=240min)
-            to 10.0 (value=10, duration=1min).
+            Priority score (higher is better). Ranges from ~0.4 (value=1, duration=240min)
+            to 100.0 (value=100, duration=1min).
 
         Example:
-            >>> task = Task(title="Quick win", duration_min=30, llm_value=9.0, requirement="Done")
+            >>> task = Task(title="Quick win", duration_min=30, llm_value=90.0, requirement="Done")
             >>> task.priority
-            0.3  # High value, short duration = good priority
-            >>> task2 = Task(title="Long grind", duration_min=240, llm_value=3.0, requirement="Done")
+            3.0  # High value, short duration = good priority
+            >>> task2 = Task(title="Long grind", duration_min=240, llm_value=30.0, requirement="Done")
             >>> task2.priority
-            0.0125  # Low value, long duration = poor priority
+            0.125  # Low value, long duration = poor priority
         """
         return self.llm_value / self.duration_min
 
@@ -65,7 +66,7 @@ class TaskCreate(BaseModel):
     title: str = Field(min_length=1, max_length=500)
     description: str | None = None
     duration_min: int = Field(ge=1)
-    llm_value: float = Field(ge=0, le=10)
+    llm_value: float = Field(ge=0, le=100, description="LLM-assigned value score (0-100)")
     requirement: str = Field(min_length=1, max_length=500)
 
 
@@ -76,7 +77,7 @@ class TaskUpdate(BaseModel):
     description: str | None = None
     status: TaskStatus | None = None
     duration_min: int | None = Field(default=None, ge=1)
-    llm_value: float | None = Field(default=None, ge=0, le=10)
+    llm_value: float | None = Field(default=None, ge=0, le=100, description="LLM-assigned value score (0-100)")
     requirement: str | None = Field(default=None, min_length=1, max_length=500)
 
     model_config = ConfigDict(
@@ -136,16 +137,16 @@ class TaskWithPriority(TaskWithDependencies):
         >>> task = TaskWithPriority(
         ...     title="Setup CI/CD",
         ...     duration_min=120,
-        ...     llm_value=3.0,
+        ...     llm_value=30.0,
         ...     requirement="Setup pipeline",
         ...     tasks_blocked_count=1,
         ...     active_blocker_count=0,
-        ...     effective_priority=0.90
+        ...     effective_priority=9.0
         ... )
         >>> task.priority  # intrinsic
-        0.025
+        0.25
         >>> task.effective_priority  # inherited from downstream
-        0.90
+        9.0
     """
 
     effective_priority: float = Field(description="Effective priority considering DAG inheritance")

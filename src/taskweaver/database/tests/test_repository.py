@@ -17,7 +17,7 @@ def test_create_task(task_repo: TaskRepository) -> None:
         title="Test task",
         description="Test description",
         duration_min=30,
-        llm_value=5.0,
+        llm_value=50.0,
         requirement="Test requirement",
     )
     task = task_repo.create_task(task_data)
@@ -30,7 +30,7 @@ def test_create_task(task_repo: TaskRepository) -> None:
 
 def test_get_task_by_id(task_repo: TaskRepository) -> None:
     """Test retrieving task by ID."""
-    task_data = TaskCreate(title="Test task", duration_min=30, llm_value=5.0, requirement="Test requirement")
+    task_data = TaskCreate(title="Test task", duration_min=30, llm_value=50.0, requirement="Test requirement")
     created_task = task_repo.create_task(task_data)
 
     retrieved_task = task_repo.get_task(created_task.task_id)
@@ -48,9 +48,9 @@ def test_get_nonexistent_task(task_repo: TaskRepository) -> None:
 
 def test_list_all_tasks(task_repo: TaskRepository) -> None:
     """Test listing all tasks."""
-    task_repo.create_task(TaskCreate(title="Task 1", duration_min=30, llm_value=5.0, requirement="Test requirement"))
-    task_repo.create_task(TaskCreate(title="Task 2", duration_min=30, llm_value=5.0, requirement="Test requirement"))
-    task_repo.create_task(TaskCreate(title="Task 3", duration_min=30, llm_value=5.0, requirement="Test requirement"))
+    task_repo.create_task(TaskCreate(title="Task 1", duration_min=30, llm_value=50.0, requirement="Test requirement"))
+    task_repo.create_task(TaskCreate(title="Task 2", duration_min=30, llm_value=50.0, requirement="Test requirement"))
+    task_repo.create_task(TaskCreate(title="Task 3", duration_min=30, llm_value=50.0, requirement="Test requirement"))
 
     tasks = task_repo.list_tasks()
 
@@ -63,13 +63,13 @@ def test_list_all_tasks(task_repo: TaskRepository) -> None:
 def test_list_tasks_by_status(task_repo: TaskRepository) -> None:
     """Test filtering tasks by status."""
     task1 = task_repo.create_task(
-        TaskCreate(title="Task 1", duration_min=30, llm_value=5.0, requirement="Test requirement")
+        TaskCreate(title="Task 1", duration_min=30, llm_value=50.0, requirement="Test requirement")
     )
     task2 = task_repo.create_task(
-        TaskCreate(title="Task 2", duration_min=30, llm_value=5.0, requirement="Test requirement")
+        TaskCreate(title="Task 2", duration_min=30, llm_value=50.0, requirement="Test requirement")
     )
     task3 = task_repo.create_task(
-        TaskCreate(title="Task 3", duration_min=30, llm_value=5.0, requirement="Test requirement")
+        TaskCreate(title="Task 3", duration_min=30, llm_value=50.0, requirement="Test requirement")
     )
 
     # Mark some as completed
@@ -94,7 +94,7 @@ def test_list_tasks_by_status(task_repo: TaskRepository) -> None:
 
 def test_update_task(task_repo: TaskRepository) -> None:
     """Test updating a task."""
-    task_data = TaskCreate(title="Original title", duration_min=30, llm_value=5.0, requirement="Test requirement")
+    task_data = TaskCreate(title="Original title", duration_min=30, llm_value=50.0, requirement="Test requirement")
     created_task = task_repo.create_task(task_data)
 
     update_data = TaskUpdate(title="Updated title", status=TaskStatus.IN_PROGRESS)
@@ -117,7 +117,7 @@ def test_update_nonexistent_task(task_repo: TaskRepository) -> None:
 
 def test_mark_completed(task_repo: TaskRepository) -> None:
     """Test marking task as completed."""
-    task_data = TaskCreate(title="Task to complete", duration_min=30, llm_value=5.0, requirement="Test requirement")
+    task_data = TaskCreate(title="Task to complete", duration_min=30, llm_value=50.0, requirement="Test requirement")
     created_task = task_repo.create_task(task_data)
 
     updated_task = task_repo.mark_completed(created_task.task_id)
@@ -127,7 +127,7 @@ def test_mark_completed(task_repo: TaskRepository) -> None:
 
 def test_mark_in_progress(task_repo: TaskRepository) -> None:
     """Test marking task as in progress."""
-    task_data = TaskCreate(title="Task to start", duration_min=30, llm_value=5.0, requirement="Test requirement")
+    task_data = TaskCreate(title="Task to start", duration_min=30, llm_value=50.0, requirement="Test requirement")
     created_task = task_repo.create_task(task_data)
 
     updated_task = task_repo.mark_in_progress(created_task.task_id)
@@ -137,7 +137,7 @@ def test_mark_in_progress(task_repo: TaskRepository) -> None:
 
 def test_mark_cancelled(task_repo: TaskRepository) -> None:
     """Test marking task as cancelled."""
-    task_data = TaskCreate(title="Task to cancel", duration_min=30, llm_value=5.0, requirement="Test requirement")
+    task_data = TaskCreate(title="Task to cancel", duration_min=30, llm_value=50.0, requirement="Test requirement")
     created_task = task_repo.create_task(task_data)
 
     updated_task = task_repo.mark_cancelled(created_task.task_id)
@@ -147,7 +147,7 @@ def test_mark_cancelled(task_repo: TaskRepository) -> None:
 
 def test_delete_task(task_repo: TaskRepository) -> None:
     """Test deleting a task."""
-    task_data = TaskCreate(title="Task to delete", duration_min=30, llm_value=5.0, requirement="Test requirement")
+    task_data = TaskCreate(title="Task to delete", duration_min=30, llm_value=50.0, requirement="Test requirement")
     created_task = task_repo.create_task(task_data)
 
     task_repo.delete_task(created_task.task_id)
@@ -200,7 +200,7 @@ def test_auto_initialize_database(tmp_path: Path) -> None:
     repo = TaskRepository(db_path)
 
     # Create a task - should work without manual init
-    task_data = TaskCreate(title="Auto-init test", duration_min=30, llm_value=5.0, requirement="Test requirement")
+    task_data = TaskCreate(title="Auto-init test", duration_min=30, llm_value=50.0, requirement="Test requirement")
     task = repo.create_task(task_data)
 
     # Verify database was created and task exists
@@ -217,35 +217,35 @@ def test_task_priority_calculation(task_repo: TaskRepository) -> None:
     """Test that priority is correctly calculated as llm_value / duration_min."""
     # High value, short duration = high priority
     quick_win = task_repo.create_task(
-        TaskCreate(title="Quick win", duration_min=30, llm_value=9.0, requirement="Complete fast task")
+        TaskCreate(title="Quick win", duration_min=30, llm_value=90.0, requirement="Complete fast task")
     )
-    assert quick_win.priority == 9.0 / 30  # 0.3
+    assert quick_win.priority == 90.0 / 30  # 3.0
 
     # Low value, long duration = low priority
     long_grind = task_repo.create_task(
-        TaskCreate(title="Long grind", duration_min=240, llm_value=3.0, requirement="Complete slow task")
+        TaskCreate(title="Long grind", duration_min=240, llm_value=30.0, requirement="Complete slow task")
     )
-    assert long_grind.priority == 3.0 / 240  # 0.0125
+    assert long_grind.priority == 30.0 / 240  # 0.125
 
     # Verify priority changes when updating duration or value
-    task_data = TaskCreate(title="Adjustable task", duration_min=60, llm_value=6.0, requirement="Initial requirement")
+    task_data = TaskCreate(title="Adjustable task", duration_min=60, llm_value=60.0, requirement="Initial requirement")
     task = task_repo.create_task(task_data)
     initial_priority = task.priority
-    assert initial_priority == 6.0 / 60  # 0.1
+    assert initial_priority == 60.0 / 60  # 1.0
 
     # Update duration - priority should change
     updated_task = task_repo.update_task(task.task_id, TaskUpdate(duration_min=30))
-    assert updated_task.priority == 6.0 / 30  # 0.2 (doubled because duration halved)
+    assert updated_task.priority == 60.0 / 30  # 2.0 (doubled because duration halved)
 
     # Update value - priority should change
-    updated_task = task_repo.update_task(task.task_id, TaskUpdate(llm_value=9.0))
-    assert updated_task.priority == 9.0 / 30  # 0.3
+    updated_task = task_repo.update_task(task.task_id, TaskUpdate(llm_value=90.0))
+    assert updated_task.priority == 90.0 / 30  # 3.0
 
     # Edge case: minimum duration (1 minute)
     max_priority_task = task_repo.create_task(
-        TaskCreate(title="Ultra priority", duration_min=1, llm_value=10.0, requirement="Instant win")
+        TaskCreate(title="Ultra priority", duration_min=1, llm_value=100.0, requirement="Instant win")
     )
-    max_prio = 10.0
+    max_prio = 100.0
     assert max_priority_task.priority == max_prio  # Maximum possible priority
 
 
@@ -255,7 +255,7 @@ def test_task_with_dependencies_is_blocked() -> None:
     unblocked_task = TaskWithDependencies(
         title="Unblocked task",
         duration_min=30,
-        llm_value=5.0,
+        llm_value=50.0,
         requirement="No blockers",
         active_blocker_count=0,
     )
@@ -265,7 +265,7 @@ def test_task_with_dependencies_is_blocked() -> None:
     blocked_task = TaskWithDependencies(
         title="Blocked task",
         duration_min=30,
-        llm_value=5.0,
+        llm_value=50.0,
         requirement="Has blockers",
         active_blocker_count=2,
     )
@@ -278,7 +278,7 @@ def test_task_with_dependencies_is_blocking_others() -> None:
     non_blocking_task = TaskWithDependencies(
         title="Non-blocking task",
         duration_min=30,
-        llm_value=5.0,
+        llm_value=50.0,
         requirement="Blocks nothing",
         tasks_blocked_count=0,
     )
@@ -288,7 +288,7 @@ def test_task_with_dependencies_is_blocking_others() -> None:
     blocking_task = TaskWithDependencies(
         title="Blocking task",
         duration_min=30,
-        llm_value=5.0,
+        llm_value=50.0,
         requirement="Blocks others",
         tasks_blocked_count=3,
     )
@@ -300,14 +300,14 @@ def test_effective_priority_no_dependencies(task_repo: TaskRepository) -> None:
     dep_repo = TaskDependencyRepository(task_repo.db_path)
 
     task = task_repo.create_task(
-        TaskCreate(title="Solo task", duration_min=60, llm_value=6.0, requirement="Test requirement")
+        TaskCreate(title="Solo task", duration_min=60, llm_value=60.0, requirement="Test requirement")
     )
 
     priorities = dep_repo.calculate_effective_priorities()
     effective = priorities[task.task_id]
 
     # No dependencies = effective priority equals intrinsic
-    assert effective == task.priority  # 6.0 / 60 = 0.1
+    assert effective == task.priority  # 60.0 / 60 = 1.0
 
 
 def test_effective_priority_inherits_from_blocked_task(task_repo: TaskRepository) -> None:
@@ -316,15 +316,15 @@ def test_effective_priority_inherits_from_blocked_task(task_repo: TaskRepository
 
     # Low priority blocker
     blocker = task_repo.create_task(
-        TaskCreate(title="Setup CI", duration_min=120, llm_value=3.0, requirement="Test requirement")
+        TaskCreate(title="Setup CI", duration_min=120, llm_value=30.0, requirement="Test requirement")
     )
-    # blocker.priority = 3.0 / 120 = 0.025
+    # blocker.priority = 30.0 / 120 = 0.25
 
     # High priority task blocked by blocker
     blocked = task_repo.create_task(
-        TaskCreate(title="Fix critical bug", duration_min=30, llm_value=9.0, requirement="Test requirement")
+        TaskCreate(title="Fix critical bug", duration_min=30, llm_value=90.0, requirement="Test requirement")
     )
-    # blocked.priority = 9.0 / 30 = 0.3
+    # blocked.priority = 90.0 / 30 = 3.0
 
     # Create dependency: blocked is blocked by blocker
     dep_repo.add_dependency(blocked.task_id, blocker.task_id)
@@ -332,27 +332,27 @@ def test_effective_priority_inherits_from_blocked_task(task_repo: TaskRepository
     # Blocker should inherit high priority from blocked task
     priorities = dep_repo.calculate_effective_priorities()
     effective = priorities[blocker.task_id]
-    assert effective == 0.3  # noqa: PLR2004 - Inherited from blocked task
-    assert effective > blocker.priority  # 0.3 > 0.025
+    assert effective == 3.0  # noqa: PLR2004 - Inherited from blocked task
+    assert effective > blocker.priority  # 3.0 > 0.25
 
 
 def test_effective_priority_chain_inheritance(task_repo: TaskRepository) -> None:
     """Test priority inheritance through chain: A blocks B blocks C."""
     dep_repo = TaskDependencyRepository(task_repo.db_path)
 
-    # Task A: Low priority (0.05)
+    # Task A: Low priority (0.5)
     task_a = task_repo.create_task(
-        TaskCreate(title="Task A", duration_min=100, llm_value=5.0, requirement="Test requirement")
+        TaskCreate(title="Task A", duration_min=100, llm_value=50.0, requirement="Test requirement")
     )
 
-    # Task B: Medium priority (0.07)
+    # Task B: Medium priority (0.7)
     task_b = task_repo.create_task(
-        TaskCreate(title="Task B", duration_min=100, llm_value=7.0, requirement="Test requirement")
+        TaskCreate(title="Task B", duration_min=100, llm_value=70.0, requirement="Test requirement")
     )
 
-    # Task C: High priority (0.10)
+    # Task C: High priority (1.0)
     task_c = task_repo.create_task(
-        TaskCreate(title="Task C", duration_min=100, llm_value=10.0, requirement="Test requirement")
+        TaskCreate(title="Task C", duration_min=100, llm_value=100.0, requirement="Test requirement")
     )
 
     # Chain: A blocks B blocks C
@@ -365,9 +365,9 @@ def test_effective_priority_chain_inheritance(task_repo: TaskRepository) -> None
     effective_b = priorities[task_b.task_id]
     effective_c = priorities[task_c.task_id]
 
-    assert effective_c == 0.1  # noqa: PLR2004 - C keeps its own priority (10.0/100)
-    assert effective_b == 0.1  # noqa: PLR2004 - B inherits from C
-    assert effective_a == 0.1  # noqa: PLR2004 - A inherits through chain
+    assert effective_c == 1.0
+    assert effective_b == 1.0
+    assert effective_a == 1.0
 
 
 def test_effective_priority_batch_calculation(task_repo: TaskRepository) -> None:
@@ -376,10 +376,10 @@ def test_effective_priority_batch_calculation(task_repo: TaskRepository) -> None
 
     # Create two tasks
     blocker = task_repo.create_task(
-        TaskCreate(title="Blocker", duration_min=100, llm_value=10.0, requirement="Test requirement")
+        TaskCreate(title="Blocker", duration_min=100, llm_value=100.0, requirement="Test requirement")
     )
     blocked = task_repo.create_task(
-        TaskCreate(title="Blocked", duration_min=50, llm_value=10.0, requirement="Test requirement")
+        TaskCreate(title="Blocked", duration_min=50, llm_value=100.0, requirement="Test requirement")
     )
 
     dep_repo.add_dependency(blocked.task_id, blocker.task_id)
@@ -392,8 +392,8 @@ def test_effective_priority_batch_calculation(task_repo: TaskRepository) -> None
     assert blocked.task_id in priorities
 
     # Blocker inherits from blocked
-    assert priorities[blocker.task_id] == 0.2  # noqa: PLR2004 - 10.0/50
-    assert priorities[blocked.task_id] == 0.2  # noqa: PLR2004 - Its own priority
+    assert priorities[blocker.task_id] == 2.0  # noqa: PLR2004 - 100.0/50
+    assert priorities[blocked.task_id] == 2.0  # noqa: PLR2004 - Its own priority
 
 
 def test_effective_priority_multiple_blocked_tasks(task_repo: TaskRepository) -> None:
@@ -402,31 +402,31 @@ def test_effective_priority_multiple_blocked_tasks(task_repo: TaskRepository) ->
 
     # One blocker
     blocker = task_repo.create_task(
-        TaskCreate(title="Blocker", duration_min=100, llm_value=5.0, requirement="Test requirement")
-    )  # priority = 0.05
+        TaskCreate(title="Blocker", duration_min=100, llm_value=50.0, requirement="Test requirement")
+    )  # priority = 0.5
 
     # Three blocked tasks with different priorities
     blocked1 = task_repo.create_task(
-        TaskCreate(title="Blocked 1", duration_min=200, llm_value=10.0, requirement="Test requirement")
-    )  # priority = 0.05
+        TaskCreate(title="Blocked 1", duration_min=200, llm_value=100.0, requirement="Test requirement")
+    )  # priority = 0.5
 
     blocked2 = task_repo.create_task(
-        TaskCreate(title="Blocked 2", duration_min=50, llm_value=10.0, requirement="Test requirement")
-    )  # priority = 0.20
+        TaskCreate(title="Blocked 2", duration_min=50, llm_value=100.0, requirement="Test requirement")
+    )  # priority = 2.0
 
     blocked3 = task_repo.create_task(
-        TaskCreate(title="Blocked 3", duration_min=100, llm_value=10.0, requirement="Test requirement")
-    )  # priority = 0.10
+        TaskCreate(title="Blocked 3", duration_min=100, llm_value=100.0, requirement="Test requirement")
+    )  # priority = 1.0
 
     # All blocked by same blocker
     dep_repo.add_dependency(blocked1.task_id, blocker.task_id)
     dep_repo.add_dependency(blocked2.task_id, blocker.task_id)
     dep_repo.add_dependency(blocked3.task_id, blocker.task_id)
 
-    # Blocker should inherit max priority (0.20 from blocked2)
+    # Blocker should inherit max priority (2.0 from blocked2)
     priorities = dep_repo.calculate_effective_priorities()
     effective = priorities[blocker.task_id]
-    assert effective == 0.2  # noqa: PLR2004
+    assert effective == 2.0  # noqa: PLR2004
 
 
 def test_list_tasks_with_priority(task_repo: TaskRepository) -> None:
@@ -435,10 +435,10 @@ def test_list_tasks_with_priority(task_repo: TaskRepository) -> None:
 
     # Create tasks
     blocker = task_repo.create_task(
-        TaskCreate(title="Blocker", duration_min=100, llm_value=5.0, requirement="Test requirement")
+        TaskCreate(title="Blocker", duration_min=100, llm_value=50.0, requirement="Test requirement")
     )
     blocked = task_repo.create_task(
-        TaskCreate(title="Blocked", duration_min=50, llm_value=10.0, requirement="Test requirement")
+        TaskCreate(title="Blocked", duration_min=50, llm_value=100.0, requirement="Test requirement")
     )
 
     dep_repo.add_dependency(blocked.task_id, blocker.task_id)
@@ -457,8 +457,8 @@ def test_list_tasks_with_priority(task_repo: TaskRepository) -> None:
     assert blocker_enriched.task_id == blocker.task_id
     assert blocker_enriched.tasks_blocked_count == 1  # Blocks 1 task
     assert blocker_enriched.active_blocker_count == 0  # Not blocked
-    assert blocker_enriched.priority == 0.05  # noqa: PLR2004 - Intrinsic
-    assert blocker_enriched.effective_priority == 0.2  # noqa: PLR2004 - Inherited from blocked
+    assert blocker_enriched.priority == 0.5  # noqa: PLR2004 - Intrinsic (50/100)
+    assert blocker_enriched.effective_priority == 2.0  # noqa: PLR2004 - Inherited from blocked (100/50)
 
     # Can easily compare intrinsic vs effective
     assert blocker_enriched.effective_priority > blocker_enriched.priority
