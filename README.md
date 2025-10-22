@@ -6,7 +6,7 @@ TaskWeaver is a conversational AI agent that intelligently organizes, prioritize
 
 **Target Audience:** Anyone looking to organize complex projects, learn new skills systematically, or improve task management through AI-powered decomposition and prioritization.
 
-**Project Status:** Version 0.3.0 (active development - Phase 2 complete, Phase 3 in progress)
+**Project Status:** Version 0.4.0 (active development - Phase 3 complete)
 
 **Technology:** Python 3.13+ | PydanticAI 1.1.0 | SQLite | Typer CLI | UV package manager
 
@@ -40,6 +40,7 @@ make test
 - ✅ Full CLI CRUD operations for tasks
 - ✅ Dependency tracking with cycle detection (BFS algorithm)
 - ✅ Interactive AI chat with conversational task decomposition
+- ✅ Web search integration for real-time information retrieval (DuckDuckGo)
 - ✅ DAG-aware priority calculation (upstream inheritance through blockers)
 - ✅ Requirement verification workflow
 - ✅ Effective priority surfacing for critical path identification
@@ -103,9 +104,10 @@ Phase 1 (Foundation) ✅ and Phase 2 (AI Integration & Dependency Management) �
 🤖 **Conversational Task Management** ✅ COMPLETE
 
 - ✅ PydanticAI agent framework integrated
-- ✅ 11 agent tools registered (6 task management + 5 dependency tools)
+- ✅ 12 agent tools registered (6 task management + 5 dependency + 1 web search)
 - ✅ Interactive `taskweaver chat` command
 - ✅ Production orchestrator prompt (1,161 lines, extensively optimised)
+- ✅ Web search capability via DuckDuckGo for real-time information
 - ✅ Dependency-aware task analysis
 - ✅ API integration tested and operational
 
@@ -163,6 +165,7 @@ Phase 1 (Foundation) ✅ and Phase 2 (AI Integration & Dependency Management) �
 ### Technical Features
 
 - Built with [PydanticAI](https://ai.pydantic.dev/) for robust agent implementation
+- Web search integration via DuckDuckGo for real-time information retrieval
 - SQLite database for local-first task storage
 - Comprehensive dependency tracking with cycle detection
 - Modern Python packaging with [UV](https://github.com/astral-sh/uv)
@@ -258,6 +261,16 @@ TaskWeaver: [Creates a structured breakdown with foundational tasks first]
 
 Ready to get started? Which task interests you most?
 ```
+
+**Web Search Integration:**
+
+The agent can search the web for current information when decomposing tasks. This enables:
+- Looking up current best practices and library versions
+- Finding recent tutorials and documentation
+- Verifying technology choices and recommendations
+- Grounding task creation in up-to-date information
+
+The web search tool is powered by DuckDuckGo and activates automatically when the agent needs current information.
 
 ### CLI Task Management (Phase 1 - Available Now)
 
