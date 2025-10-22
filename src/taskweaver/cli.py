@@ -30,11 +30,20 @@ DEFAULT_DB = get_paths().database_file
 @app.command(name="create", help="Create a new task")
 def create(
     title: Annotated[str, typer.Argument(help="Task title")],
+    duration_min: Annotated[int, typer.Option("--duration", "-t", help="Duration in minutes")],
+    llm_value: Annotated[float, typer.Option("--value", "-v", help="LLM value score (0-10)")],
+    requirement: Annotated[str, typer.Option("--req", "-r", help="Task requirement/conclusion")],
     description: Annotated[str | None, typer.Option("--desc", "-d", help="Task description")] = None,
     db_path: Annotated[Path, typer.Option("--db", help="Database file path")] = DEFAULT_DB,
 ) -> None:
-    """Create a new task with title and optional description."""
-    task_create = TaskCreate(title=title, description=description)
+    """Create a new task with title and required fields."""
+    task_create = TaskCreate(
+        title=title,
+        description=description,
+        duration_min=duration_min,
+        llm_value=llm_value,
+        requirement=requirement,
+    )
     task = TaskRepository(db_path).create_task(task_create)
     console.print(f"✅ Created task: [cyan]{task.task_id}[/cyan] - [bold]{task.title}[/bold]")
 
@@ -108,20 +117,30 @@ def list_open(
 @app.command(name="edit", help="Update an existing task")
 def update(
     task_id: Annotated[UUID, typer.Argument(help="Task UUID to update")],
-    title: Annotated[str | None, typer.Option("--title", "-t", help="New task title")] = None,
+    title: Annotated[str | None, typer.Option("--title", help="New task title")] = None,
     description: Annotated[str | None, typer.Option("--desc", "-d", help="New task description")] = None,
     status: Annotated[
         TaskStatus | None,
         typer.Option("--status", "-s", help="New status (pending/in_progress/completed/cancelled)"),
     ] = None,
+    duration_min: Annotated[int | None, typer.Option("--duration", "-t", help="Duration in minutes")] = None,
+    llm_value: Annotated[float | None, typer.Option("--value", "-v", help="LLM value score (0-10)")] = None,
+    requirement: Annotated[str | None, typer.Option("--req", "-r", help="Task requirement/conclusion")] = None,
     db_path: Annotated[Path, typer.Option("--db", help="Database file path")] = DEFAULT_DB,
 ) -> None:
     """Update task fields. Specify at least one field to update."""
-    if not any([title, description, status]):
+    if not any([title, description, status, duration_min, llm_value, requirement]):
         console.print("[red]Error: Must specify at least one field to update[/red]")
         raise typer.Exit(code=1)
 
-    task_update = TaskUpdate(title=title, description=description, status=status)
+    task_update = TaskUpdate(
+        title=title,
+        description=description,
+        status=status,
+        duration_min=duration_min,
+        llm_value=llm_value,
+        requirement=requirement,
+    )
     task = TaskRepository(db_path).update_task(task_id, task_update)
     console.print(f"✅ Updated task: [cyan]{task.task_id}[/cyan] - [bold]{task.title}[/bold]")
 

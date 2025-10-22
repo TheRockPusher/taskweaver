@@ -32,13 +32,35 @@ def test_db(tmp_path: Path) -> Path:
 def sample_task(test_db: Path) -> str:
     """Create a sample task and return its ID."""
     repo = TaskRepository(test_db)
-    task = repo.create_task(TaskCreate(title="Sample task", description="Sample description"))
+    task = repo.create_task(
+        TaskCreate(
+            title="Sample task",
+            description="Sample description",
+            duration_min=30,
+            llm_value=5.0,
+            requirement="Test requirement",
+        )
+    )
     return str(task.task_id)
 
 
 def test_create_command_with_title_only(test_db: Path) -> None:
     """Test create command with title only."""
-    result = runner.invoke(app, ["create", "Test task", "--db", str(test_db)])
+    result = runner.invoke(
+        app,
+        [
+            "create",
+            "Test task",
+            "--duration",
+            "30",
+            "--value",
+            "5.0",
+            "--req",
+            "Test requirement",
+            "--db",
+            str(test_db),
+        ],
+    )
 
     assert result.exit_code == 0
     assert "Created task" in result.stdout
@@ -47,7 +69,23 @@ def test_create_command_with_title_only(test_db: Path) -> None:
 
 def test_create_command_with_description(test_db: Path) -> None:
     """Test create command with title and description."""
-    result = runner.invoke(app, ["create", "Test task", "-d", "Test description", "--db", str(test_db)])
+    result = runner.invoke(
+        app,
+        [
+            "create",
+            "Test task",
+            "--duration",
+            "30",
+            "--value",
+            "5.0",
+            "--req",
+            "Test requirement",
+            "-d",
+            "Test description",
+            "--db",
+            str(test_db),
+        ],
+    )
 
     assert result.exit_code == 0
     assert "Created task" in result.stdout
@@ -74,7 +112,7 @@ def test_list_command_with_tasks(test_db: Path, sample_task: str) -> None:  # no
     output = strip_ansi(result.stdout)
 
     assert result.exit_code == 0
-    assert "Sample task" in output
+    assert "Sample" in output  # Title may be truncated in table
     assert "Total: 1 task(s)" in output
     # Check that dates are formatted as yyyy-mm-dd (no time component)
     assert "2025-" in output  # Year present
@@ -84,21 +122,21 @@ def test_list_command_with_tasks(test_db: Path, sample_task: str) -> None:  # no
 def test_list_command_filter_by_status(test_db: Path) -> None:
     """Test list command with status filter."""
     repo = TaskRepository(test_db)
-    repo.create_task(TaskCreate(title="Pending task"))
-    task = repo.create_task(TaskCreate(title="Active"))
+    repo.create_task(TaskCreate(title="Pending task", duration_min=30, llm_value=5.0, requirement="Test requirement"))
+    task = repo.create_task(TaskCreate(title="Active", duration_min=30, llm_value=5.0, requirement="Test requirement"))
     repo.update_task(task.task_id, TaskUpdate(status=TaskStatus.IN_PROGRESS))
 
     result = runner.invoke(app, ["ls", "-s", "in_progress", "--db", str(test_db)])
 
     assert result.exit_code == 0
     assert "Active" in result.stdout
-    assert "in_progre" in result.stdout  # Status might be truncated in table
+    assert "in_pr" in result.stdout  # Status is truncated in table as "in_pr…"
     assert "Pending task" not in result.stdout
 
 
 def test_update_command_title(test_db: Path, sample_task: str) -> None:
     """Test update command changing title."""
-    result = runner.invoke(app, ["edit", sample_task, "-t", "New", "--db", str(test_db)])
+    result = runner.invoke(app, ["edit", sample_task, "--title", "New", "--db", str(test_db)])
 
     assert result.exit_code == 0
     assert "Updated task" in result.stdout
@@ -194,7 +232,21 @@ def test_create_command_auto_initializes_database(tmp_path: Path) -> None:
     assert not db_path.exists()
 
     # Create a task - should auto-initialize
-    result = runner.invoke(app, ["create", "Auto-init test", "--db", str(db_path)])
+    result = runner.invoke(
+        app,
+        [
+            "create",
+            "Auto-init test",
+            "--duration",
+            "30",
+            "--value",
+            "5.0",
+            "--req",
+            "Test requirement",
+            "--db",
+            str(db_path),
+        ],
+    )
 
     assert result.exit_code == 0
     assert db_path.exists()

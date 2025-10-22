@@ -30,6 +30,9 @@ class Task(BaseModel):
     status: TaskStatus = TaskStatus.PENDING
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    duration_min: int = Field(ge=1)
+    llm_value: float = Field(ge=0, le=10)
+    requirement: str = Field(min_length=1, max_length=500)
 
     model_config = ConfigDict(
         use_enum_values=True,  # Store enum values, not names
@@ -41,6 +44,9 @@ class TaskCreate(BaseModel):
 
     title: str = Field(min_length=1, max_length=500)
     description: str | None = None
+    duration_min: int = Field(ge=1)
+    llm_value: float = Field(ge=0, le=10)
+    requirement: str = Field(min_length=1, max_length=500)
 
 
 class TaskUpdate(BaseModel):
@@ -49,6 +55,10 @@ class TaskUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=500)
     description: str | None = None
     status: TaskStatus | None = None
+    duration_min: int | None = Field(default=None, ge=1)
+    llm_value: float | None = Field(default=None, ge=0, le=10)
+    requirement: str | None = Field(default=None, min_length=1, max_length=500)
+
     model_config = ConfigDict(
         use_enum_values=True,  # Store enum values, not names
     )

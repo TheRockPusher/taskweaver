@@ -18,8 +18,15 @@ MAX_TITLE_LENGTH = 60
 MAX_DESCRIPTION_LENGTH = 40
 
 
-def create_task_tool(ctx: RunContext[TaskDependencies], title: str, description: str | None = None) -> str:
-    """Create a new task with optional description.
+def create_task_tool(  # noqa: PLR0913
+    ctx: RunContext[TaskDependencies],
+    title: str,
+    duration_min: int,
+    llm_value: float,
+    requirement: str,
+    description: str | None = None,
+) -> str:
+    """Create a new task with required fields.
 
     Use this tool when user wants to add a task to their task list.
     Validates title length (1-500 chars) and returns task ID for future reference.
@@ -27,16 +34,25 @@ def create_task_tool(ctx: RunContext[TaskDependencies], title: str, description:
     Args:
         ctx: Runtime context containing TaskDependencies.
         title: Task title (1-500 characters). Be specific and actionable.
+        duration_min: Estimated duration in minutes (must be >= 1).
+        llm_value: LLM-assigned value score (0-10 scale).
+        requirement: Task requirement or conclusion field (1-500 characters).
         description: Optional task description for context.
 
     Returns:
         Confirmation message with task ID and title.
 
     Example:
-        >>> create_task_tool(ctx, "Build login feature", "Implement OAuth2")
+        >>> create_task_tool(ctx, "Build login feature", 120, 8.5, "OAuth2 implementation", "Implement OAuth2")
         "✅ Created task 'Build login feature' (ID: 123e4567-...)"
     """
-    task_data = TaskCreate(title=title, description=description)
+    task_data = TaskCreate(
+        title=title,
+        description=description,
+        duration_min=duration_min,
+        llm_value=llm_value,
+        requirement=requirement,
+    )
     task = ctx.deps.task_repo.create_task(task_data)
     return f"✅ Created task '{task.title}' (ID: {task.task_id})"
 

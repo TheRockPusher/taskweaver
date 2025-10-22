@@ -1,6 +1,6 @@
 """Database schema definitions and queries."""
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # Schema creation SQL
 CREATE_TASKS_TABLE = """
@@ -11,7 +11,10 @@ CREATE TABLE IF NOT EXISTS tasks (
     status TEXT NOT NULL DEFAULT 'pending'
         CHECK (status IN ('pending', 'in_progress', 'completed', 'cancelled')),
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    duration_min INTEGER NOT NULL,
+    llm_value REAL NOT NULL,
+    requirement TEXT NOT NULL
 );
 """
 
@@ -39,8 +42,8 @@ VALUES (?, datetime('now'));
 
 # Task CRUD queries
 INSERT_TASK = """
-INSERT INTO tasks (task_id, title, description, status, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?);
+INSERT INTO tasks (task_id, title, description, status, created_at, updated_at, duration_min, llm_value, requirement)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 """
 
 SELECT_TASK_BY_ID = """
@@ -53,7 +56,7 @@ SELECT * FROM tasks ORDER BY created_at DESC;
 
 UPDATE_TASK = """
 UPDATE tasks
-SET title = ?, description = ?, status = ?, updated_at = ?
+SET title = ?, description = ?, status = ?, updated_at = ?, duration_min = ?, llm_value = ?, requirement = ?
 WHERE task_id = ?;
 """
 

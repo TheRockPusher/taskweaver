@@ -12,7 +12,13 @@ from taskweaver.database.repository import TaskRepository
 
 def test_create_task(task_repo: TaskRepository) -> None:
     """Test creating a task."""
-    task_data = TaskCreate(title="Test task", description="Test description")
+    task_data = TaskCreate(
+        title="Test task",
+        description="Test description",
+        duration_min=30,
+        llm_value=5.0,
+        requirement="Test requirement",
+    )
     task = task_repo.create_task(task_data)
 
     assert task.title == "Test task"
@@ -23,7 +29,7 @@ def test_create_task(task_repo: TaskRepository) -> None:
 
 def test_get_task_by_id(task_repo: TaskRepository) -> None:
     """Test retrieving task by ID."""
-    task_data = TaskCreate(title="Test task")
+    task_data = TaskCreate(title="Test task", duration_min=30, llm_value=5.0, requirement="Test requirement")
     created_task = task_repo.create_task(task_data)
 
     retrieved_task = task_repo.get_task(created_task.task_id)
@@ -41,9 +47,9 @@ def test_get_nonexistent_task(task_repo: TaskRepository) -> None:
 
 def test_list_all_tasks(task_repo: TaskRepository) -> None:
     """Test listing all tasks."""
-    task_repo.create_task(TaskCreate(title="Task 1"))
-    task_repo.create_task(TaskCreate(title="Task 2"))
-    task_repo.create_task(TaskCreate(title="Task 3"))
+    task_repo.create_task(TaskCreate(title="Task 1", duration_min=30, llm_value=5.0, requirement="Test requirement"))
+    task_repo.create_task(TaskCreate(title="Task 2", duration_min=30, llm_value=5.0, requirement="Test requirement"))
+    task_repo.create_task(TaskCreate(title="Task 3", duration_min=30, llm_value=5.0, requirement="Test requirement"))
 
     tasks = task_repo.list_tasks()
 
@@ -55,9 +61,15 @@ def test_list_all_tasks(task_repo: TaskRepository) -> None:
 
 def test_list_tasks_by_status(task_repo: TaskRepository) -> None:
     """Test filtering tasks by status."""
-    task1 = task_repo.create_task(TaskCreate(title="Task 1"))
-    task2 = task_repo.create_task(TaskCreate(title="Task 2"))
-    task3 = task_repo.create_task(TaskCreate(title="Task 3"))
+    task1 = task_repo.create_task(
+        TaskCreate(title="Task 1", duration_min=30, llm_value=5.0, requirement="Test requirement")
+    )
+    task2 = task_repo.create_task(
+        TaskCreate(title="Task 2", duration_min=30, llm_value=5.0, requirement="Test requirement")
+    )
+    task3 = task_repo.create_task(
+        TaskCreate(title="Task 3", duration_min=30, llm_value=5.0, requirement="Test requirement")
+    )
 
     # Mark some as completed
     task_repo.mark_completed(task1.task_id)
@@ -81,7 +93,7 @@ def test_list_tasks_by_status(task_repo: TaskRepository) -> None:
 
 def test_update_task(task_repo: TaskRepository) -> None:
     """Test updating a task."""
-    task_data = TaskCreate(title="Original title")
+    task_data = TaskCreate(title="Original title", duration_min=30, llm_value=5.0, requirement="Test requirement")
     created_task = task_repo.create_task(task_data)
 
     update_data = TaskUpdate(title="Updated title", status=TaskStatus.IN_PROGRESS)
@@ -104,7 +116,7 @@ def test_update_nonexistent_task(task_repo: TaskRepository) -> None:
 
 def test_mark_completed(task_repo: TaskRepository) -> None:
     """Test marking task as completed."""
-    task_data = TaskCreate(title="Task to complete")
+    task_data = TaskCreate(title="Task to complete", duration_min=30, llm_value=5.0, requirement="Test requirement")
     created_task = task_repo.create_task(task_data)
 
     updated_task = task_repo.mark_completed(created_task.task_id)
@@ -114,7 +126,7 @@ def test_mark_completed(task_repo: TaskRepository) -> None:
 
 def test_mark_in_progress(task_repo: TaskRepository) -> None:
     """Test marking task as in progress."""
-    task_data = TaskCreate(title="Task to start")
+    task_data = TaskCreate(title="Task to start", duration_min=30, llm_value=5.0, requirement="Test requirement")
     created_task = task_repo.create_task(task_data)
 
     updated_task = task_repo.mark_in_progress(created_task.task_id)
@@ -124,7 +136,7 @@ def test_mark_in_progress(task_repo: TaskRepository) -> None:
 
 def test_mark_cancelled(task_repo: TaskRepository) -> None:
     """Test marking task as cancelled."""
-    task_data = TaskCreate(title="Task to cancel")
+    task_data = TaskCreate(title="Task to cancel", duration_min=30, llm_value=5.0, requirement="Test requirement")
     created_task = task_repo.create_task(task_data)
 
     updated_task = task_repo.mark_cancelled(created_task.task_id)
@@ -134,7 +146,7 @@ def test_mark_cancelled(task_repo: TaskRepository) -> None:
 
 def test_delete_task(task_repo: TaskRepository) -> None:
     """Test deleting a task."""
-    task_data = TaskCreate(title="Task to delete")
+    task_data = TaskCreate(title="Task to delete", duration_min=30, llm_value=5.0, requirement="Test requirement")
     created_task = task_repo.create_task(task_data)
 
     task_repo.delete_task(created_task.task_id)
@@ -187,7 +199,7 @@ def test_auto_initialize_database(tmp_path: Path) -> None:
     repo = TaskRepository(db_path)
 
     # Create a task - should work without manual init
-    task_data = TaskCreate(title="Auto-init test")
+    task_data = TaskCreate(title="Auto-init test", duration_min=30, llm_value=5.0, requirement="Test requirement")
     task = repo.create_task(task_data)
 
     # Verify database was created and task exists
