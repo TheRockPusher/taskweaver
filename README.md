@@ -40,10 +40,11 @@ make test
 - ✅ Full CLI CRUD operations for tasks
 - ✅ Dependency tracking with cycle detection (BFS algorithm)
 - ✅ Interactive AI chat with conversational task decomposition
-- ✅ Priority calculation (value per minute)
+- ✅ DAG-aware priority calculation (upstream inheritance through blockers)
 - ✅ Requirement verification workflow
+- ✅ Effective priority surfacing for critical path identification
 
-**Note:** Advanced features like automated skill gap detection and alternative priority algorithms are in research/planning phases.
+**Note:** Advanced features like Dreyfus skill gap detection are in research/planning phases.
 
 ### Full Documentation
 
@@ -119,15 +120,16 @@ Phase 1 (Foundation) ✅ and Phase 2 (AI Integration & Dependency Management) �
 - ✅ CLI commands: `lso` (list open), `createDep`, `rmdep`, `blocker`
 - ✅ Comprehensive test suite (17 dependency tests, all passing)
 
-### Phase 3: Intelligence & Priority System 🚧 IN PROGRESS
+### Phase 3: Intelligence & Priority System ✅ COMPLETE
 
-⚡ **Basic Priority System** ✅ IMPLEMENTED
+⚡ **Priority System with DAG Inheritance** ✅ IMPLEMENTED
 
-- Calculated priority field (`llm_value / duration_min`)
-- Higher priority = higher value delivered per minute
-- Automatic calculation on all tasks
-- Used by agent for tie-breaking and quick-win identification
-- **Status:** Complete - DAG-aware priority (considering dependencies) not yet implemented
+- **Intrinsic priority**: Calculated as `llm_value / duration_min` (value per minute)
+- **Effective priority**: Flows upstream through dependency graph
+- Low-priority blockers inherit high priority from downstream tasks they block
+- Surfaces "hidden critical path" tasks that appear low-priority intrinsically
+- Agent uses effective priority for intelligent recommendations
+- **Status:** Complete and integrated into agent toolset
 
 📝 **Task Requirement/Conclusion Field** ✅ SEMI-IMPLEMENTED
 
@@ -148,7 +150,8 @@ Phase 1 (Foundation) ✅ and Phase 2 (AI Integration & Dependency Management) �
 🔮 **Planned Intelligence Features** (Phase 4-5)
 
 - Dreyfus skill gap detection
-- Alternative priority calculation methods (replacing/augmenting current MCDA approach)
+- Preference learning from task completion patterns
+- Adaptive skill assessment
 - **Status:** Research and design phase
 
 📊 **Adaptive System** (Planned - Phase 4)
