@@ -18,10 +18,18 @@ def tasks(task_repo: TaskRepository) -> dict[str, UUID]:
         Dict mapping task names to UUIDs.
     """
     return {
-        "A": task_repo.create_task(TaskCreate(title="Task A")).task_id,
-        "B": task_repo.create_task(TaskCreate(title="Task B")).task_id,
-        "C": task_repo.create_task(TaskCreate(title="Task C")).task_id,
-        "D": task_repo.create_task(TaskCreate(title="Task D")).task_id,
+        "A": task_repo.create_task(
+            TaskCreate(title="Task A", duration_min=30, llm_value=50.0, requirement="Test requirement")
+        ).task_id,
+        "B": task_repo.create_task(
+            TaskCreate(title="Task B", duration_min=30, llm_value=50.0, requirement="Test requirement")
+        ).task_id,
+        "C": task_repo.create_task(
+            TaskCreate(title="Task C", duration_min=30, llm_value=50.0, requirement="Test requirement")
+        ).task_id,
+        "D": task_repo.create_task(
+            TaskCreate(title="Task D", duration_min=30, llm_value=50.0, requirement="Test requirement")
+        ).task_id,
     }
 
 

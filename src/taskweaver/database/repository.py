@@ -49,6 +49,9 @@ class TaskRepository:
         task = Task(
             title=task_data.title,
             description=task_data.description,
+            duration_min=task_data.duration_min,
+            llm_value=task_data.llm_value,
+            requirement=task_data.requirement,
         )
 
         with get_connection(self.db_path) as conn:
@@ -61,6 +64,9 @@ class TaskRepository:
                     task.status.value,
                     task.created_at.isoformat(),
                     task.updated_at.isoformat(),
+                    task.duration_min,
+                    task.llm_value,
+                    task.requirement,
                 ),
             )
             conn.commit()
@@ -95,6 +101,9 @@ class TaskRepository:
             status=TaskStatus(row["status"]),
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
+            duration_min=row["duration_min"],
+            llm_value=row["llm_value"],
+            requirement=row["requirement"],
         )
 
     def list_tasks(self, status: TaskStatus | None = None) -> list[Task]:
@@ -131,6 +140,9 @@ class TaskRepository:
                 status=TaskStatus(row["status"]),
                 created_at=datetime.fromisoformat(row["created_at"]),
                 updated_at=datetime.fromisoformat(row["updated_at"]),
+                duration_min=row["duration_min"],
+                llm_value=row["llm_value"],
+                requirement=row["requirement"],
             )
             for row in rows
         ]
@@ -159,6 +171,9 @@ class TaskRepository:
                 status=TaskStatus(row["status"]),
                 created_at=datetime.fromisoformat(row["created_at"]),
                 updated_at=datetime.fromisoformat(row["updated_at"]),
+                duration_min=row["duration_min"],
+                llm_value=row["llm_value"],
+                requirement=row["requirement"],
                 tasks_blocked_count=row["tasks_blocked_count"],
                 active_blocker_count=row["active_blocker_count"],
             )
@@ -200,6 +215,15 @@ class TaskRepository:
             new_status = task_data.status
             changes.append(f"status: {old_status} -> {new_status}")
             task.status = task_data.status
+        if task_data.duration_min is not None:
+            changes.append(f"duration_min: {task.duration_min} -> {task_data.duration_min}")
+            task.duration_min = task_data.duration_min
+        if task_data.llm_value is not None:
+            changes.append(f"llm_value: {task.llm_value} -> {task_data.llm_value}")
+            task.llm_value = task_data.llm_value
+        if task_data.requirement is not None:
+            changes.append(f"requirement: '{task.requirement}' -> '{task_data.requirement}'")
+            task.requirement = task_data.requirement
 
         task.updated_at = datetime.now(UTC)
 
@@ -213,6 +237,9 @@ class TaskRepository:
                     task.description,
                     status_value,
                     task.updated_at.isoformat(),
+                    task.duration_min,
+                    task.llm_value,
+                    task.requirement,
                     str(task_id),
                 ),
             )

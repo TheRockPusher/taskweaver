@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from loguru import logger
-from pydantic_ai import Agent, AgentRunResult, ModelMessage
+from pydantic_ai import Agent, AgentRunResult, FunctionToolset, ModelMessage
 
 from ..config import get_config
 from ..database.dependency_repository import TaskDependencyRepository
@@ -17,7 +17,7 @@ from .tools import (
     get_blocked_tool,
     get_blockers_tool,
     get_task_details_tool,
-    list_open_tasks_dep_count_tool,
+    list_open_tasks_full,
     list_tasks_tool,
     mark_task_cancelled_tool,
     mark_task_completed_tool,
@@ -65,24 +65,36 @@ def get_orchestrator_agent() -> Agent[TaskDependencies, str]:
     if ":" not in model_name:
         model_name = f"openai:{model_name}"
 
+    # Toolset 1: Task Management CRUD
+    task_toolset = FunctionToolset(
+        tools=[
+            create_task_tool,
+            list_tasks_tool,
+            get_task_details_tool,
+            mark_task_completed_tool,
+            mark_task_in_progress_tool,
+            mark_task_cancelled_tool,
+        ]
+    )
+
+    # Toolset 2: Dependency Management DAG
+    dependency_toolset = FunctionToolset(
+        tools=[
+            list_open_tasks_full,
+            add_dependency_tool,
+            remove_dependency_tool,
+            get_blockers_tool,
+            get_blocked_tool,
+        ]
+    )
+
+    # Create agent with both toolsets
     agent: Agent[TaskDependencies, str] = Agent[TaskDependencies, str](
         model_name,
         deps_type=TaskDependencies,
         system_prompt=system_prompt,
+        toolsets=[task_toolset, dependency_toolset],
     )
-
-    # Register tools
-    agent.tool(create_task_tool)
-    agent.tool(list_tasks_tool)
-    agent.tool(mark_task_completed_tool)
-    agent.tool(mark_task_in_progress_tool)
-    agent.tool(mark_task_cancelled_tool)
-    agent.tool(get_task_details_tool)
-    agent.tool(list_open_tasks_dep_count_tool)
-    agent.tool(add_dependency_tool)
-    agent.tool(remove_dependency_tool)
-    agent.tool(get_blocked_tool)
-    agent.tool(get_blockers_tool)
 
     return agent
 

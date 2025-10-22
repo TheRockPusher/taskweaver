@@ -30,10 +30,34 @@ class Task(BaseModel):
     status: TaskStatus = TaskStatus.PENDING
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    duration_min: int = Field(ge=1)
+    llm_value: float = Field(ge=0, le=100, description="LLM-assigned value score (0-100)")
+    requirement: str = Field(min_length=1, max_length=500)
 
     model_config = ConfigDict(
         use_enum_values=True,  # Store enum values, not names
     )
+
+    @property
+    def priority(self) -> float:
+        """Calculate priority score as value per minute (llm_value / duration_min).
+
+        Higher priority = higher value delivered per minute of effort.
+        Uses CD3 (Cost of Delay Divided by Duration) from WSJF framework.
+
+        Returns:
+            Priority score (higher is better). Ranges from ~0.4 (value=1, duration=240min)
+            to 100.0 (value=100, duration=1min).
+
+        Example:
+            >>> task = Task(title="Quick win", duration_min=30, llm_value=90.0, requirement="Done")
+            >>> task.priority
+            3.0  # High value, short duration = good priority
+            >>> task2 = Task(title="Long grind", duration_min=240, llm_value=30.0, requirement="Done")
+            >>> task2.priority
+            0.125  # Low value, long duration = poor priority
+        """
+        return self.llm_value / self.duration_min
 
 
 class TaskCreate(BaseModel):
@@ -41,6 +65,9 @@ class TaskCreate(BaseModel):
 
     title: str = Field(min_length=1, max_length=500)
     description: str | None = None
+    duration_min: int = Field(ge=1)
+    llm_value: float = Field(ge=0, le=100, description="LLM-assigned value score (0-100)")
+    requirement: str = Field(min_length=1, max_length=500)
 
 
 class TaskUpdate(BaseModel):
@@ -49,6 +76,10 @@ class TaskUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=500)
     description: str | None = None
     status: TaskStatus | None = None
+    duration_min: int | None = Field(default=None, ge=1)
+    llm_value: float | None = Field(default=None, ge=0, le=100, description="LLM-assigned value score (0-100)")
+    requirement: str | None = Field(default=None, min_length=1, max_length=500)
+
     model_config = ConfigDict(
         use_enum_values=True,  # Store enum values, not names
     )
@@ -95,3 +126,27 @@ class TaskWithDependencies(Task):
     def is_blocking_others(self) -> bool:
         """Check if this task is blocking other tasks."""
         return self.tasks_blocked_count > 0
+
+
+class TaskWithPriority(TaskWithDependencies):
+    """Task enriched with dependency counts AND effective priority.
+
+    Extends TaskWithDependencies with calculated effective priority from DAG.
+
+    Example:
+        >>> task = TaskWithPriority(
+        ...     title="Setup CI/CD",
+        ...     duration_min=120,
+        ...     llm_value=30.0,
+        ...     requirement="Setup pipeline",
+        ...     tasks_blocked_count=1,
+        ...     active_blocker_count=0,
+        ...     effective_priority=9.0
+        ... )
+        >>> task.priority  # intrinsic
+        0.25
+        >>> task.effective_priority  # inherited from downstream
+        9.0
+    """
+
+    effective_priority: float = Field(description="Effective priority considering DAG inheritance")
