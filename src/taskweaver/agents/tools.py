@@ -2,12 +2,20 @@
 
 This module defines PydanticAI tools that wrap TaskRepository methods,
 providing a clean interface for the orchestrator agent to interact with tasks.
+
+Error Handling Strategy:
+- ModelRetry: Raised when tool fails due to invalid input that LLM can fix
+  (circular dependencies, invalid task IDs, validation errors)
+- The LLM receives the error message and can retry with corrected parameters
 """
 
 from uuid import UUID
 
+from pydantic import ValidationError
 from pydantic_ai import RunContext
+from pydantic_ai.exceptions import ModelRetry
 
+from taskweaver.database.exceptions import DependencyError, TaskNotFoundError
 from taskweaver.database.models import TaskDependency, TaskWithDependencies
 
 from ..database.models import Task, TaskCreate, TaskStatus
@@ -42,19 +50,25 @@ def create_task_tool(  # noqa: PLR0913
     Returns:
         Confirmation message with task ID and title.
 
+    Raises:
+        ModelRetry: If validation fails. LLM receives error and can retry.
+
     Example:
         >>> create_task_tool(ctx, "Build login feature", 120, 8.5, "OAuth2 implementation", "Implement OAuth2")
         "✅ Created task 'Build login feature' (ID: 123e4567-...)"
     """
-    task_data = TaskCreate(
-        title=title,
-        description=description,
-        duration_min=duration_min,
-        llm_value=llm_value,
-        requirement=requirement,
-    )
-    task = ctx.deps.task_repo.create_task(task_data)
-    return f"✅ Created task '{task.title}' (ID: {task.task_id})"
+    try:
+        task_data = TaskCreate(
+            title=title,
+            description=description,
+            duration_min=duration_min,
+            llm_value=llm_value,
+            requirement=requirement,
+        )
+        task = ctx.deps.task_repo.create_task(task_data)
+        return f"✅ Created task '{task.title}' (ID: {task.task_id})"
+    except (ValidationError, ValueError) as e:
+        raise ModelRetry(str(e)) from e
 
 
 def list_tasks_tool(ctx: RunContext[TaskDependencies], status: str | None = None) -> list[Task]:
@@ -96,14 +110,17 @@ def mark_task_completed_tool(ctx: RunContext[TaskDependencies], task_id: UUID) -
         Confirmation message with task title.
 
     Raises:
-        TaskNotFoundError: If task doesn't exist.
+        ModelRetry: If task doesn't exist. LLM can retry with correct task ID.
 
     Example:
         >>> mark_task_completed_tool(ctx, UUID("123e4567-e89b-12d3-a456-426614174000"))
         "✅ Task 'Build login feature' marked as completed"
     """
-    task = ctx.deps.task_repo.mark_completed(task_id)
-    return f"✅ Task '{task.title}' marked as completed"
+    try:
+        task = ctx.deps.task_repo.mark_completed(task_id)
+        return f"✅ Task '{task.title}' marked as completed"
+    except TaskNotFoundError as e:
+        raise ModelRetry(str(e)) from e
 
 
 def mark_task_in_progress_tool(ctx: RunContext[TaskDependencies], task_id: UUID) -> str:
@@ -120,14 +137,17 @@ def mark_task_in_progress_tool(ctx: RunContext[TaskDependencies], task_id: UUID)
         Confirmation message with task title.
 
     Raises:
-        TaskNotFoundError: If task doesn't exist.
+        ModelRetry: If task doesn't exist. LLM can retry with correct task ID.
 
     Example:
         >>> mark_task_in_progress_tool(ctx, UUID("123e4567-e89b-12d3-a456-426614174000"))
         "Task 'Build login feature' marked as in progress"
     """
-    task = ctx.deps.task_repo.mark_in_progress(task_id)
-    return f"Task '{task.title}' marked as in progress"
+    try:
+        task = ctx.deps.task_repo.mark_in_progress(task_id)
+        return f"Task '{task.title}' marked as in progress"
+    except TaskNotFoundError as e:
+        raise ModelRetry(str(e)) from e
 
 
 def mark_task_cancelled_tool(ctx: RunContext[TaskDependencies], task_id: UUID) -> str:
@@ -144,14 +164,17 @@ def mark_task_cancelled_tool(ctx: RunContext[TaskDependencies], task_id: UUID) -
         Confirmation message with task title.
 
     Raises:
-        TaskNotFoundError: If task doesn't exist.
+        ModelRetry: If task doesn't exist. LLM can retry with correct task ID.
 
     Example:
         >>> mark_task_cancelled_tool(ctx, UUID("123e4567-e89b-12d3-a456-426614174000"))
         "❌ Task 'Build login feature' marked as cancelled"
     """
-    task = ctx.deps.task_repo.mark_cancelled(task_id)
-    return f"❌ Task '{task.title}' marked as cancelled"
+    try:
+        task = ctx.deps.task_repo.mark_cancelled(task_id)
+        return f"❌ Task '{task.title}' marked as cancelled"
+    except TaskNotFoundError as e:
+        raise ModelRetry(str(e)) from e
 
 
 def get_task_details_tool(ctx: RunContext[TaskDependencies], task_id: UUID) -> Task | str:
@@ -218,13 +241,17 @@ def add_dependency_tool(ctx: RunContext[TaskDependencies], task_id: UUID, blocke
         TaskDependency object representing the created relationship.
 
     Raises:
-        DependencyError: If cycle would be created, blocker is closed, or duplicate exists.
+        ModelRetry: If cycle detected, blocker closed, duplicate exists, or tasks not found.
+            LLM receives error and can retry with different task IDs.
 
     Example:
         >>> add_dependency_tool(ctx, task_id=UUID(...), blocker_id=UUID(...))
         TaskDependency(task_id=..., blocker_id=..., created_at=...)
     """
-    return ctx.deps.dep_repo.add_dependency(task_id, blocker_id)
+    try:
+        return ctx.deps.dep_repo.add_dependency(task_id, blocker_id)
+    except (DependencyError, TaskNotFoundError) as e:
+        raise ModelRetry(str(e)) from e
 
 
 def get_blockers_tool(ctx: RunContext[TaskDependencies], task_id: UUID) -> list[Task]:
@@ -288,11 +315,14 @@ def remove_dependency_tool(ctx: RunContext[TaskDependencies], task_id: UUID, blo
         Confirmation message with task IDs.
 
     Raises:
-        DependencyError: If dependency doesn't exist or tasks don't exist.
+        ModelRetry: If dependency doesn't exist or tasks not found. LLM can retry.
 
     Example:
         >>> remove_dependency_tool(ctx, task_id=UUID(...), blocker_id=UUID(...))
         "Dependency between ... and ... removed"
     """
-    ctx.deps.dep_repo.remove_dependency(task_id, blocker_id)
-    return f"✅ Dependency removed: {task_id} no longer blocked by {blocker_id}"
+    try:
+        ctx.deps.dep_repo.remove_dependency(task_id, blocker_id)
+        return f"✅ Dependency removed: {task_id} no longer blocked by {blocker_id}"
+    except (DependencyError, TaskNotFoundError) as e:
+        raise ModelRetry(str(e)) from e
