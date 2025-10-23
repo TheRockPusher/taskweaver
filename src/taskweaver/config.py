@@ -28,15 +28,17 @@ Environment Variables (.env):
     environment variables. Set the appropriate key for your model provider.
 
 Directory Structure:
-    # Project-local (for development)
+    # Project-local (default when in project directory)
     ./config.toml                      - Project-specific preferences
     ./.env                             - Project API keys (gitignored)
-    ./tasks.db                         - Optional local database
+    ./tasks.db                         - SQLite database (default)
+    ./qdrant_store/                    - Qdrant vector database (default)
 
-    # XDG user directories (system-wide)
+    # XDG user directories (fallback when no project detected)
     ~/.config/taskweaver/config.toml   - User preferences
     ~/.config/taskweaver/.env          - API keys (secrets)
-    ~/.local/share/taskweaver/tasks.db - Application data
+    ~/.local/share/taskweaver/tasks.db - SQLite database
+    ~/.local/share/taskweaver/qdrant_store/ - Qdrant vector database
     ~/.cache/taskweaver/               - Temporary cache
     ~/.local/state/taskweaver/         - Logs and history
 """
@@ -176,12 +178,27 @@ class XDGPaths:
 
     @property
     def database_file(self) -> Path:
-        """Path to SQLite database (project-local if exists, else XDG)."""
+        """Path to SQLite database (project-local by default, XDG if configured).
+
+        Returns:
+            - Project-local: ./tasks.db (default when in project)
+            - XDG: ~/.local/share/taskweaver/tasks.db (fallback if no project root)
+        """
         if self._project_root:
-            local_db = self._project_root / "tasks.db"
-            if local_db.exists():
-                return local_db
+            return self._project_root / "tasks.db"
         return self.data_dir / "tasks.db"
+
+    @property
+    def qdrant_dir(self) -> Path:
+        """Path to Qdrant storage directory (co-located with SQLite database).
+
+        Returns directory path next to tasks.db:
+        - Project-local: ./qdrant_store (default when in project)
+        - XDG: ~/.local/share/taskweaver/qdrant_store (fallback if no project root)
+        """
+        if self._project_root:
+            return self._project_root / "qdrant_store"
+        return self.data_dir / "qdrant_store"
 
     @property
     def log_file(self) -> Path:

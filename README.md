@@ -6,7 +6,7 @@ TaskWeaver is a conversational AI agent that intelligently organizes, prioritize
 
 **Target Audience:** Anyone looking to organize complex projects, learn new skills systematically, or improve task management through AI-powered decomposition and prioritization.
 
-**Project Status:** Version 0.4.0 (active development - Phase 3 complete)
+**Project Status:** Version 0.5.0 (active development - Core features complete, building v0.5.0-0.6.0 enhancements)
 
 **Technology:** Python 3.13+ | PydanticAI 1.1.0 | SQLite | Typer CLI | UV package manager
 
@@ -35,17 +35,17 @@ make install
 make test
 ```
 
-**Current Capabilities:**
+**Current Capabilities (v0.5.0):**
 
 - ✅ Full CLI CRUD operations for tasks
 - ✅ Dependency tracking with cycle detection (BFS algorithm)
 - ✅ Interactive AI chat with conversational task decomposition
-- ✅ Web search integration for real-time information retrieval (DuckDuckGo)
-- ✅ DAG-aware priority calculation (upstream inheritance through blockers)
-- ✅ Requirement verification workflow
+- ✅ Web search integration (DuckDuckGo) - NEW in v0.5.0
+- ✅ DAG-aware priority calculation with upstream inheritance
+- ✅ Requirement/conclusion dual-purpose field
 - ✅ Effective priority surfacing for critical path identification
 
-**Note:** Advanced features like Dreyfus skill gap detection are in research/planning phases.
+**Next Up (v0.5.0-0.6.0):** TUI interface, GitHub integration, completion tracking, simple memory system (see [Roadmap](#roadmap)).
 
 ### Full Documentation
 
@@ -86,81 +86,93 @@ TaskWeaver provides:
 
 ## Current Status
 
-**Project Stage:** Phase 3 – Intelligence & Priority System (In Progress)
+**Version:** 0.5.0 (Released: 2025-01-23)
+**Development Stage:** Core Complete, Building Usability Features
 
-Phase 1 (Foundation) ✅ and Phase 2 (AI Integration & Dependency Management) ✅ are complete. PydanticAI agent fully integrated with 11 task management and dependency tools. Dependency management system implemented with BFS-based cycle detection. Currently implementing basic priority scoring and task conclusion tracking.
+**Recently Completed:**
 
-## Features (Roadmap)
+- ✅ Web search integration via DuckDuckGo (v0.5.0)
+- ✅ DAG-aware priority calculation with effective priority inheritance
+- ✅ Requirement/conclusion field for learning capture
 
-### Phase 1: Foundation ✅ COMPLETE
+**Active Development (v0.5.0-0.6.0):**
+
+- 🔄 TUI with Textual for visual task management (#17)
+- 🔄 GitHub issue integration (#18)
+- 🔄 Completion tracking system (#19)
+- 🔄 Simple memory system with SQLite (#20)
+
+See [Roadmap](#roadmap) for full version plan.
+
+## Roadmap
+
+### ✅ Completed (v0.1.0 - v0.5.0)
+
+**Foundation:**
 
 - ✅ SQLite database with schema versioning
 - ✅ Full CRUD CLI interface (Typer + Rich)
 - ✅ Pydantic models for validation
-- ✅ 80%+ test coverage
+- ✅ 85%+ test coverage
 
-### Phase 2: AI Integration & Dependency Management ✅ COMPLETE
+**AI & Dependencies:**
 
-🤖 **Conversational Task Management** ✅ COMPLETE
-
-- ✅ PydanticAI agent framework integrated
-- ✅ 12 agent tools registered (6 task management + 5 dependency + 1 web search)
-- ✅ Interactive `taskweaver chat` command
-- ✅ Production orchestrator prompt (1,161 lines, extensively optimised)
-- ✅ Web search capability via DuckDuckGo for real-time information
+- ✅ PydanticAI agent framework
+- ✅ 12 agent tools (6 task management + 5 dependency + 1 web search)
+- ✅ Interactive chat interface
+- ✅ Production orchestrator prompt (1,161 lines)
+- ✅ Task dependency tracking with DAG structure
+- ✅ BFS-based cycle detection
 - ✅ Dependency-aware task analysis
-- ✅ API integration tested and operational
 
-🔗 **Dependency Management** ✅ COMPLETE
+**Intelligence & Priority:**
 
-- ✅ Task blocking relationships (DAG structure)
-- ✅ Circular dependency detection using BFS algorithm
-- ✅ TaskDependencyRepository with full CRUD operations
-- ✅ Active blocker retrieval (filters completed/cancelled tasks)
-- ✅ TaskWithDependencies model with aggregated counts
-- ✅ tasks_full database view with dependency metrics
-- ✅ CLI commands: `lso` (list open), `createDep`, `rmdep`, `blocker`
-- ✅ Comprehensive test suite (17 dependency tests, all passing)
+- ✅ Intrinsic priority calculation (llm_value / duration_min)
+- ✅ DAG-aware effective priority with upstream inheritance
+- ✅ Requirement/conclusion dual-purpose field
+- ✅ Web search integration via DuckDuckGo (v0.5.0)
 
-### Phase 3: Intelligence & Priority System ✅ COMPLETE
+### 🔄 v0.5.0-0.6.0: Make It Usable & Smart
 
-⚡ **Priority System with DAG Inheritance** ✅ IMPLEMENTED
+**Goal:** Daily-use features and pattern learning
+**Timeline:** Active development
 
-- **Intrinsic priority**: Calculated as `llm_value / duration_min` (value per minute)
-- **Effective priority**: Flows upstream through dependency graph
-- Low-priority blockers inherit high priority from downstream tasks they block
-- Surfaces "hidden critical path" tasks that appear low-priority intrinsically
-- Agent uses effective priority for intelligent recommendations
-- **Status:** Complete and integrated into agent toolset
+**v0.5.0 Features:**
 
-📝 **Task Requirement/Conclusion Field** ✅ SEMI-IMPLEMENTED
+- 🔄 **TUI with Textual** (#17) - Visual task board with kanban-style interface
+- 🔄 **GitHub Integration** (#18) - Import issues, sync status on PR merge
+- 🔄 **Completion Tracking** (#19) - Track estimated vs actual, learn category patterns
+- 🔄 **Simple Memory (SQLite)** (#20) - Store preferences, tech stack, goals
 
-- Single `requirement` field serves dual purpose
-- **Before task**: Specifies measurable completion criteria
-- **After task**: Can store what was learned/concluded
-- Agent verifies requirements before marking tasks complete
-- **Status:** Field exists, learning capture workflow partially implemented
+**v0.6.0 Features (Planned):**
 
-🧠 **Conversational Task Decomposition** ✅ IMPLEMENTED
+- 📋 Pattern-based duration adjustment
+- 📋 Goal tracking and progress visualization
+- 📋 Better task recommendations based on learned patterns
 
-- LLM-assisted task breakdown through natural conversation
-- Agent guides users to create well-structured subtasks
-- Dependency-aware recommendations
-- Verification of completion criteria
-- **Status:** Fully operational via 1,161-line orchestrator prompt
+### 📦 v1.0.0: Production Ready
 
-🔮 **Planned Intelligence Features** (Phase 4-5)
+**Goal:** Shareable, installable, documented
+**Timeline:** After v0.5.0-0.6.0 complete
 
-- Dreyfus skill gap detection
-- Preference learning from task completion patterns
-- Adaptive skill assessment
-- **Status:** Research and design phase
+- 📋 Packaging (#21) - `pipx install taskweaver`
+- 📋 First-run setup wizard
+- 📋 Comprehensive documentation
+- 📋 Cross-platform support (Linux, macOS, Windows)
+- 📋 PyPI publication
 
-📊 **Adaptive System** (Planned - Phase 4)
-- Learns your preferences from task completion patterns
-- Updates skill assessments based on demonstrated capabilities
-- Adjusts scoring over time
-- **Status:** Not yet implemented
+### 🚀 v1.1+: Advanced Features
+
+**Goal:** Research features and advanced intelligence
+**Timeline:** Post-1.0, based on validated user needs
+
+- 📋 Dreyfus skill tracking (#22)
+- 📋 Observability & prompt tracking (#23)
+- 📋 Advanced memory with Qdrant + mem0 (#16) - if SQLite insufficient
+- 📋 Multi-agent orchestration
+- 📋 Database migrations with Alembic
+
+See [Issue #24](https://github.com/TheRockPusher/taskweaver/issues/24) for detailed roadmap and decision criteria.
 
 ### Technical Features
 
@@ -265,6 +277,7 @@ Ready to get started? Which task interests you most?
 **Web Search Integration:**
 
 The agent can search the web for current information when decomposing tasks. This enables:
+
 - Looking up current best practices and library versions
 - Finding recent tutorials and documentation
 - Verifying technology choices and recommendations
@@ -272,7 +285,7 @@ The agent can search the web for current information when decomposing tasks. Thi
 
 The web search tool is powered by DuckDuckGo and activates automatically when the agent needs current information.
 
-### CLI Task Management (Phase 1 - Available Now)
+### CLI Task Management (Available Now)
 
 ```bash
 # Create a task (title is required, rest optional)
