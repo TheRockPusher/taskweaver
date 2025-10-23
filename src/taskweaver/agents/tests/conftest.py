@@ -12,7 +12,6 @@ os.environ.setdefault("OPENAI_API_KEY", "sk-test-dummy-key-for-testing")
 os.environ.setdefault("OPENROUTER_API_KEY", "sk-or-test-dummy-key-for-testing")
 
 from taskweaver.agents import task_agent
-from taskweaver.database import connection
 
 
 class MockChatHandler:
@@ -63,9 +62,12 @@ def mock_mem0_memory(monkeypatch: pytest.MonkeyPatch) -> Mock:
     Returns None to simulate memory not being available, which is
     the graceful degradation path in production.
 
+    Patches the function in task_agent module (where it's used) rather than
+    connection module (where it's defined) to handle the direct import.
+
     """
     mock_memory_func = Mock(return_value=None)
-    monkeypatch.setattr(connection, "mem0_memory", mock_memory_func)
+    monkeypatch.setattr(task_agent, "mem0_memory", mock_memory_func)
     return mock_memory_func
 
 

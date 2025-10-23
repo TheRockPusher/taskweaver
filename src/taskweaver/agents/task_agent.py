@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 
 from loguru import logger
-from mem0 import Memory
 from pydantic_ai import Agent, AgentRunResult, FunctionToolset, ModelMessage, RunContext
 from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
 
@@ -124,8 +123,14 @@ def run_chat(handler: ChatHandler, db_path: Path) -> None:
     dep_repo = TaskDependencyRepository(db_path)
 
     # Initialize mem0 memory (optional - only if API key available)
-    memory: Memory = mem0_memory()
-    logger.info("Mem0 memory initialized successfully")
+    try:
+        memory = mem0_memory()
+        logger.info("Mem0 memory initialized successfully")
+    except (KeyError, RuntimeError) as e:
+        # KeyError: Missing API keys (OPENROUTER_API_KEY)
+        # RuntimeError: Qdrant file locking issues in CI/CD
+        logger.error(f"Mem0 memory not available: {e}")
+        memory = None
 
     # Wrap repositories and memory in dependencies container
     dependencies = TaskDependencies(
@@ -148,10 +153,13 @@ def run_chat(handler: ChatHandler, db_path: Path) -> None:
         try:
             # Use module-level agent instance (PydanticAI recommended pattern)
 
-            memory_added = memory.add(user_input, user_id=dependencies.user_id)
-            logger.info(f"Memory added: {memory_added}")
-            dependencies.memories = json.dumps(memory.search(user_input, user_id=dependencies.user_id))
-            logger.info(f"Retrieved memories:{dependencies.memories}")
+            # Add user input to memory if available
+            if memory is not None:
+                memory_added = memory.add(user_input, user_id=dependencies.user_id)
+                logger.info(f"Memory added: {memory_added}")
+                dependencies.memories = json.dumps(memory.search(user_input, user_id=dependencies.user_id))
+                logger.info(f"Retrieved memories:{dependencies.memories}")
+
             result: AgentRunResult[str] = orchestrator_agent.run_sync(
                 user_input,
                 message_history=message_history,
