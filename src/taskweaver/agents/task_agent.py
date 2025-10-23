@@ -7,12 +7,15 @@ from loguru import logger
 from pydantic_ai import Agent, AgentRunResult, FunctionToolset, ModelMessage, RunContext
 from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
 
+from taskweaver.config import Config
+
 from ..config import get_config
 from ..database.connection import mem0_memory
 from ..database.dependency_repository import TaskDependencyRepository
 from ..database.repository import TaskRepository
 from .chat_handler import ChatHandler
 from .dependencies import TaskDependencies
+from .github_issues import get_github_issues
 from .tools import (
     add_dependency_tool,
     create_task_tool,
@@ -56,7 +59,7 @@ def _get_model_name() -> str:
         Model name with provider prefix (e.g., 'openai:gpt-4o-mini').
 
     """
-    config = get_config()
+    config: Config = get_config()
     model_name = config.model
     if ":" not in model_name:
         model_name = f"openai:{model_name}"
@@ -147,21 +150,30 @@ def run_chat(handler: ChatHandler, db_path: Path) -> None:
         if user_input is None:
             logger.info(f"Chat session ended after {turn_count} turns")
             break
-        if not user_input.strip():
+        if not (stripped_input := user_input.strip()):
             continue
+        if stripped_input.startswith("/github"):
+            config: Config = get_config()
+            stripped_input += f"Open Issues: {
+                json.dumps(
+                    get_github_issues(config.github_repo),
+                    indent=2,
+                    default=str,  # Handles datetime, UUID, etc.
+                )
+            }"
 
         try:
             # Use module-level agent instance (PydanticAI recommended pattern)
 
             # Add user input to memory if available
             if memory is not None:
-                memory_added = memory.add(user_input, user_id=dependencies.user_id)
+                memory_added = memory.add(stripped_input, user_id=dependencies.user_id)
                 logger.info(f"Memory added: {memory_added}")
-                dependencies.memories = json.dumps(memory.search(user_input, user_id=dependencies.user_id))
+                dependencies.memories = json.dumps(memory.search(stripped_input, user_id=dependencies.user_id))
                 logger.info(f"Retrieved memories:{dependencies.memories}")
 
             result: AgentRunResult[str] = orchestrator_agent.run_sync(
-                user_input,
+                stripped_input,
                 message_history=message_history,
                 deps=dependencies,
             )
