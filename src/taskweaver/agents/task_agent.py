@@ -28,6 +28,7 @@ from .tools import (
     mark_task_completed_tool,
     mark_task_in_progress_tool,
     remove_dependency_tool,
+    update_task_tool,
 )
 
 # Prompts directory
@@ -75,6 +76,7 @@ _task_toolset = FunctionToolset(
         mark_task_completed_tool,
         mark_task_in_progress_tool,
         mark_task_cancelled_tool,
+        update_task_tool,
     ],
     max_retries=3,
 )

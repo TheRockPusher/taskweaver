@@ -18,7 +18,7 @@ from pydantic_ai.exceptions import ModelRetry
 from taskweaver.database.exceptions import DependencyError, TaskNotFoundError
 from taskweaver.database.models import TaskDependency, TaskWithDependencies, TaskWithPriority
 
-from ..database.models import Task, TaskCreate, TaskStatus
+from ..database.models import Task, TaskCreate, TaskStatus, TaskUpdate
 from .dependencies import TaskDependencies
 
 # Display constants
@@ -68,6 +68,49 @@ def create_task_tool(  # noqa: PLR0913
         task = ctx.deps.task_repo.create_task(task_data)
         return f"✅ Created task '{task.title}' (ID: {task.task_id})"
     except (ValidationError, ValueError) as e:
+        raise ModelRetry(str(e)) from e
+
+
+def update_task_tool(  # noqa: PLR0913
+    ctx: RunContext[TaskDependencies],
+    task_id: UUID,
+    title: str | None = None,
+    description: str | None = None,
+    status: str | None = None,
+    duration_min: int | None = None,
+    llm_value: float | None = None,
+    requirement: str | None = None,
+) -> Task:
+    """Update fields of an existing task.
+
+    Args:
+        ctx: Runtime context containing TaskDependencies.
+        task_id: UUID of the task to update.
+        title: New task title (1-500 characters).
+        description: New task description.
+        status: New status ('pending', 'in_progress', 'completed', 'cancelled').
+        duration_min: New estimated duration in minutes (>= 1).
+        llm_value: New value score (0-100 scale).
+        requirement: New requirement/conclusion (1-500 characters).
+
+    Returns:
+        Updated Task object.
+
+    Raises:
+        ModelRetry: If validation fails or task not found.
+    """
+    try:
+        task_status = TaskStatus(status) if status else None
+        task_data = TaskUpdate(
+            title=title,
+            description=description,
+            status=task_status,
+            duration_min=duration_min,
+            llm_value=llm_value,
+            requirement=requirement,
+        )
+        return ctx.deps.task_repo.update_task(task_id, task_data)
+    except (ValidationError, ValueError, TaskNotFoundError) as e:
         raise ModelRetry(str(e)) from e
 
 
