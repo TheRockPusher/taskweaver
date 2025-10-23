@@ -30,6 +30,7 @@ classifiers = [
 ]
 dependencies = [
     "loguru>=0.7.3",
+    "mem0ai>=1.0.0",
     "pydantic>=2.12.3",
     "pydantic-ai>=1.1.0",
     "pydantic-ai-slim[duckduckgo]>=1.1.0",

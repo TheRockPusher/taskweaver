@@ -1,11 +1,13 @@
 """Database connection management for SQLite and Qdrant."""
 
+import os
 import sqlite3
 from collections.abc import Generator
 from contextlib import closing, contextmanager
 from pathlib import Path
 
 from loguru import logger
+from mem0 import Memory
 from qdrant_client import QdrantClient
 
 from ..config import get_paths
@@ -172,3 +174,22 @@ def get_qdrant_client(
     finally:
         logger.debug("Closing Qdrant client")
         client.close()
+
+
+def mem0_memory() -> Memory:
+    """Get mem0 initialized memory."""
+    config = {
+        "vector_store": {
+            "provider": "qdrant",
+            "config": {
+                "collection_name": "test",
+                "path": str(DEFAULT_QDRANT_PATH),
+                "on_disk": True,
+            },
+        },
+        "llm": {
+            "provider": "openai",
+            "config": {"site_url": "https://openrouter.ai/api/v1", "api_key": os.environ["OPENROUTER_API_KEY"]},
+        },
+    }
+    return Memory.from_config(config)

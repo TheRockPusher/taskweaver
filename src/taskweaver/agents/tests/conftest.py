@@ -43,9 +43,14 @@ class MockChatHandler:
 
 @pytest.fixture
 def mock_agent(monkeypatch: pytest.MonkeyPatch) -> Mock:
-    """Mock orchestrator agent to avoid API calls."""
+    """Mock orchestrator agent to avoid API calls.
+
+    Patches the module-level orchestrator_agent instance following
+    PydanticAI's recommended pattern of global agent instantiation.
+
+    """
     agent = Mock(spec=Agent)
-    monkeypatch.setattr(task_agent, "get_orchestrator_agent", lambda: agent)
+    monkeypatch.setattr(task_agent, "orchestrator_agent", agent)
     return agent
 
 
