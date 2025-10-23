@@ -34,6 +34,7 @@ class TestLoadPrompt:
             load_prompt("nonexistent_prompt")
 
 
+@pytest.mark.usefixtures("mock_mem0_memory")
 class TestRunChat:
     """Tests for run_chat function."""
 
