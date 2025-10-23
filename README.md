@@ -6,7 +6,7 @@ TaskWeaver is a conversational AI agent that intelligently organizes, prioritize
 
 **Target Audience:** Anyone looking to organize complex projects, learn new skills systematically, or improve task management through AI-powered decomposition and prioritization.
 
-**Project Status:** Version 0.5.0 (active development - Core features complete, building v0.5.0-0.6.0 enhancements)
+**Project Status:** Version 0.5.0 (active development - Core features complete, building v0.6.0 enhancements)
 
 **Technology:** Python 3.13+ | PydanticAI 1.1.0 | SQLite | Typer CLI | UV package manager
 
@@ -40,12 +40,12 @@ make test
 - ✅ Full CLI CRUD operations for tasks
 - ✅ Dependency tracking with cycle detection (BFS algorithm)
 - ✅ Interactive AI chat with conversational task decomposition
-- ✅ Web search integration (DuckDuckGo) - NEW in v0.5.0
+- ✅ Web search integration (DuckDuckGo)
 - ✅ DAG-aware priority calculation with upstream inheritance
 - ✅ Requirement/conclusion dual-purpose field
 - ✅ Effective priority surfacing for critical path identification
 
-**Next Up (v0.5.0-0.6.0):** TUI interface, GitHub integration, completion tracking, simple memory system (see [Roadmap](#roadmap)).
+**Next Up (v0.6.0):** Semantic memory (Mem0 + Qdrant), TUI interface, GitHub integration, completion tracking (see [Roadmap](#roadmap)).
 
 ### Full Documentation
 
@@ -95,12 +95,12 @@ TaskWeaver provides:
 - ✅ DAG-aware priority calculation with effective priority inheritance
 - ✅ Requirement/conclusion field for learning capture
 
-**Active Development (v0.5.0-0.6.0):**
+**Active Development (v0.6.0):**
 
+- 🔄 Semantic memory with Mem0 + Qdrant vector database (PR #26)
 - 🔄 TUI with Textual for visual task management (#17)
 - 🔄 GitHub issue integration (#18)
 - 🔄 Completion tracking system (#19)
-- 🔄 Simple memory system with SQLite (#20)
 
 See [Roadmap](#roadmap) for full version plan.
 
@@ -132,22 +132,27 @@ See [Roadmap](#roadmap) for full version plan.
 - ✅ Requirement/conclusion dual-purpose field
 - ✅ Web search integration via DuckDuckGo (v0.5.0)
 
-### 🔄 v0.5.0-0.6.0: Make It Usable & Smart
+### 🔄 v0.6.0: Semantic Memory & Usability
 
-**Goal:** Daily-use features and pattern learning
-**Timeline:** Active development
+**Goal:** Persistent context and daily-use features
+**Timeline:** Active development (2025 Q1)
 
-**v0.5.0 Features:**
+**v0.6.0 Features (In Progress):**
 
+- 🔄 **Semantic Memory with Mem0 + Qdrant** (PR #26) - Local-first vector database for context-aware conversations
+  - Persistent semantic memory across sessions
+  - Qdrant vector database with on-disk storage
+  - User preferences and conversation history
+  - Context retrieval for improved task recommendations
 - 🔄 **TUI with Textual** (#17) - Visual task board with kanban-style interface
 - 🔄 **GitHub Integration** (#18) - Import issues, sync status on PR merge
 - 🔄 **Completion Tracking** (#19) - Track estimated vs actual, learn category patterns
-- 🔄 **Simple Memory (SQLite)** (#20) - Store preferences, tech stack, goals
 
-**v0.6.0 Features (Planned):**
+**v0.7.0 Features (Planned):**
 
-- 📋 Pattern-based duration adjustment
+- 📋 Pattern-based duration adjustment using completion data
 - 📋 Goal tracking and progress visualization
+- 📋 Enhanced memory with user tech stack and project context
 - 📋 Better task recommendations based on learned patterns
 
 ### 📦 v1.0.0: Production Ready
@@ -168,9 +173,9 @@ See [Roadmap](#roadmap) for full version plan.
 
 - 📋 Dreyfus skill tracking (#22)
 - 📋 Observability & prompt tracking (#23)
-- 📋 Advanced memory with Qdrant + mem0 (#16) - if SQLite insufficient
 - 📋 Multi-agent orchestration
 - 📋 Database migrations with Alembic
+- 📋 Advanced memory features (enhanced search, automatic categorization)
 
 See [Issue #24](https://github.com/TheRockPusher/taskweaver/issues/24) for detailed roadmap and decision criteria.
 
@@ -178,6 +183,7 @@ See [Issue #24](https://github.com/TheRockPusher/taskweaver/issues/24) for detai
 
 - Built with [PydanticAI](https://ai.pydantic.dev/) for robust agent implementation
 - Web search integration via DuckDuckGo for real-time information retrieval
+- Semantic memory with [Mem0](https://docs.mem0.ai/) and [Qdrant](https://qdrant.tech/) vector database (v0.6.0)
 - SQLite database for local-first task storage
 - Comprehensive dependency tracking with cycle detection
 - Modern Python packaging with [UV](https://github.com/astral-sh/uv)
@@ -284,6 +290,17 @@ The agent can search the web for current information when decomposing tasks. Thi
 - Grounding task creation in up-to-date information
 
 The web search tool is powered by DuckDuckGo and activates automatically when the agent needs current information.
+
+**Semantic Memory (v0.6.0):**
+
+TaskWeaver uses Mem0 with Qdrant vector database to remember context across conversations:
+
+- **Persistent Context**: Remembers your preferences, tech stack, and past decisions
+- **Local-First Storage**: All memory stored locally at `~/.local/share/taskweaver/qdrant/`
+- **Semantic Search**: Retrieves relevant context automatically during conversations
+- **Privacy**: No data leaves your machine - complete privacy
+
+The memory system activates automatically, learning from your conversations to provide increasingly personalized and context-aware task recommendations.
 
 ### CLI Task Management (Available Now)
 
@@ -547,13 +564,15 @@ This project aims to be welcoming and inclusive. While we don't currently have a
 
 TaskWeaver is an individual open source project created to solve the challenge of managing complex goals through intelligent task decomposition and skill-based learning paths. It is not affiliated with any corporate entity or commercial service offering.
 
-**Privacy First**: All data stays local on your device. TaskWeaver uses SQLite for storage and does not transmit any user data or telemetry anywhere. Your tasks, skills, and preferences remain completely private.
+**Privacy First**: All data stays local on your device. TaskWeaver uses SQLite for task storage and Qdrant for vector memory (v0.6.0+), both stored locally. No user data or telemetry is transmitted anywhere. Your tasks, conversations, and preferences remain completely private.
 
 ## Acknowledgments
 
 ### Core Technologies
 
 - **AI Framework**: [PydanticAI](https://ai.pydantic.dev/) - Production-grade agent framework
+- **Memory System**: [Mem0](https://docs.mem0.ai/) - Semantic memory for AI agents (v0.6.0+)
+- **Vector Database**: [Qdrant](https://qdrant.tech/) - High-performance vector search engine (v0.6.0+)
 - **Package Manager**: [UV](https://github.com/astral-sh/uv) - Blazing fast Python package management
 - **Code Quality**: [Ruff](https://github.com/astral-sh/ruff) - Lightning-fast Python linter and formatter
 - **Type Checking**: [Ty](https://github.com/python/ty) - Static type analysis
