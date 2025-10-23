@@ -1,4 +1,4 @@
-"""Github issues funtions."""
+"""Github issues functions."""
 
 from operator import attrgetter
 

@@ -148,28 +148,28 @@ def run_chat(handler: ChatHandler, db_path: Path) -> None:
     turn_count = 0
     while True:
         user_input = handler.get_user_input()
-
+        command = False
         if user_input is None:
             logger.info(f"Chat session ended after {turn_count} turns")
             break
         if not (stripped_input := user_input.strip()):
             continue
-        if stripped_input.startswith("/github"):
-            config: Config = get_config()
-            stripped_input += f"Open Issues: {
-                json.dumps(
-                    get_github_issues(config.github_repos),
-                    indent=2,
-                    default=str,  # Handles datetime, UUID, etc.
-                )
-            }"
-            memory = None
 
         try:
-            # Use module-level agent instance (PydanticAI recommended pattern)
+            if stripped_input.startswith("/github"):
+                config: Config = get_config()
+                stripped_input += f"Open Issues: {
+                    json.dumps(
+                        get_github_issues(config.github_repos),
+                        indent=2,
+                        default=str,  # Handles datetime, UUID, etc.
+                    )
+                }"
+                # No memory addition if commands are used
+                command = True
 
             # Add user input to memory if available
-            if memory is not None:
+            if memory is not None and not command:
                 memory_added = memory.add(stripped_input, user_id=dependencies.user_id)
                 logger.info(f"Memory added: {memory_added}")
                 dependencies.memories = json.dumps(memory.search(stripped_input, user_id=dependencies.user_id))
