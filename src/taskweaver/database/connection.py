@@ -1,11 +1,14 @@
-"""Database connection management."""
+"""Database connection management for SQLite and Qdrant."""
 
+import os
 import sqlite3
 from collections.abc import Generator
 from contextlib import closing, contextmanager
 from pathlib import Path
 
 from loguru import logger
+from mem0 import Memory
+from qdrant_client import QdrantClient
 
 from ..config import get_paths
 from .schema import (
@@ -21,8 +24,9 @@ from .schema import (
     SCHEMA_VERSION,
 )
 
-# Default database location (XDG-compliant)
+# Default database locations (XDG-compliant)
 DEFAULT_DB_PATH = get_paths().database_file
+DEFAULT_QDRANT_PATH = get_paths().qdrant_dir
 
 
 def init_database(db_path: Path = DEFAULT_DB_PATH) -> None:
@@ -59,26 +63,37 @@ def init_database(db_path: Path = DEFAULT_DB_PATH) -> None:
         logger.info(f"Database initialized successfully at {db_path} (schema version: {SCHEMA_VERSION})")
 
 
-def _ensure_database_exists(db_path: Path) -> None:
-    """Ensure database file and schema exist, initialize if needed.
+def _ensure_databases_exist(db_path: Path, qdrant_path: Path) -> None:
+    """Ensure both SQLite and Qdrant databases exist, initialize if needed.
 
     Args:
         db_path: Path to SQLite database file.
+        qdrant_path: Path to Qdrant storage directory.
 
     """
+    # Initialize SQLite if missing
     if not db_path.exists():
-        logger.debug(f"Database does not exist, initializing: {db_path}")
+        logger.debug(f"SQLite database does not exist, initializing: {db_path}")
         init_database(db_path)
+
+    # Initialize Qdrant if missing
+    if not qdrant_path.exists():
+        logger.debug(f"Qdrant directory does not exist, initializing: {qdrant_path}")
+        init_qdrant(qdrant_path)
 
 
 @contextmanager
-def get_connection(db_path: Path = DEFAULT_DB_PATH) -> Generator[sqlite3.Connection]:
+def get_connection(
+    db_path: Path = DEFAULT_DB_PATH,
+    qdrant_path: Path = DEFAULT_QDRANT_PATH,
+) -> Generator[sqlite3.Connection]:
     """Get database connection as context manager.
 
-    Automatically initializes the database if it doesn't exist.
+    Automatically initializes both SQLite and Qdrant if they don't exist.
 
     Args:
         db_path: Path to SQLite database file.
+        qdrant_path: Path to Qdrant storage directory.
 
     Yields:
         SQLite connection with row factory set.
@@ -89,8 +104,8 @@ def get_connection(db_path: Path = DEFAULT_DB_PATH) -> Generator[sqlite3.Connect
         ...     tasks = cursor.fetchall()
 
     """
-    # Ensure database exists before attempting connection
-    _ensure_database_exists(db_path)
+    # Ensure both databases exist before attempting connection
+    _ensure_databases_exist(db_path, qdrant_path)
 
     logger.debug(f"Opening database connection: {db_path}")
     conn = sqlite3.connect(db_path)
@@ -103,3 +118,78 @@ def get_connection(db_path: Path = DEFAULT_DB_PATH) -> Generator[sqlite3.Connect
     finally:
         logger.debug("Closing database connection")
         conn.close()
+
+
+def init_qdrant(qdrant_path: Path = DEFAULT_QDRANT_PATH) -> None:
+    """Initialize Qdrant vector database.
+
+    Creates the Qdrant storage directory and initializes the client.
+    Qdrant will create collections on-demand when first used.
+
+    Args:
+        qdrant_path: Path to Qdrant storage directory.
+
+    Example:
+        >>> from taskweaver.database.connection import init_qdrant
+        >>> init_qdrant()  # Initializes at ~/.local/share/taskweaver/qdrant_store
+    """
+    logger.debug(f"Initializing Qdrant at: {qdrant_path}")
+    qdrant_path.mkdir(parents=True, exist_ok=True)
+
+    # Verify Qdrant can initialize (creates internal data structures)
+    _ = QdrantClient(path=str(qdrant_path))
+    logger.info(f"Qdrant initialized successfully at {qdrant_path}")
+
+
+@contextmanager
+def get_qdrant_client(
+    qdrant_path: Path = DEFAULT_QDRANT_PATH,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> Generator[QdrantClient]:
+    """Get Qdrant client as context manager.
+
+    Automatically initializes both SQLite and Qdrant if they don't exist.
+
+    Args:
+        qdrant_path: Path to Qdrant storage directory.
+        db_path: Path to SQLite database file.
+
+    Yields:
+        QdrantClient instance.
+
+    Example:
+        >>> with get_qdrant_client() as client:
+        ...     collections = client.get_collections()
+    """
+    # Ensure both databases exist (unified initialization)
+    _ensure_databases_exist(db_path, qdrant_path)
+
+    logger.debug(f"Opening Qdrant client: {qdrant_path}")
+    client = QdrantClient(path=str(qdrant_path))
+    try:
+        yield client
+    except Exception as e:
+        logger.error(f"Qdrant operation failed: {e}")
+        raise
+    finally:
+        logger.debug("Closing Qdrant client")
+        client.close()
+
+
+def mem0_memory() -> Memory:
+    """Get mem0 initialized memory."""
+    config = {
+        "vector_store": {
+            "provider": "qdrant",
+            "config": {
+                "collection_name": "test",
+                "path": str(DEFAULT_QDRANT_PATH),
+                "on_disk": True,
+            },
+        },
+        "llm": {
+            "provider": "openai",
+            "config": {"site_url": "https://openrouter.ai/api/v1", "api_key": os.environ["OPENROUTER_API_KEY"]},
+        },
+    }
+    return Memory.from_config(config)

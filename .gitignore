@@ -141,9 +141,10 @@ ENV/
 env.bak/
 venv.bak/
 
-# Local development config (project-local overrides)
+# Local development config and databases (project-local overrides)
 /config.toml
 /tasks.db
+/qdrant_store/
 
 # Spyder project settings
 .spyderproject

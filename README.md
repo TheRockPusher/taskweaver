@@ -6,7 +6,7 @@ TaskWeaver is a conversational AI agent that intelligently organizes, prioritize
 
 **Target Audience:** Anyone looking to organize complex projects, learn new skills systematically, or improve task management through AI-powered decomposition and prioritization.
 
-**Project Status:** Version 0.4.0 (active development - Phase 3 complete)
+**Project Status:** Version 0.5.0 (active development - Core features complete, building v0.6.0 enhancements)
 
 **Technology:** Python 3.13+ | PydanticAI 1.1.0 | SQLite | Typer CLI | UV package manager
 
@@ -35,17 +35,17 @@ make install
 make test
 ```
 
-**Current Capabilities:**
+**Current Capabilities (v0.5.0):**
 
 - ✅ Full CLI CRUD operations for tasks
 - ✅ Dependency tracking with cycle detection (BFS algorithm)
 - ✅ Interactive AI chat with conversational task decomposition
-- ✅ Web search integration for real-time information retrieval (DuckDuckGo)
-- ✅ DAG-aware priority calculation (upstream inheritance through blockers)
-- ✅ Requirement verification workflow
+- ✅ Web search integration (DuckDuckGo)
+- ✅ DAG-aware priority calculation with upstream inheritance
+- ✅ Requirement/conclusion dual-purpose field
 - ✅ Effective priority surfacing for critical path identification
 
-**Note:** Advanced features like Dreyfus skill gap detection are in research/planning phases.
+**Next Up (v0.6.0):** Semantic memory (Mem0 + Qdrant), TUI interface, GitHub integration, completion tracking (see [Roadmap](#roadmap)).
 
 ### Full Documentation
 
@@ -86,86 +86,104 @@ TaskWeaver provides:
 
 ## Current Status
 
-**Project Stage:** Phase 3 – Intelligence & Priority System (In Progress)
+**Version:** 0.5.0 (Released: 2025-01-23)
+**Development Stage:** Core Complete, Building Usability Features
 
-Phase 1 (Foundation) ✅ and Phase 2 (AI Integration & Dependency Management) ✅ are complete. PydanticAI agent fully integrated with 11 task management and dependency tools. Dependency management system implemented with BFS-based cycle detection. Currently implementing basic priority scoring and task conclusion tracking.
+**Recently Completed:**
 
-## Features (Roadmap)
+- ✅ Web search integration via DuckDuckGo (v0.5.0)
+- ✅ DAG-aware priority calculation with effective priority inheritance
+- ✅ Requirement/conclusion field for learning capture
 
-### Phase 1: Foundation ✅ COMPLETE
+**Active Development (v0.6.0):**
+
+- 🔄 Semantic memory with Mem0 + Qdrant vector database (PR #26)
+- 🔄 TUI with Textual for visual task management (#17)
+- 🔄 GitHub issue integration (#18)
+- 🔄 Completion tracking system (#19)
+
+See [Roadmap](#roadmap) for full version plan.
+
+## Roadmap
+
+### ✅ Completed (v0.1.0 - v0.5.0)
+
+**Foundation:**
 
 - ✅ SQLite database with schema versioning
 - ✅ Full CRUD CLI interface (Typer + Rich)
 - ✅ Pydantic models for validation
-- ✅ 80%+ test coverage
+- ✅ 85%+ test coverage
 
-### Phase 2: AI Integration & Dependency Management ✅ COMPLETE
+**AI & Dependencies:**
 
-🤖 **Conversational Task Management** ✅ COMPLETE
-
-- ✅ PydanticAI agent framework integrated
-- ✅ 12 agent tools registered (6 task management + 5 dependency + 1 web search)
-- ✅ Interactive `taskweaver chat` command
-- ✅ Production orchestrator prompt (1,161 lines, extensively optimised)
-- ✅ Web search capability via DuckDuckGo for real-time information
+- ✅ PydanticAI agent framework
+- ✅ 12 agent tools (6 task management + 5 dependency + 1 web search)
+- ✅ Interactive chat interface
+- ✅ Production orchestrator prompt (1,161 lines)
+- ✅ Task dependency tracking with DAG structure
+- ✅ BFS-based cycle detection
 - ✅ Dependency-aware task analysis
-- ✅ API integration tested and operational
 
-🔗 **Dependency Management** ✅ COMPLETE
+**Intelligence & Priority:**
 
-- ✅ Task blocking relationships (DAG structure)
-- ✅ Circular dependency detection using BFS algorithm
-- ✅ TaskDependencyRepository with full CRUD operations
-- ✅ Active blocker retrieval (filters completed/cancelled tasks)
-- ✅ TaskWithDependencies model with aggregated counts
-- ✅ tasks_full database view with dependency metrics
-- ✅ CLI commands: `lso` (list open), `createDep`, `rmdep`, `blocker`
-- ✅ Comprehensive test suite (17 dependency tests, all passing)
+- ✅ Intrinsic priority calculation (llm_value / duration_min)
+- ✅ DAG-aware effective priority with upstream inheritance
+- ✅ Requirement/conclusion dual-purpose field
+- ✅ Web search integration via DuckDuckGo (v0.5.0)
 
-### Phase 3: Intelligence & Priority System ✅ COMPLETE
+### 🔄 v0.6.0: Semantic Memory & Usability
 
-⚡ **Priority System with DAG Inheritance** ✅ IMPLEMENTED
+**Goal:** Persistent context and daily-use features
+**Timeline:** Active development (2025 Q1)
 
-- **Intrinsic priority**: Calculated as `llm_value / duration_min` (value per minute)
-- **Effective priority**: Flows upstream through dependency graph
-- Low-priority blockers inherit high priority from downstream tasks they block
-- Surfaces "hidden critical path" tasks that appear low-priority intrinsically
-- Agent uses effective priority for intelligent recommendations
-- **Status:** Complete and integrated into agent toolset
+**v0.6.0 Features (In Progress):**
 
-📝 **Task Requirement/Conclusion Field** ✅ SEMI-IMPLEMENTED
+- 🔄 **Semantic Memory with Mem0 + Qdrant** (PR #26) - Local-first vector database for context-aware conversations
+  - Persistent semantic memory across sessions
+  - Qdrant vector database with on-disk storage
+  - User preferences and conversation history
+  - Context retrieval for improved task recommendations
+- 🔄 **TUI with Textual** (#17) - Visual task board with kanban-style interface
+- 🔄 **GitHub Integration** (#18) - Import issues, sync status on PR merge
+- 🔄 **Completion Tracking** (#19) - Track estimated vs actual, learn category patterns
 
-- Single `requirement` field serves dual purpose
-- **Before task**: Specifies measurable completion criteria
-- **After task**: Can store what was learned/concluded
-- Agent verifies requirements before marking tasks complete
-- **Status:** Field exists, learning capture workflow partially implemented
+**v0.7.0 Features (Planned):**
 
-🧠 **Conversational Task Decomposition** ✅ IMPLEMENTED
+- 📋 Pattern-based duration adjustment using completion data
+- 📋 Goal tracking and progress visualization
+- 📋 Enhanced memory with user tech stack and project context
+- 📋 Better task recommendations based on learned patterns
 
-- LLM-assisted task breakdown through natural conversation
-- Agent guides users to create well-structured subtasks
-- Dependency-aware recommendations
-- Verification of completion criteria
-- **Status:** Fully operational via 1,161-line orchestrator prompt
+### 📦 v1.0.0: Production Ready
 
-🔮 **Planned Intelligence Features** (Phase 4-5)
+**Goal:** Shareable, installable, documented
+**Timeline:** After v0.5.0-0.6.0 complete
 
-- Dreyfus skill gap detection
-- Preference learning from task completion patterns
-- Adaptive skill assessment
-- **Status:** Research and design phase
+- 📋 Packaging (#21) - `pipx install taskweaver`
+- 📋 First-run setup wizard
+- 📋 Comprehensive documentation
+- 📋 Cross-platform support (Linux, macOS, Windows)
+- 📋 PyPI publication
 
-📊 **Adaptive System** (Planned - Phase 4)
-- Learns your preferences from task completion patterns
-- Updates skill assessments based on demonstrated capabilities
-- Adjusts scoring over time
-- **Status:** Not yet implemented
+### 🚀 v1.1+: Advanced Features
+
+**Goal:** Research features and advanced intelligence
+**Timeline:** Post-1.0, based on validated user needs
+
+- 📋 Dreyfus skill tracking (#22)
+- 📋 Observability & prompt tracking (#23)
+- 📋 Multi-agent orchestration
+- 📋 Database migrations with Alembic
+- 📋 Advanced memory features (enhanced search, automatic categorization)
+
+See [Issue #24](https://github.com/TheRockPusher/taskweaver/issues/24) for detailed roadmap and decision criteria.
 
 ### Technical Features
 
 - Built with [PydanticAI](https://ai.pydantic.dev/) for robust agent implementation
 - Web search integration via DuckDuckGo for real-time information retrieval
+- Semantic memory with [Mem0](https://docs.mem0.ai/) and [Qdrant](https://qdrant.tech/) vector database (v0.6.0)
 - SQLite database for local-first task storage
 - Comprehensive dependency tracking with cycle detection
 - Modern Python packaging with [UV](https://github.com/astral-sh/uv)
@@ -265,6 +283,7 @@ Ready to get started? Which task interests you most?
 **Web Search Integration:**
 
 The agent can search the web for current information when decomposing tasks. This enables:
+
 - Looking up current best practices and library versions
 - Finding recent tutorials and documentation
 - Verifying technology choices and recommendations
@@ -272,7 +291,18 @@ The agent can search the web for current information when decomposing tasks. Thi
 
 The web search tool is powered by DuckDuckGo and activates automatically when the agent needs current information.
 
-### CLI Task Management (Phase 1 - Available Now)
+**Semantic Memory (v0.6.0):**
+
+TaskWeaver uses Mem0 with Qdrant vector database to remember context across conversations:
+
+- **Persistent Context**: Remembers your preferences, tech stack, and past decisions
+- **Local-First Storage**: All memory stored locally at `~/.local/share/taskweaver/qdrant/`
+- **Semantic Search**: Retrieves relevant context automatically during conversations
+- **Privacy**: No data leaves your machine - complete privacy
+
+The memory system activates automatically, learning from your conversations to provide increasingly personalized and context-aware task recommendations.
+
+### CLI Task Management (Available Now)
 
 ```bash
 # Create a task (title is required, rest optional)
@@ -534,13 +564,15 @@ This project aims to be welcoming and inclusive. While we don't currently have a
 
 TaskWeaver is an individual open source project created to solve the challenge of managing complex goals through intelligent task decomposition and skill-based learning paths. It is not affiliated with any corporate entity or commercial service offering.
 
-**Privacy First**: All data stays local on your device. TaskWeaver uses SQLite for storage and does not transmit any user data or telemetry anywhere. Your tasks, skills, and preferences remain completely private.
+**Privacy First**: All data stays local on your device. TaskWeaver uses SQLite for task storage and Qdrant for vector memory (v0.6.0+), both stored locally. No user data or telemetry is transmitted anywhere. Your tasks, conversations, and preferences remain completely private.
 
 ## Acknowledgments
 
 ### Core Technologies
 
 - **AI Framework**: [PydanticAI](https://ai.pydantic.dev/) - Production-grade agent framework
+- **Memory System**: [Mem0](https://docs.mem0.ai/) - Semantic memory for AI agents (v0.6.0+)
+- **Vector Database**: [Qdrant](https://qdrant.tech/) - High-performance vector search engine (v0.6.0+)
 - **Package Manager**: [UV](https://github.com/astral-sh/uv) - Blazing fast Python package management
 - **Code Quality**: [Ruff](https://github.com/astral-sh/ruff) - Lightning-fast Python linter and formatter
 - **Type Checking**: [Ty](https://github.com/python/ty) - Static type analysis

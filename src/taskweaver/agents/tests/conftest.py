@@ -7,8 +7,9 @@ from unittest.mock import Mock
 import pytest
 from pydantic_ai import Agent
 
-# Set dummy API key BEFORE importing task_agent to prevent OpenAI client initialization errors
+# Set dummy API keys BEFORE importing task_agent to prevent client initialization errors
 os.environ.setdefault("OPENAI_API_KEY", "sk-test-dummy-key-for-testing")
+os.environ.setdefault("OPENROUTER_API_KEY", "sk-or-test-dummy-key-for-testing")
 
 from taskweaver.agents import task_agent
 
@@ -43,10 +44,31 @@ class MockChatHandler:
 
 @pytest.fixture
 def mock_agent(monkeypatch: pytest.MonkeyPatch) -> Mock:
-    """Mock orchestrator agent to avoid API calls."""
+    """Mock orchestrator agent to avoid API calls.
+
+    Patches the module-level orchestrator_agent instance following
+    PydanticAI's recommended pattern of global agent instantiation.
+
+    """
     agent = Mock(spec=Agent)
-    monkeypatch.setattr(task_agent, "get_orchestrator_agent", lambda: agent)
+    monkeypatch.setattr(task_agent, "orchestrator_agent", agent)
     return agent
+
+
+@pytest.fixture
+def mock_mem0_memory(monkeypatch: pytest.MonkeyPatch) -> Mock:
+    """Mock mem0_memory function to prevent API calls during tests.
+
+    Returns None to simulate memory not being available, which is
+    the graceful degradation path in production.
+
+    Patches the function in task_agent module (where it's used) rather than
+    connection module (where it's defined) to handle the direct import.
+
+    """
+    mock_memory_func = Mock(return_value=None)
+    monkeypatch.setattr(task_agent, "mem0_memory", mock_memory_func)
+    return mock_memory_func
 
 
 @pytest.fixture

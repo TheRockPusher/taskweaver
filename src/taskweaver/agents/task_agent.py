@@ -1,13 +1,14 @@
 """PydanticAI agent for task orchestration."""
 
-from functools import lru_cache
+import json
 from pathlib import Path
 
 from loguru import logger
-from pydantic_ai import Agent, AgentRunResult, FunctionToolset, ModelMessage
+from pydantic_ai import Agent, AgentRunResult, FunctionToolset, ModelMessage, RunContext
 from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
 
 from ..config import get_config
+from ..database.connection import mem0_memory
 from ..database.dependency_repository import TaskDependencyRepository
 from ..database.repository import TaskRepository
 from .chat_handler import ChatHandler
@@ -47,58 +48,61 @@ def load_prompt(name: str) -> str:
     return prompt_path.read_text(encoding="utf-8")
 
 
-@lru_cache
-def get_orchestrator_agent() -> Agent[TaskDependencies, str]:
-    """Get cached orchestrator agent instance.
-
-    Lazy initialization ensures agent is only created when needed,
-    avoiding import-time API key requirements for tests.
+# Prepare model name with provider prefix
+def _get_model_name() -> str:
+    """Get model name with provider prefix for agent initialization.
 
     Returns:
-        Cached Agent instance with TaskDependencies and registered tools.
+        Model name with provider prefix (e.g., 'openai:gpt-4o-mini').
 
     """
     config = get_config()
-    system_prompt = load_prompt("orchestrator_prompt")
-
-    # Add provider prefix to model name (openai:gpt-4o-mini)
     model_name = config.model
     if ":" not in model_name:
         model_name = f"openai:{model_name}"
+    return model_name
 
-    # Toolset 1: Task Management CRUD
-    task_toolset = FunctionToolset(
-        tools=[
-            create_task_tool,
-            list_tasks_tool,
-            get_task_details_tool,
-            mark_task_completed_tool,
-            mark_task_in_progress_tool,
-            mark_task_cancelled_tool,
-        ]
-    )
 
-    # Toolset 2: Dependency Management DAG
-    dependency_toolset = FunctionToolset(
-        tools=[
-            list_open_tasks_full,
-            add_dependency_tool,
-            remove_dependency_tool,
-            get_blockers_tool,
-            get_blocked_tool,
-        ]
-    )
+# Toolset 1: Task Management CRUD
+_task_toolset = FunctionToolset(
+    tools=[
+        create_task_tool,
+        list_tasks_tool,
+        get_task_details_tool,
+        mark_task_completed_tool,
+        mark_task_in_progress_tool,
+        mark_task_cancelled_tool,
+    ]
+)
 
-    # Create agent with both toolsets
-    agent: Agent[TaskDependencies, str] = Agent[TaskDependencies, str](
-        model_name,
-        deps_type=TaskDependencies,
-        system_prompt=system_prompt,
-        tools=[duckduckgo_search_tool()],
-        toolsets=[task_toolset, dependency_toolset],
-    )
+# Toolset 2: Dependency Management DAG
+_dependency_toolset = FunctionToolset(
+    tools=[
+        list_open_tasks_full,
+        add_dependency_tool,
+        remove_dependency_tool,
+        get_blockers_tool,
+        get_blocked_tool,
+    ]
+)
 
-    return agent
+# Module-level agent instance (PydanticAI recommended pattern)
+# Instantiated once and reused throughout the application, similar to FastAPI.
+# defer_model_check=True prevents API key validation at import time (enables testing)
+orchestrator_agent: Agent[TaskDependencies, str] = Agent[TaskDependencies, str](
+    _get_model_name(),
+    deps_type=TaskDependencies,
+    system_prompt=load_prompt("orchestrator_prompt"),
+    tools=[duckduckgo_search_tool()],
+    toolsets=[_task_toolset, _dependency_toolset],
+    defer_model_check=True,
+)
+
+
+@orchestrator_agent.system_prompt
+def add_memories(ctx: RunContext[TaskDependencies]) -> str:
+    """Load memory into sys prompt."""
+    return f"\n## MEMORIES\n{ctx.deps.memories}"
 
 
 def run_chat(handler: ChatHandler, db_path: Path) -> None:
@@ -107,21 +111,34 @@ def run_chat(handler: ChatHandler, db_path: Path) -> None:
     Args:
         handler: ChatHandler implementation for I/O operations.
         db_path: Path to the task database for agent operations.
+
     """
     logger.info(f"Starting chat session with database: {db_path}")
     handler.display_system_message(f"Current database path: {db_path}")
     message_history: list[ModelMessage] = []
     handler.display_system_message("🧵 TaskWeaver Chat - Type 'exit', 'quit', or Ctrl+C to end")
 
-    # Get agent instance (lazy initialization)
-    agent = get_orchestrator_agent()
-
-    # Create both repository instances for agent tools
+    # Create repository instances for agent tools
     task_repo = TaskRepository(db_path)
     dep_repo = TaskDependencyRepository(db_path)
 
-    # Wrap repositories in dependencies container
-    dependencies = TaskDependencies(task_repo=task_repo, dep_repo=dep_repo)
+    # Initialize mem0 memory (optional - only if API key available)
+    try:
+        memory = mem0_memory()
+        logger.info("Mem0 memory initialized successfully")
+    except (KeyError, RuntimeError) as e:
+        # KeyError: Missing API keys (OPENROUTER_API_KEY)
+        # RuntimeError: Qdrant file locking issues in CI/CD
+        logger.error(f"Mem0 memory not available: {e}")
+        memory = None
+
+    # Wrap repositories and memory in dependencies container
+    dependencies = TaskDependencies(
+        task_repo=task_repo,
+        dep_repo=dep_repo,
+        memories="",
+        user_id="default",
+    )
 
     turn_count = 0
     while True:
@@ -134,8 +151,16 @@ def run_chat(handler: ChatHandler, db_path: Path) -> None:
             continue
 
         try:
-            # Pass dependencies container to agent
-            result: AgentRunResult[str] = agent.run_sync(
+            # Use module-level agent instance (PydanticAI recommended pattern)
+
+            # Add user input to memory if available
+            if memory is not None:
+                memory_added = memory.add(user_input, user_id=dependencies.user_id)
+                logger.info(f"Memory added: {memory_added}")
+                dependencies.memories = json.dumps(memory.search(user_input, user_id=dependencies.user_id))
+                logger.info(f"Retrieved memories:{dependencies.memories}")
+
+            result: AgentRunResult[str] = orchestrator_agent.run_sync(
                 user_input,
                 message_history=message_history,
                 deps=dependencies,
