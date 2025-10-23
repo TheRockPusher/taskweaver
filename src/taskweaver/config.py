@@ -253,6 +253,7 @@ class Config(BaseModel):
         default="WARNING",
         description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
     )
+    github_repo: list[str] = Field(default=[], description="List of repos to get from github")
 
 
 @lru_cache
