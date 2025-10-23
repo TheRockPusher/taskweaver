@@ -75,7 +75,8 @@ _task_toolset = FunctionToolset(
         mark_task_completed_tool,
         mark_task_in_progress_tool,
         mark_task_cancelled_tool,
-    ]
+    ],
+    max_retries=3,
 )
 
 # Toolset 2: Dependency Management DAG
@@ -86,7 +87,8 @@ _dependency_toolset = FunctionToolset(
         remove_dependency_tool,
         get_blockers_tool,
         get_blocked_tool,
-    ]
+    ],
+    max_retries=3,
 )
 
 # Module-level agent instance (PydanticAI recommended pattern)
@@ -156,11 +158,12 @@ def run_chat(handler: ChatHandler, db_path: Path) -> None:
             config: Config = get_config()
             stripped_input += f"Open Issues: {
                 json.dumps(
-                    get_github_issues(config.github_repo),
+                    get_github_issues(config.github_repos),
                     indent=2,
                     default=str,  # Handles datetime, UUID, etc.
                 )
             }"
+            memory = None
 
         try:
             # Use module-level agent instance (PydanticAI recommended pattern)
