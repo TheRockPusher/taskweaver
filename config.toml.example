@@ -13,3 +13,6 @@ auto_decompose = true
 
 # Logging level
 log_level = "WARNING"
+
+# Github Repo to fetch
+github_repos = ["TheRockPusher/taskweaver"]
