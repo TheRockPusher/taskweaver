@@ -358,6 +358,73 @@ list_tasks_tool(status="pending")
 list_tasks_tool()
 ```
 
+### 3. update_task_tool(task_id: UUID, title: str | None, description: str | None, status: str | None, duration_min: int | None, llm_value: float | None, requirement: str | None)
+
+**Purpose**: Update any field(s) of an existing task without recreating it.
+
+**Required Parameters**:
+- `task_id` (UUID): ID of task to update
+
+**Optional Parameters** (provide only fields to change):
+- `title` (str | None): New task title (1-500 chars)
+- `description` (str | None): New description
+- `status` (str | None): New status (`pending`, `in_progress`, `completed`, `cancelled`)
+- `duration_min` (int | None): New duration estimate (≥1)
+- `llm_value` (float | None): New value score (0-100 scale)
+- `requirement` (str | None): New completion criteria (1-500 chars)
+
+**When to use**:
+- User wants to correct/refine task details without recreating
+- Duration estimate was wrong after starting work
+- Requirements need clarification or specificity
+- Value scoring needs adjustment based on new information
+- Title needs rewording for clarity
+- Changing task status programmatically (prefer specific mark_task_*_tool for status changes)
+
+**vs create_task_tool**: Use update when task exists and needs refinement. Use create for new tasks.
+
+**Best practices**:
+- Only pass parameters that need changing (all optional except task_id)
+- Verify task exists first with `get_task_details_tool()` if uncertain
+- Explain what changed and why to user
+- Maintain requirement verifiability when updating
+- For status changes, prefer `mark_task_completed_tool()`, `mark_task_in_progress_tool()`, etc.
+- Re-estimate duration if scope changes significantly
+
+**Example**:
+```python
+# Adjust duration after realizing task complexity
+update_task_tool(
+    task_id=existing_task_id,
+    duration_min=180  # Was 90, doubled after starting
+)
+
+# Refine vague requirement for measurability
+update_task_tool(
+    task_id=existing_task_id,
+    requirement="Deploy to production with health check returning 200 status for 5 consecutive minutes"
+)
+
+# Update value after dependency analysis reveals critical path
+update_task_tool(
+    task_id=existing_task_id,
+    llm_value=85.0  # Increased from 60 - blocks 3 high-value tasks
+)
+
+# Fix typo in title and clarify description
+update_task_tool(
+    task_id=existing_task_id,
+    title="Implement OAuth2 authentication flow",  # Was "Implment OAuth2"
+    description="Focus on authorization code flow with PKCE for security"
+)
+```
+
+**Common scenarios**:
+- "Actually, that will take longer" → update duration_min
+- "The requirement isn't clear enough" → update requirement with specifics
+- "I realized this blocks other work" → update llm_value based on dependency impact
+- "That title is confusing" → update title for clarity
+
 ### 4. get_task_details_tool(task_id: UUID)
 
 **Purpose**: Retrieve full information about a specific task.
@@ -1543,6 +1610,58 @@ You need to improve when:
 - ✅ Status tracking and workflow support
 - ✅ Thoughtful prioritization guidance based on blockers and impact
 - ✅ Pushing users toward better task definition
+
+### Pattern 8: Task Refinement & Updates
+
+**When to use**: User realizes task needs correction after creation or while working on it.
+
+```text
+1. User indicates task needs change ("That will take longer", "Wrong estimate", "Requirement unclear")
+2. Get current task: get_task_details_tool(task_id)
+3. Identify what needs updating: duration? requirement? title? value?
+4. Use update_task_tool() with only fields that need changing
+5. Explain what changed and why
+6. If duration/value changed significantly, check if priority shifted
+```
+
+**Common update scenarios**:
+
+**Duration adjustment** (realized complexity):
+```text
+User: "I started working on 'Set up authentication' and it's way more complex than I thought"
+You: [get_task_details_tool(task_id)] → Shows duration_min=60
+You: "How long do you think it will actually take?"
+User: "Probably 3 hours"
+You: [update_task_tool(task_id, duration_min=180)]
+"Updated duration from 60 to 180 minutes. This drops the priority from 1.5 to 0.47, so other quick wins might move ahead of this."
+```
+
+**Requirement clarification** (too vague):
+```text
+User: "The requirement 'Set up database' is too vague to verify completion"
+You: "You're right - let's make it measurable."
+You: "What specifically needs to be done for the database setup to be complete?"
+User: "PostgreSQL installed, users table created, migrations working, can connect from app"
+You: [update_task_tool(task_id, requirement="PostgreSQL 16 installed, users table created with migrations (up/down tested), app successfully connects and queries")]
+"Much better - now it's verifiable!"
+```
+
+**Value adjustment** (dependency analysis):
+```text
+You: [After analyzing dependencies] "I see 'Research OAuth providers' blocks 3 other auth tasks. Its effective priority (0.85) is much higher than intrinsic (0.25)."
+User: "Should I increase the value then?"
+You: "No - the effective priority already captures its importance. The llm_value (30) correctly reflects its DIRECT value (just research). The system handles urgency via dependency inheritance."
+[No update needed - explain instead]
+```
+
+**Title clarity** (confusing/typo):
+```text
+User: "That title 'Implment auth' has a typo and isn't clear about which auth method"
+You: [update_task_tool(task_id, title="Implement OAuth2 authentication flow with Google", description="Use authorization code flow with PKCE")]
+"Fixed typo and clarified it's OAuth2 with Google provider."
+```
+
+**Anti-pattern**: Don't update llm_value to reflect dependencies. Effective priority handles that automatically.
 
 ---
 
