@@ -1,14 +1,14 @@
 # [TaskWeaver](https://github.com/TheRockPusher/taskweaver)
 
-An AI-powered task organizer and decomposer that helps you break down complex goals into manageable, actionable tasks.
+An AI-powered task organiser and decomposer that helps you break down complex goals into manageable, actionable tasks.
 
-TaskWeaver is a conversational AI agent that intelligently organizes, prioritizes, and decomposes your tasks. It analyzes your skill level, identifies knowledge gaps, and creates learning paths to help you accomplish your goals efficiently.
+TaskWeaver is a conversational AI agent that intelligently organises, prioritises, and decomposes your tasks. It analyses your skill level, identifies knowledge gaps, and creates learning paths to help you accomplish your goals efficiently.
 
-**Target Audience:** Anyone looking to organize complex projects, learn new skills systematically, or improve task management through AI-powered decomposition and prioritization.
+**Target Audience:** Anyone looking to organise complex projects, learn new skills systematically, or improve task management through AI-powered decomposition and prioritisation.
 
-**Project Status:** Version 0.5.0 (active development - Core features complete, building v0.6.0 enhancements)
+**Project Status:** Version 0.6.0 (Active development - Core features complete, building usability enhancements)
 
-**Technology:** Python 3.13+ | PydanticAI 1.1.0 | SQLite | Typer CLI | UV package manager
+**Technology:** Python 3.13+ | PydanticAI 1.1.0 | SQLite | Typer CLI | UV package manager | Mem0 + Qdrant (Semantic Memory)
 
 [![CI](https://github.com/TheRockPusher/taskweaver/actions/workflows/ci.yml/badge.svg)](https://github.com/TheRockPusher/taskweaver/actions/workflows/ci.yml)
 [![Python Version](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
@@ -35,7 +35,7 @@ make install
 make test
 ```
 
-**Current Capabilities (v0.5.0):**
+**Current Capabilities (v0.6.0):**
 
 - ✅ Full CLI CRUD operations for tasks
 - ✅ Dependency tracking with cycle detection (BFS algorithm)
@@ -44,8 +44,11 @@ make test
 - ✅ DAG-aware priority calculation with upstream inheritance
 - ✅ Requirement/conclusion dual-purpose field
 - ✅ Effective priority surfacing for critical path identification
+- ✅ Semantic memory with Mem0 + Qdrant (local-first, persistent)
+- ✅ GitHub issue integration for task import and synchronisation
+- ✅ Optimised orchestrator prompt (1,704 lines, 20% token efficiency improvement)
 
-**Next Up (v0.6.0):** Semantic memory (Mem0 + Qdrant), TUI interface, GitHub integration, completion tracking (see [Roadmap](#roadmap)).
+**Next Up (v0.7.0):** TUI interface, completion tracking, enhanced memory features.
 
 ### Full Documentation
 
@@ -63,7 +66,7 @@ TaskWeaver addresses a common challenge: **complex goals often fail because they
 - Large projects feel insurmountable without proper breakdown
 - You don't know what skills you're missing until you start
 - Learning feels disconnected from doing (violates JIT learning principles)
-- Task prioritization is subjective and inconsistent
+- Task prioritisation is subjective and inconsistent
 - Dependencies between tasks aren't always clear
 
 ### The Solution
@@ -73,9 +76,10 @@ TaskWeaver provides:
 - **Intelligent Task Decomposition**: Automatically breaks complex goals into manageable chunks
 - **Skill Gap Analysis**: Identifies what you need to learn before starting tasks
 - **Just-In-Time Learning**: Creates learning tasks that directly unblock your goals
-- **Smart Prioritization**: Uses multi-criteria decision analysis (MCDA) for objective task scoring
+- **Smart Prioritisation**: Uses multi-criteria decision analysis (MCDA) for objective task scoring
 - **Dependency Management**: Tracks task relationships and detects circular dependencies
-- **Adaptive Learning**: Remembers your preferences and adjusts recommendations over time
+- **Semantic Memory**: Remembers your preferences and context across sessions
+- **Adaptive Learning**: Learns from completion data and adjusts recommendations over time
 
 ### Core Principles
 
@@ -86,27 +90,29 @@ TaskWeaver provides:
 
 ## Current Status
 
-**Version:** 0.5.0 (Released: 2025-01-23)
+**Version:** 0.6.0 (Released: 2025-01-23)
 **Development Stage:** Core Complete, Building Usability Features
 
 **Recently Completed:**
 
+- ✅ Semantic memory with Mem0 + Qdrant vector database (v0.6.0)
+- ✅ GitHub issue integration for task import and status sync (v0.6.0)
+- ✅ Orchestrator prompt optimisation (1,704 lines, fixed all value scoring conflicts)
 - ✅ Web search integration via DuckDuckGo (v0.5.0)
 - ✅ DAG-aware priority calculation with effective priority inheritance
 - ✅ Requirement/conclusion field for learning capture
 
-**Active Development (v0.6.0):**
+**Active Development (v0.6.0+):**
 
-- 🔄 Semantic memory with Mem0 + Qdrant vector database (PR #26)
 - 🔄 TUI with Textual for visual task management (#17)
-- 🔄 GitHub issue integration (#18)
 - 🔄 Completion tracking system (#19)
+- 🔄 Pattern-based duration estimation (#20)
 
 See [Roadmap](#roadmap) for full version plan.
 
 ## Roadmap
 
-### ✅ Completed (v0.1.0 - v0.5.0)
+### ✅ Completed (v0.1.0 - v0.6.0)
 
 **Foundation:**
 
@@ -120,7 +126,7 @@ See [Roadmap](#roadmap) for full version plan.
 - ✅ PydanticAI agent framework
 - ✅ 12 agent tools (6 task management + 5 dependency + 1 web search)
 - ✅ Interactive chat interface
-- ✅ Production orchestrator prompt (1,161 lines)
+- ✅ Optimised orchestrator prompt (1,704 lines)
 - ✅ Task dependency tracking with DAG structure
 - ✅ BFS-based cycle detection
 - ✅ Dependency-aware task analysis
@@ -131,34 +137,27 @@ See [Roadmap](#roadmap) for full version plan.
 - ✅ DAG-aware effective priority with upstream inheritance
 - ✅ Requirement/conclusion dual-purpose field
 - ✅ Web search integration via DuckDuckGo (v0.5.0)
+- ✅ Semantic memory with Mem0 + Qdrant (v0.6.0)
+- ✅ GitHub integration (v0.6.0)
 
-### 🔄 v0.6.0: Semantic Memory & Usability
+### 🔄 v0.7.0: Completion Tracking & Enhanced Memory
 
-**Goal:** Persistent context and daily-use features
+**Goal:** Learn from completion data and improve estimates
 **Timeline:** Active development (2025 Q1)
-
-**v0.6.0 Features (In Progress):**
-
-- 🔄 **Semantic Memory with Mem0 + Qdrant** (PR #26) - Local-first vector database for context-aware conversations
-  - Persistent semantic memory across sessions
-  - Qdrant vector database with on-disk storage
-  - User preferences and conversation history
-  - Context retrieval for improved task recommendations
-- 🔄 **TUI with Textual** (#17) - Visual task board with kanban-style interface
-- 🔄 **GitHub Integration** (#18) - Import issues, sync status on PR merge
-- 🔄 **Completion Tracking** (#19) - Track estimated vs actual, learn category patterns
 
 **v0.7.0 Features (Planned):**
 
+- 🔄 **Completion Tracking** (#19) - Track estimated vs actual, learn patterns
+- 🔄 **Enhanced Memory** - Structured memory extraction and categorisation
+- 🔄 **TUI with Textual** (#17) - Visual task board with kanban-style interface
 - 📋 Pattern-based duration adjustment using completion data
-- 📋 Goal tracking and progress visualization
-- 📋 Enhanced memory with user tech stack and project context
+- 📋 Goal tracking and progress visualisation
 - 📋 Better task recommendations based on learned patterns
 
 ### 📦 v1.0.0: Production Ready
 
 **Goal:** Shareable, installable, documented
-**Timeline:** After v0.5.0-0.6.0 complete
+**Timeline:** After v0.6.0-0.7.0 complete
 
 - 📋 Packaging (#21) - `pipx install taskweaver`
 - 📋 First-run setup wizard
@@ -175,7 +174,7 @@ See [Roadmap](#roadmap) for full version plan.
 - 📋 Observability & prompt tracking (#23)
 - 📋 Multi-agent orchestration
 - 📋 Database migrations with Alembic
-- 📋 Advanced memory features (enhanced search, automatic categorization)
+- 📋 Advanced memory features (enhanced search, automatic categorisation)
 
 See [Issue #24](https://github.com/TheRockPusher/taskweaver/issues/24) for detailed roadmap and decision criteria.
 
@@ -184,6 +183,7 @@ See [Issue #24](https://github.com/TheRockPusher/taskweaver/issues/24) for detai
 - Built with [PydanticAI](https://ai.pydantic.dev/) for robust agent implementation
 - Web search integration via DuckDuckGo for real-time information retrieval
 - Semantic memory with [Mem0](https://docs.mem0.ai/) and [Qdrant](https://qdrant.tech/) vector database (v0.6.0)
+- GitHub integration with [PyGithub](https://github.com/PyGithub/PyGithub) for issue synchronisation
 - SQLite database for local-first task storage
 - Comprehensive dependency tracking with cycle detection
 - Modern Python packaging with [UV](https://github.com/astral-sh/uv)
@@ -254,7 +254,7 @@ uv sync
 
 ## Usage
 
-### Interactive Chat Mode (Phase 2 - NEW)
+### Interactive Chat Mode
 
 Start an interactive conversation with the AI task orchestrator:
 
@@ -300,15 +300,25 @@ TaskWeaver uses Mem0 with Qdrant vector database to remember context across conv
 - **Semantic Search**: Retrieves relevant context automatically during conversations
 - **Privacy**: No data leaves your machine - complete privacy
 
-The memory system activates automatically, learning from your conversations to provide increasingly personalized and context-aware task recommendations.
+The memory system activates automatically, learning from your conversations to provide increasingly personalised and context-aware task recommendations.
 
-### CLI Task Management (Available Now)
+**GitHub Integration (v0.6.0):**
+
+Import and synchronise tasks with GitHub issues:
+
+```bash
+# The agent can import GitHub issues as tasks
+# Configure with: github_repos = ["owner/repo"] in config.toml
+# Status automatically syncs on PR merge or issue close
+```
+
+### CLI Task Management
 
 ```bash
 # Create a task (title is required, rest optional)
 uv run taskweaver create "Build authentication system" \
   --duration 120 \
-  --value 8.5 \
+  --value 85.0 \
   --req "JWT tokens working with test coverage" \
   --desc "Implement OAuth2 or JWT"
 
@@ -331,7 +341,7 @@ uv run taskweaver edit <task-id> -s completed
 uv run taskweaver rm <task-id>
 ```
 
-### Dependency Management (Phase 2 - Complete)
+### Dependency Management
 
 Create and manage task relationships with automatic cycle detection:
 
@@ -353,6 +363,45 @@ uv run taskweaver blocker <task-id>
 - Prevented dependencies on completed/cancelled tasks
 - Dependency counts aggregated in tasks_full view
 
+### Value Scoring (0-100 Scale)
+
+The system uses a standardised 0-100 value scoring scale for all tasks:
+
+**Direct Value Tiers:**
+
+- **90-100**: High immediate impact (critical bug fix, major feature, revenue-generating work)
+- **70-89**: Substantial impact (useful functionality, noticeable improvement)
+- **50-69**: Moderate impact (routine value, maintenance work)
+- **30-49**: Minor impact (small improvement, exploration)
+- **1-9**: Minimal impact (optional work, low priority)
+
+**Learning Tasks (Special Handling):**
+
+Pure learning has minimal intrinsic value because learning alone produces no deliverable. Learning derives value from what it unblocks:
+
+- **Pure tutorials/study** (no immediate output): 10-20
+- **Research with documented decision** (produces artifact): 40-50
+- **Spike/prototype** (produces working code): 50-60
+
+Learning tasks inherit priority from the work they enable via the DAG dependency system (effective priority).
+
+**Example Priority Flow:**
+
+```
+Learning Task: "Study OAuth2 flow"
+- Intrinsic value: 15 (low, it's just learning)
+- Duration: 60 minutes
+- Intrinsic priority: 0.25
+
+Blocks: "Implement OAuth2 authentication"
+- Implementation value: 85
+- Duration: 120 minutes
+- Intrinsic priority: 0.71
+
+Result: Learning task inherits effective priority of 0.71
+→ Learning becomes urgent despite low intrinsic value
+```
+
 ### Configuration
 
 Set your LLM provider:
@@ -368,6 +417,7 @@ echo "API_KEY=sk-..." > .env
 cat > config.toml << EOF
 model = "gpt-4o-mini"
 api_endpoint = "https://api.openai.com/v1"
+github_repos = ["owner/repo"]
 EOF
 ```
 
@@ -378,7 +428,7 @@ Supports any LLM provider compatible with the endpoint format (OpenAI, Anthropic
 The MVP implementation will aim to achieve these goals:
 
 - Add complex tasks via conversation (no CLI flags required)
-- Automatic task decomposition, gap detection, and prioritization
+- Automatic task decomposition, gap detection, and prioritisation
 - User approval and adjustment workflow before committing to database
 - Learning tasks correctly unblock parent tasks
 - Score inference accuracy >70% (user accepts without edits)
@@ -387,7 +437,7 @@ The MVP implementation will aim to achieve these goals:
 
 ### Development Approach
 
-The project is being developed using a "dogfooding" approach - TaskWeaver will be used to organize its own development. This means the project roadmap, development tasks, and progress will be managed through the system as it's being built, providing real-world validation of the approach.
+The project is being developed using a "dogfooding" approach - TaskWeaver will be used to organise its own development. This means the project roadmap, development tasks, and progress will be managed through the system as it's being built, providing real-world validation of the approach.
 
 More detailed usage examples and workflows will be added as features are implemented.
 
@@ -435,7 +485,7 @@ uv run pytest --cov=taskweaver --cov-report=html
 
 This project maintains high code quality standards:
 
-- **Formatting**: Automated with Ruff (120 character line length)
+- **Formatting**: Automated with Ruff (100 character line length)
 - **Linting**: Comprehensive rules including security checks (Bandit)
 - **Type Checking**: Enforced with Ty
 - **Testing**: Minimum 80% code coverage required
@@ -469,8 +519,10 @@ taskweaver/
 │       │   ├── task_agent.py               # Agent setup
 │       │   ├── tools.py                    # Tool definitions
 │       │   ├── chat_handler.py             # I/O protocol
+│       │   ├── github_issues.py            # GitHub integration
+│       │   ├── dependencies.py             # Agent dependencies container
 │       │   ├── prompts/
-│       │   │   └── orchestrator_prompt.md  # Agent system prompt
+│       │   │   └── orchestrator_prompt.md  # Agent system prompt (1,704 lines)
 │       │   └── tests/
 │       │       ├── conftest.py
 │       │       └── test_task_agent.py
@@ -509,7 +561,7 @@ Contributions are welcome! We actively encourage bug reports, feature requests, 
 - All code must pass automated quality checks (Ruff formatting, Ruff linting, Ty type checking)
 - Test coverage must remain at or above 80%
 - New features should include tests and documentation
-- Follow the existing code style (Google-style docstrings, 120 character line length)
+- Follow the existing code style (Google-style docstrings, 100 character line length)
 - No Contributor License Agreement (CLA) is required - contributions are licensed under the same AGPL-3.0 license as the project
 
 For detailed contribution guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -573,6 +625,7 @@ TaskWeaver is an individual open source project created to solve the challenge o
 - **AI Framework**: [PydanticAI](https://ai.pydantic.dev/) - Production-grade agent framework
 - **Memory System**: [Mem0](https://docs.mem0.ai/) - Semantic memory for AI agents (v0.6.0+)
 - **Vector Database**: [Qdrant](https://qdrant.tech/) - High-performance vector search engine (v0.6.0+)
+- **GitHub Integration**: [PyGithub](https://github.com/PyGithub/PyGithub) - Python GitHub API client (v0.6.0+)
 - **Package Manager**: [UV](https://github.com/astral-sh/uv) - Blazing fast Python package management
 - **Code Quality**: [Ruff](https://github.com/astral-sh/ruff) - Lightning-fast Python linter and formatter
 - **Type Checking**: [Ty](https://github.com/python/ty) - Static type analysis
@@ -581,7 +634,7 @@ TaskWeaver is an individual open source project created to solve the challenge o
 ### Methodologies
 
 - **Skill Assessment**: Dreyfus Model of Skill Acquisition
-- **Prioritization**: Multi-Criteria Decision Analysis (MCDA)
+- **Prioritisation**: Multi-Criteria Decision Analysis (MCDA)
 - **Learning Philosophy**: Just-In-Time (JIT) Learning principles
 - **Dependency Management**: Directed Acyclic Graphs (DAG) with BFS cycle detection
 
