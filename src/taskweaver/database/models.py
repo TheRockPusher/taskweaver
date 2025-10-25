@@ -16,6 +16,13 @@ class TaskStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class CompletionStatus(str, Enum):
+    """Completion status enumeration."""
+
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+
+
 class Task(BaseModel):
     """Task model - mirrors database schema exactly.
 
@@ -150,3 +157,57 @@ class TaskWithPriority(TaskWithDependencies):
     """
 
     effective_priority: float = Field(description="Effective priority considering DAG inheritance")
+
+
+class Completion(BaseModel):
+    """Completion model - mirrors database schema exactly.
+
+    Records completion events for tasks with immutable snapshots of duration estimates.
+    Supports pattern learning by preserving historical state at completion time.
+
+    - Entity-specific primary key (completion_id)
+    - Models mirror database exactly (no field mapping)
+    - One completion per task (enforced by UNIQUE constraint on task_id)
+    """
+
+    completion_id: UUID = Field(default_factory=uuid4)
+    task_id: UUID
+    status: CompletionStatus
+    closed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    duration_expected: int = Field(ge=1, description="Snapshot of task duration_min at completion time")
+    duration_actual: int = Field(ge=1, description="Actual time spent on task (user-reported)")
+    conclusion: str | None = Field(default=None, description="What was learned/delivered")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    model_config = ConfigDict(
+        use_enum_values=True,  # Store enum values, not names
+    )
+
+    @property
+    def variance_minutes(self) -> int:
+        """Calculate estimation variance in minutes.
+
+        Returns:
+            Difference between actual and expected duration (positive = over-estimate).
+        """
+        return self.duration_actual - self.duration_expected
+
+    @property
+    def variance_percent(self) -> float:
+        """Calculate estimation variance as percentage.
+
+        Returns:
+            Percentage variance (100% = 2x over, -50% = half the time).
+        """
+        return (self.variance_minutes / self.duration_expected) * 100.0
+
+
+class CompletionCreate(BaseModel):
+    """Model for creating new completion records."""
+
+    task_id: UUID
+    status: CompletionStatus
+    closed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    duration_expected: int = Field(ge=1, description="Snapshot of task duration_min at completion time")
+    duration_actual: int = Field(ge=1, description="Actual time spent on task")
+    conclusion: str | None = Field(default=None, description="What was learned/delivered")

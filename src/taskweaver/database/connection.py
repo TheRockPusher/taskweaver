@@ -12,6 +12,10 @@ from qdrant_client import QdrantClient
 
 from ..config import get_paths
 from .schema import (
+    CREATE_COMPLETION,
+    CREATE_COMPLETION_INDEX_CLOSED,
+    CREATE_COMPLETION_INDEX_STATUS,
+    CREATE_COMPLETION_INDEX_TASK,
     CREATE_DEPENDENCY_INDEX_BLOCKER,
     CREATE_DEPENDENCY_INDEX_TASK,
     CREATE_DEPENDENCY_TABLE,
@@ -55,6 +59,12 @@ def init_database(db_path: Path = DEFAULT_DB_PATH) -> None:
             conn.execute(CREATE_DEPENDENCY_TABLE)
             conn.execute(CREATE_DEPENDENCY_INDEX_TASK)
             conn.execute(CREATE_DEPENDENCY_INDEX_BLOCKER)
+
+            logger.debug("Creating completion table")
+            conn.execute(CREATE_COMPLETION)
+            conn.execute(CREATE_COMPLETION_INDEX_TASK)
+            conn.execute(CREATE_COMPLETION_INDEX_STATUS)
+            conn.execute(CREATE_COMPLETION_INDEX_CLOSED)
 
             logger.debug("Create Views")
             conn.execute(CREATE_VIEW_TASKS_FULL)

@@ -1,6 +1,6 @@
 """Database schema definitions and queries."""
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # Schema creation SQL
 CREATE_TASKS_TABLE = """
@@ -149,4 +149,56 @@ WHERE t.status IN ('pending', 'in_progress')
 """
 SELECT_ALL_TASKS_DEPENDENCY = """
 SELECT * FROM tasks_full ORDER BY created_at DESC;
+"""
+CREATE_COMPLETION = """
+CREATE TABLE IF NOT EXISTS completion(
+    completion_id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL UNIQUE REFERENCES tasks(task_id),
+    status TEXT NOT NULL CHECK(status IN ('completed', 'cancelled')),
+    closed_at TEXT NOT NULL,
+    duration_expected INTEGER NOT NULL,
+    duration_actual INTEGER NOT NULL,
+    conclusion TEXT,
+    created_at TEXT NOT NULL
+);
+"""
+
+CREATE_COMPLETION_INDEX_TASK = """
+CREATE INDEX IF NOT EXISTS idx_completion_task ON completion(task_id);
+"""
+
+CREATE_COMPLETION_INDEX_STATUS = """
+CREATE INDEX IF NOT EXISTS idx_completion_status ON completion(status);
+"""
+
+CREATE_COMPLETION_INDEX_CLOSED = """
+CREATE INDEX IF NOT EXISTS idx_completion_closed_at ON completion(closed_at);
+"""
+
+# Completion CRUD queries
+INSERT_COMPLETION = """
+INSERT INTO completion (
+    completion_id, task_id, status, closed_at, duration_expected, duration_actual, conclusion, created_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+"""
+
+SELECT_COMPLETION_BY_ID = """
+SELECT * FROM completion WHERE completion_id = ?;
+"""
+
+SELECT_COMPLETION_BY_TASK_ID = """
+SELECT * FROM completion WHERE task_id = ?;
+"""
+
+SELECT_ALL_COMPLETIONS = """
+SELECT * FROM completion ORDER BY closed_at DESC;
+"""
+
+SELECT_COMPLETIONS_BY_STATUS = """
+SELECT * FROM completion WHERE status = ? ORDER BY closed_at DESC;
+"""
+
+DELETE_COMPLETION = """
+DELETE FROM completion WHERE completion_id = ?;
 """
