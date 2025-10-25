@@ -6,7 +6,7 @@ TaskWeaver is a conversational AI agent that intelligently organises, prioritise
 
 **Target Audience:** Anyone looking to organise complex projects, learn new skills systematically, or improve task management through AI-powered decomposition and prioritisation.
 
-**Project Status:** Version 0.6.0 (Active development - Core features complete, building usability enhancements)
+**Project Status:** Version 0.7.0 (Active development - Completion tracking & pattern learning)
 
 **Technology:** Python 3.13+ | PydanticAI 1.1.0 | SQLite | Typer CLI | UV package manager | Mem0 + Qdrant (Semantic Memory)
 
@@ -35,7 +35,7 @@ make install
 make test
 ```
 
-**Current Capabilities (v0.6.0):**
+**Current Capabilities (v0.7.0):**
 
 - ✅ Full CLI CRUD operations for tasks
 - ✅ Dependency tracking with cycle detection (BFS algorithm)
@@ -46,9 +46,12 @@ make test
 - ✅ Effective priority surfacing for critical path identification
 - ✅ Semantic memory with Mem0 + Qdrant (local-first, persistent)
 - ✅ GitHub issue integration for task import and synchronisation
-- ✅ Optimised orchestrator prompt (1,704 lines, 20% token efficiency improvement)
+- ✅ Optimised orchestrator prompt (1,704+ lines, 20% token efficiency improvement)
+- ✅ Completion tracking with optional estimated vs actual duration tracking
+- ✅ Variance analysis for automatic calculation of percentage variance
+- ✅ Pattern learning foundation (CompletionRepository for CRUD operations)
 
-**Next Up (v0.7.0):** TUI interface, completion tracking, enhanced memory features.
+**Next Up (v0.8.0+):** Pattern-based duration adjustment, TUI interface, enhanced memory features.
 
 ### Full Documentation
 
@@ -90,23 +93,25 @@ TaskWeaver provides:
 
 ## Current Status
 
-**Version:** 0.6.0 (Released: 2025-01-23)
-**Development Stage:** Core Complete, Building Usability Features
+**Version:** 0.7.0 (Active development)
+**Development Stage:** Completion tracking implemented, refining pattern learning
 
 **Recently Completed:**
 
+- ✅ Completion tracking system with variance analysis (v0.7.0)
+- ✅ CompletionRepository for completion CRUD operations (v0.7.0)
+- ✅ Database schema v4 with completions table (v0.7.0)
+- ✅ Orchestrator prompt documentation for completion workflows (v0.7.0)
 - ✅ Semantic memory with Mem0 + Qdrant vector database (v0.6.0)
 - ✅ GitHub issue integration for task import and status sync (v0.6.0)
-- ✅ Orchestrator prompt optimisation (1,704 lines, fixed all value scoring conflicts)
 - ✅ Web search integration via DuckDuckGo (v0.5.0)
 - ✅ DAG-aware priority calculation with effective priority inheritance
-- ✅ Requirement/conclusion field for learning capture
 
-**Active Development (v0.6.0+):**
+**Active Development (v0.7.0+):**
 
+- 🔄 Pattern-based duration adjustment from completion data (#20)
 - 🔄 TUI with Textual for visual task management (#17)
-- 🔄 Completion tracking system (#19)
-- 🔄 Pattern-based duration estimation (#20)
+- 🔄 Enhanced memory features and categorisation
 
 See [Roadmap](#roadmap) for full version plan.
 
@@ -145,12 +150,15 @@ See [Roadmap](#roadmap) for full version plan.
 **Goal:** Learn from completion data and improve estimates
 **Timeline:** Active development (2025 Q1)
 
-**v0.7.0 Features (Planned):**
+**v0.7.0 Features (Complete/In Progress):**
 
-- 🔄 **Completion Tracking** (#19) - Track estimated vs actual, learn patterns
+- ✅ **Completion Tracking** (#19) - Track estimated vs actual, variance analysis
+- ✅ **CompletionRepository** - Full CRUD operations for completion records
+- ✅ **Variance Analysis** - Automatic percentage variance calculation
+- ✅ **Orchestrator Prompt Enhancements** - 300+ lines on completion workflows
+- 🔄 **Pattern-based Duration Adjustment** - Use completion data for better estimates
 - 🔄 **Enhanced Memory** - Structured memory extraction and categorisation
 - 🔄 **TUI with Textual** (#17) - Visual task board with kanban-style interface
-- 📋 Pattern-based duration adjustment using completion data
 - 📋 Goal tracking and progress visualisation
 - 📋 Better task recommendations based on learned patterns
 
@@ -184,8 +192,9 @@ See [Issue #24](https://github.com/TheRockPusher/taskweaver/issues/24) for detai
 - Web search integration via DuckDuckGo for real-time information retrieval
 - Semantic memory with [Mem0](https://docs.mem0.ai/) and [Qdrant](https://qdrant.tech/) vector database (v0.6.0)
 - GitHub integration with [PyGithub](https://github.com/PyGithub/PyGithub) for issue synchronisation
-- SQLite database for local-first task storage
-- Comprehensive dependency tracking with cycle detection
+- Completion tracking with variance analysis for pattern learning (v0.7.0)
+- SQLite database for local-first task storage (v4 schema with completions table)
+- Comprehensive dependency tracking with cycle detection (BFS-based)
 - Modern Python packaging with [UV](https://github.com/astral-sh/uv)
 - Comprehensive code quality tools (Ruff, Ty, pytest with 85%+ coverage)
 - Pre-commit hooks and CI/CD automation
@@ -337,8 +346,37 @@ uv run taskweaver edit <task-id> -s in_progress
 # Complete a task
 uv run taskweaver edit <task-id> -s completed
 
+# Complete a task with duration tracking (v0.7.0+)
+# The agent will prompt for actual duration and conclusion
+# These are optional but enable pattern learning
+
 # Delete a task
 uv run taskweaver rm <task-id>
+```
+
+**Completion Tracking (v0.7.0):**
+
+When marking tasks as completed or cancelled via the AI agent, you can provide:
+
+- **`duration_actual`**: Actual time spent in minutes (enables variance analysis)
+- **`conclusion`**: What was learned or delivered (captures insights for future tasks)
+
+The system automatically calculates:
+- **Variance (minutes)**: `duration_actual - duration_expected`
+- **Variance (%)**: `(variance_minutes / duration_expected) * 100`
+
+This data is stored in the completion record for pattern learning and future estimate improvement.
+
+Example conversation with the agent:
+
+```
+You: "I finished the authentication task"
+
+Agent: "Great! How long did it take? You estimated 120 minutes."
+
+You: "It took about 90 minutes"
+
+Agent: "✅ Completed 'Build authentication system' (120min estimated, 90min actual, -25.0% variance)"
 ```
 
 ### Dependency Management
