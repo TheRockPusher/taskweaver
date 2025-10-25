@@ -16,7 +16,13 @@ from pydantic_ai import RunContext
 from pydantic_ai.exceptions import ModelRetry
 
 from taskweaver.database.exceptions import DependencyError, TaskNotFoundError
-from taskweaver.database.models import TaskDependency, TaskWithDependencies, TaskWithPriority
+from taskweaver.database.models import (
+    CompletionCreate,
+    CompletionStatus,
+    TaskDependency,
+    TaskWithDependencies,
+    TaskWithPriority,
+)
 
 from ..database.models import Task, TaskCreate, TaskStatus, TaskUpdate
 from .dependencies import TaskDependencies
@@ -139,28 +145,58 @@ def list_tasks_tool(ctx: RunContext[TaskDependencies], status: str | None = None
     return tasks
 
 
-def mark_task_completed_tool(ctx: RunContext[TaskDependencies], task_id: UUID) -> str:
-    """Mark a task as completed.
+def mark_task_completed_tool(
+    ctx: RunContext[TaskDependencies],
+    task_id: UUID,
+    duration_actual: int | None = None,
+    conclusion: str | None = None,
+) -> str:
+    """Mark a task as completed and optionally record completion data for pattern learning.
 
     Transitions task to completed status and unblocks any tasks depending on it.
-    Use when user confirms they've finished the task.
+    If duration_actual is provided, creates a completion record with variance tracking.
 
     Args:
         ctx: Runtime context containing TaskDependencies.
         task_id: UUID of the task to mark as completed.
+        duration_actual: Optional. Actual time spent in minutes. Enables completion tracking.
+        conclusion: Optional. What was learned or delivered. Captures insights for future tasks.
 
     Returns:
-        Confirmation message with task title.
+        Confirmation message with task title and variance information if tracked.
 
     Raises:
         ModelRetry: If task doesn't exist. LLM can retry with correct task ID.
 
     Example:
-        >>> mark_task_completed_tool(ctx, UUID("123e4567-e89b-12d3-a456-426614174000"))
+        >>> mark_task_completed_tool(ctx, UUID("..."))
         "✅ Task 'Build login feature' marked as completed"
+
+        >>> mark_task_completed_tool(ctx, UUID("..."), duration_actual=90, conclusion="OAuth2 setup")
+        "✅ Completed 'Build login feature' (60min estimated, 90min actual, +50.0% variance)"
     """
     try:
         task = ctx.deps.task_repo.mark_completed(task_id)
+
+        # If duration provided, record completion for pattern learning
+        if duration_actual is not None:
+            completion = ctx.deps.completion_repo.create_completion(
+                CompletionCreate(
+                    task_id=task_id,
+                    status=CompletionStatus.COMPLETED,
+                    duration_expected=task.duration_min,  # Immutable snapshot
+                    duration_actual=duration_actual,
+                    conclusion=conclusion,
+                )
+            )
+
+            variance_sign = "+" if completion.variance_minutes > 0 else ""
+            return (
+                f"✅ Completed '{task.title}' "
+                f"({completion.duration_expected}min estimated, {completion.duration_actual}min actual, "
+                f"{variance_sign}{completion.variance_percent:.1f}% variance)"
+            )
+
         return f"✅ Task '{task.title}' marked as completed"
     except TaskNotFoundError as e:
         raise ModelRetry(str(e)) from e
@@ -193,28 +229,53 @@ def mark_task_in_progress_tool(ctx: RunContext[TaskDependencies], task_id: UUID)
         raise ModelRetry(str(e)) from e
 
 
-def mark_task_cancelled_tool(ctx: RunContext[TaskDependencies], task_id: UUID) -> str:
-    """Mark a task as cancelled.
+def mark_task_cancelled_tool(
+    ctx: RunContext[TaskDependencies],
+    task_id: UUID,
+    duration_actual: int | None = None,
+    conclusion: str | None = None,
+) -> str:
+    """Mark a task as cancelled and optionally record why for learning.
 
     Transitions task to cancelled status to remove from active workload.
-    Use when task is no longer needed or will not be completed.
+    If duration_actual is provided, records time spent before cancellation.
 
     Args:
         ctx: Runtime context containing TaskDependencies.
         task_id: UUID of the task to mark as cancelled.
+        duration_actual: Optional. Time spent before cancellation in minutes.
+        conclusion: Optional. Why task was cancelled. Helps avoid similar tasks.
 
     Returns:
-        Confirmation message with task title.
+        Confirmation message with task title and cancellation details if tracked.
 
     Raises:
         ModelRetry: If task doesn't exist. LLM can retry with correct task ID.
 
     Example:
-        >>> mark_task_cancelled_tool(ctx, UUID("123e4567-e89b-12d3-a456-426614174000"))
+        >>> mark_task_cancelled_tool(ctx, UUID("..."))
         "❌ Task 'Build login feature' marked as cancelled"
+
+        >>> mark_task_cancelled_tool(ctx, UUID("..."), duration_actual=30, conclusion="Requirements changed")
+        "❌ Cancelled 'Build login feature' (spent 30min)"
     """
     try:
         task = ctx.deps.task_repo.mark_cancelled(task_id)
+
+        # If duration provided, record cancellation for pattern learning
+        if duration_actual is not None:
+            ctx.deps.completion_repo.create_completion(
+                CompletionCreate(
+                    task_id=task_id,
+                    status=CompletionStatus.CANCELLED,
+                    duration_expected=task.duration_min,  # Immutable snapshot
+                    duration_actual=duration_actual,
+                    conclusion=conclusion,
+                )
+            )
+
+            return f"❌ Cancelled '{task.title}' (spent {duration_actual}min)"
+
         return f"❌ Task '{task.title}' marked as cancelled"
     except TaskNotFoundError as e:
         raise ModelRetry(str(e)) from e

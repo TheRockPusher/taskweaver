@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 
+from ..database.completion_repository import CompletionRepository
 from ..database.dependency_repository import TaskDependencyRepository
 from ..database.repository import TaskRepository
 
@@ -16,12 +17,14 @@ class TaskDependencies:
     Attributes:
         task_repo: Repository for task CRUD operations.
         dep_repo: Repository for task dependency management.
-        memory: Mem0 memory instance for semantic storage (optional).
+        completion_repo: Repository for completion tracking and variance analysis.
+        memories: Semantic memory context from Mem0 (optional).
         user_id: User identifier for memory operations (default: "default").
 
     """
 
     task_repo: TaskRepository
     dep_repo: TaskDependencyRepository
+    completion_repo: CompletionRepository
     memories: str
     user_id: str = "default"

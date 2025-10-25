@@ -10,6 +10,7 @@ from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
 from taskweaver.config import Config
 
 from ..config import get_config
+from ..database.completion_repository import CompletionRepository
 from ..database.connection import mem0_memory
 from ..database.dependency_repository import TaskDependencyRepository
 from ..database.repository import TaskRepository
@@ -128,6 +129,7 @@ def run_chat(handler: ChatHandler, db_path: Path) -> None:
     # Create repository instances for agent tools
     task_repo = TaskRepository(db_path)
     dep_repo = TaskDependencyRepository(db_path)
+    completion_repo = CompletionRepository(db_path)
 
     # Initialize mem0 memory (optional - only if API key available)
     try:
@@ -143,6 +145,7 @@ def run_chat(handler: ChatHandler, db_path: Path) -> None:
     dependencies = TaskDependencies(
         task_repo=task_repo,
         dep_repo=dep_repo,
+        completion_repo=completion_repo,
         memories="",
         user_id="default",
     )

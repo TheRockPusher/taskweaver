@@ -136,6 +136,7 @@ convention = "google"
     "S101",    # Use of assert
     "ANN",     # Type annotations
     "D",       # Docstrings
+    "PLR2004", # Magic value comparisons
 ]
 "**/__init__.py" = [
     "D104",    # Missing docstring in public package

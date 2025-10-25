@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from taskweaver.database.completion_repository import CompletionRepository
 from taskweaver.database.connection import init_database
 from taskweaver.database.dependency_repository import TaskDependencyRepository
 from taskweaver.database.repository import TaskRepository
@@ -55,6 +56,20 @@ def dep_repo(temp_db: Path) -> TaskDependencyRepository:
 
     """
     return TaskDependencyRepository(db_path=temp_db)
+
+
+@pytest.fixture
+def completion_repo(temp_db: Path) -> CompletionRepository:
+    """Create completion repository with temporary database.
+
+    Args:
+        temp_db: Temporary database path.
+
+    Returns:
+        CompletionRepository instance.
+
+    """
+    return CompletionRepository(db_path=temp_db)
 
 
 @pytest.fixture

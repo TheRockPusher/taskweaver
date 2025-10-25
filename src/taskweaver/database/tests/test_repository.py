@@ -332,7 +332,7 @@ def test_effective_priority_inherits_from_blocked_task(task_repo: TaskRepository
     # Blocker should inherit high priority from blocked task
     priorities = dep_repo.calculate_effective_priorities()
     effective = priorities[blocker.task_id]
-    assert effective == 3.0  # noqa: PLR2004 - Inherited from blocked task
+    assert effective == 3.0
     assert effective > blocker.priority  # 3.0 > 0.25
 
 
@@ -392,8 +392,8 @@ def test_effective_priority_batch_calculation(task_repo: TaskRepository) -> None
     assert blocked.task_id in priorities
 
     # Blocker inherits from blocked
-    assert priorities[blocker.task_id] == 2.0  # noqa: PLR2004 - 100.0/50
-    assert priorities[blocked.task_id] == 2.0  # noqa: PLR2004 - Its own priority
+    assert priorities[blocker.task_id] == 2.0
+    assert priorities[blocked.task_id] == 2.0
 
 
 def test_effective_priority_multiple_blocked_tasks(task_repo: TaskRepository) -> None:
@@ -426,7 +426,7 @@ def test_effective_priority_multiple_blocked_tasks(task_repo: TaskRepository) ->
     # Blocker should inherit max priority (2.0 from blocked2)
     priorities = dep_repo.calculate_effective_priorities()
     effective = priorities[blocker.task_id]
-    assert effective == 2.0  # noqa: PLR2004
+    assert effective == 2.0
 
 
 def test_list_tasks_with_priority(task_repo: TaskRepository) -> None:
@@ -447,7 +447,7 @@ def test_list_tasks_with_priority(task_repo: TaskRepository) -> None:
     tasks_with_priority = dep_repo.list_tasks_with_priority()
 
     # Should return TaskWithPriority instances
-    assert len(tasks_with_priority) == 2  # noqa: PLR2004
+    assert len(tasks_with_priority) == 2
     assert all(isinstance(t, TaskWithPriority) for t in tasks_with_priority)
 
     # Find blocker task
@@ -457,8 +457,8 @@ def test_list_tasks_with_priority(task_repo: TaskRepository) -> None:
     assert blocker_enriched.task_id == blocker.task_id
     assert blocker_enriched.tasks_blocked_count == 1  # Blocks 1 task
     assert blocker_enriched.active_blocker_count == 0  # Not blocked
-    assert blocker_enriched.priority == 0.5  # noqa: PLR2004 - Intrinsic (50/100)
-    assert blocker_enriched.effective_priority == 2.0  # noqa: PLR2004 - Inherited from blocked (100/50)
+    assert blocker_enriched.priority == 0.5
+    assert blocker_enriched.effective_priority == 2.0
 
     # Can easily compare intrinsic vs effective
     assert blocker_enriched.effective_priority > blocker_enriched.priority
