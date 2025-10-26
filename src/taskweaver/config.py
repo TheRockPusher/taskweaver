@@ -254,6 +254,64 @@ class Config(BaseModel):
         description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
     )
     github_repos: list[str] = Field(default=[], description="List of repos to get from github")
+    mem0_llm_provider: str = Field(
+        default="openai",
+        description="LLM model name for memory management"
+    )
+    mem0_embedding: str = Field(
+        default="text-embedding-3-small",
+        description="Model for embedding memories"
+    )
+    mem0_embedding_provider: str = Field(
+        default="openai",
+        description="provider of the LLM model for embedding"
+    )
+    mem0_site_url: str | None = Field(
+        default=None,
+        description="Custom site URL for Mem0 LLM provider (auto-set for openrouter)"
+    )
+    mem0_max_memories: int = Field(
+        default=10,
+        ge=1,
+        le=100,
+        description="Maximum number of memories to retrieve from Mem0"
+    )
+
+    @property
+    def mem0_llm_provider_resolved(self) -> str:
+        """Get the actual provider for Mem0 (translates openrouter → openai).
+
+        OpenRouter uses OpenAI-compatible API, so we translate the provider
+        name to 'openai' while using OpenRouter's endpoint.
+
+        Returns:
+            Resolved provider name ('openai' if user specified 'openrouter').
+
+        Example:
+            >>> config = Config(mem0_llm_provider="openrouter")
+            >>> config.mem0_llm_provider_resolved
+            'openai'
+        """
+        return "openai" if self.mem0_llm_provider == "openrouter" else self.mem0_llm_provider
+
+    @property
+    def mem0_site_url_resolved(self) -> str | None:
+        """Get the site URL (auto-set for openrouter if not specified).
+
+        When using OpenRouter, automatically sets the site_url to OpenRouter's
+        API endpoint unless explicitly overridden.
+
+        Returns:
+            Site URL string or None for default provider endpoints.
+
+        Example:
+            >>> config = Config(mem0_llm_provider="openrouter")
+            >>> config.mem0_site_url_resolved
+            'https://openrouter.ai/api/v1'
+        """
+        if self.mem0_llm_provider == "openrouter":
+            return self.mem0_site_url or "https://openrouter.ai/api/v1"
+        return self.mem0_site_url
 
 
 @lru_cache

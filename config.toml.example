@@ -1,18 +1,60 @@
 # TaskWeaver Configuration
 # Copy to ~/.config/taskweaver/config.toml or ./config.toml (project-local)
 
+# === LLM CONFIGURATION ===
+
 # Model name - PydanticAI auto-detects provider from prefix
 # OpenAI: "gpt-4o-mini", "gpt-4o"
 # OpenRouter: "openrouter:anthropic/claude-3.5-sonnet"
 # Anthropic: "anthropic:claude-3-5-sonnet-latest"
 # Google: "google-gla:gemini-1.5-flash"
-model = "gpt-4o-mini"
+model = "openai:gpt-4o-mini"
+
+# Optional: Custom API endpoint for the main LLM (defaults to provider standard)
+# For self-hosted models or proxies
+# api_endpoint = "https://api.example.com/v1"
+
+# === MEM0 SEMANTIC MEMORY CONFIGURATION ===
+
+# Provider for Mem0 LLM (used for memory storage and retrieval)
+# Options: "openai", "anthropic", "google", "openrouter"
+#
+# Special case: "openrouter"
+#   - Automatically translates to "openai" provider (OpenRouter is OpenAI-compatible)
+#   - Automatically sets site_url to "https://openrouter.ai/api/v1"
+#   - Requires OPENROUTER_API_KEY environment variable
+mem0_llm_provider = "openai"
+
+# Embedding model for memory vector storage
+# Common options: "text-embedding-3-small", "text-embedding-3-large"
+mem0_embedding = "text-embedding-3-small"
+
+# Provider for embedding model (must match the embedding model availability)
+# Usually: "openai" for OpenAI embedding models
+mem0_embedding_provider = "openai"
+
+# Maximum number of memories to retrieve per conversation turn
+# Range: 1-100 (default: 10)
+# Higher values = more context but increased token usage
+mem0_max_memories = 10
+
+# Optional: Custom site URL for Mem0 LLM provider
+# Leave commented for default provider endpoints
+# Useful for: OpenRouter (if not using provider="openrouter"), custom proxies
+# mem0_site_url = "https://openrouter.ai/api/v1"
+
+# === TASK MANAGEMENT ===
 
 # Auto-decompose complex tasks (future feature)
 auto_decompose = true
 
-# Logging level
+# === LOGGING ===
+
+# Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
 log_level = "WARNING"
 
-# Github Repo to fetch
+# === GITHUB INTEGRATION ===
+
+# List of GitHub repositories to sync with (format: "owner/repo")
+# Enable GitHub issue import and status synchronisation
 github_repos = ["TheRockPusher/taskweaver"]

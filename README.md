@@ -442,24 +442,112 @@ Result: Learning task inherits effective priority of 0.71
 
 ### Configuration
 
-Set your LLM provider:
+TaskWeaver uses a flexible configuration system with support for multiple LLM providers and providers-specific settings for Mem0 semantic memory.
+
+**Configuration Hierarchy (later overrides earlier):**
+
+1. Built-in defaults
+2. XDG user config (`~/.config/taskweaver/config.toml`)
+3. Project-local config (`./config.toml`) - takes precedence
+
+**Configuration Methods:**
 
 ```bash
-# Option 1: Environment variable
-export API_KEY="sk-..."
+# Option 1: Environment variables
+export OPENAI_API_KEY="sk-..."
+export OPENROUTER_API_KEY="sk-or-..."
 
-# Option 2: .env file
-echo "API_KEY=sk-..." > .env
+# Option 2: .env file (project-local or ~/.config/taskweaver/.env)
+echo "OPENAI_API_KEY=sk-..." > .env
 
-# Option 3: config.toml
+# Option 3: config.toml (project-local or ~/.config/taskweaver/)
 cat > config.toml << EOF
 model = "gpt-4o-mini"
-api_endpoint = "https://api.openai.com/v1"
 github_repos = ["owner/repo"]
 EOF
 ```
 
-Supports any LLM provider compatible with the endpoint format (OpenAI, Anthropic, local models).
+**LLM Provider Support:**
+
+TaskWeaver works with any LLM provider supported by PydanticAI:
+
+```toml
+# OpenAI (default)
+model = "gpt-4o-mini"
+
+# OpenRouter (multi-provider gateway)
+model = "openrouter:anthropic/claude-3.5-sonnet"
+
+# Anthropic
+model = "anthropic:claude-3-5-sonnet-latest"
+
+# Google
+model = "google-genai:gemini-1.5-flash"
+```
+
+**Mem0 Semantic Memory Configuration:**
+
+Mem0 stores and retrieves semantic memories across conversations. You can configure the LLM provider and embedding model independently from your main TaskWeaver model:
+
+```toml
+# Memory LLM provider (openai, anthropic, google, or openrouter)
+mem0_llm_provider = "openai"
+
+# Embedding model for semantic search
+mem0_embedding = "text-embedding-3-small"
+mem0_embedding_provider = "openai"
+
+# Control memory retrieval (higher = more context, more tokens)
+mem0_max_memories = 10  # Range: 1-100, default: 10
+```
+
+**Advanced: OpenRouter for Mem0**
+
+Use OpenRouter as the Mem0 provider to access many LLM models through one API:
+
+```toml
+# config.toml
+model = "gpt-4o-mini"  # Main model (can use any provider)
+
+# Mem0 provider configuration
+mem0_llm_provider = "openrouter"  # Automatically translates to openai provider
+mem0_embedding = "text-embedding-3-small"
+mem0_embedding_provider = "openai"
+```
+
+```bash
+# .env
+OPENAI_API_KEY="sk-..."           # For main model
+OPENROUTER_API_KEY="sk-or-..."    # For Mem0 via OpenRouter
+```
+
+When you set `mem0_llm_provider = "openrouter"`:
+- The provider automatically translates to `"openai"` (OpenRouter is OpenAI-compatible)
+- The site_url automatically becomes `"https://openrouter.ai/api/v1"`
+- You only need to provide `OPENROUTER_API_KEY`
+
+**Custom Endpoints:**
+
+For self-hosted models or API proxies:
+
+```toml
+# Main model endpoint
+api_endpoint = "https://your-proxy.example.com/v1"
+
+# Mem0 custom endpoint (if not using openrouter)
+mem0_site_url = "https://your-proxy.example.com/v1"
+```
+
+**GitHub Integration:**
+
+Import and sync tasks with GitHub repositories:
+
+```toml
+# config.toml
+github_repos = ["TheRockPusher/taskweaver", "owner/another-repo"]
+```
+
+Requires GitHub API access (personal access token recommended for public/private repos).
 
 ### Success Metrics (MVP Targets)
 
