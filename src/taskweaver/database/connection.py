@@ -1,6 +1,5 @@
 """Database connection management for SQLite and Qdrant."""
 
-import os
 import sqlite3
 from collections.abc import Generator
 from contextlib import closing, contextmanager
@@ -10,7 +9,7 @@ from loguru import logger
 from mem0 import Memory
 from qdrant_client import QdrantClient
 
-from ..config import get_paths
+from ..config import Config, get_paths
 from .schema import (
     CREATE_COMPLETION,
     CREATE_COMPLETION_INDEX_CLOSED,
@@ -186,8 +185,25 @@ def get_qdrant_client(
         client.close()
 
 
-def mem0_memory() -> Memory:
-    """Get mem0 initialized memory."""
+def mem0_memory(toml_config: Config) -> Memory:
+    """Get mem0 initialized memory with configurable provider.
+
+    Uses Config properties to resolve provider translation (e.g., openrouter → openai).
+    API keys are automatically loaded from environment via .env file.
+
+    Args:
+        toml_config: Application configuration with Mem0 settings.
+
+    Returns:
+        Configured Memory instance.
+
+    Example config.toml:
+        # Use OpenRouter (automatically translates to openai provider)
+        mem0_llm_provider = "openrouter"
+
+        # Use native OpenAI
+        mem0_llm_provider = "openai"
+    """
     config = {
         "vector_store": {
             "provider": "qdrant",
@@ -198,8 +214,14 @@ def mem0_memory() -> Memory:
             },
         },
         "llm": {
-            "provider": "openai",
-            "config": {"site_url": "https://openrouter.ai/api/v1", "api_key": os.environ["OPENROUTER_API_KEY"]},
+            "provider": toml_config.mem0_llm_provider_resolved,
+            "config": ({"site_url": toml_config.mem0_site_url_resolved} if toml_config.mem0_site_url_resolved else {}),
+        },
+        "embedder": {
+            "provider": toml_config.mem0_embedding_provider,
+            "config": {
+                "model": toml_config.mem0_embedding,
+            },
         },
     }
     return Memory.from_config(config)

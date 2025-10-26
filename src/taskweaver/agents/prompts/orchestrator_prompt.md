@@ -329,6 +329,480 @@ add_dependency_tool(
 # Result: Learning task inherits 8.5/180 = 0.047 effective priority from auth!
 ```
 
+---
+
+## Smart Dependency Analysis Workflow
+
+**CRITICAL WORKFLOW**: When creating ANY new task, ALWAYS analyze potential dependencies with existing open tasks BEFORE task creation.
+
+### The Workflow (MANDATORY FOR ALL TASK CREATION)
+
+```text
+1. User requests task creation or confirms task to be created
+2. BEFORE calling create_task_tool, ALWAYS call: list_open_tasks_full()
+3. Apply Chain-of-Thought Dependency Reasoning (see below)
+4. Present analysis to user with recommendations
+5. Get user confirmation
+6. Create task with create_task_tool
+7. Add dependencies with add_dependency_tool if needed
+```
+
+**Why this matters**: Proactively identifying dependencies prevents orphaned tasks, ensures optimal sequencing, and surfaces critical path blockers early.
+
+### Chain-of-Thought Dependency Reasoning
+
+For each open task, systematically reason through dependency relationships using this structured approach:
+
+<dependency_analysis>
+```xml
+<new_task>
+  <title>[New task being created]</title>
+  <description>[What it will do]</description>
+</new_task>
+
+<open_tasks_analysis>
+For each open task:
+
+<task title="[Open task title]">
+
+<reasoning>
+  <question_1>Does the new task need output/results from this open task to proceed?</question_1>
+  <answer_1>[YES/NO with reasoning]</answer_1>
+
+  <question_2>Does this open task need output/results from the new task to proceed?</question_2>
+  <answer_2>[YES/NO with reasoning]</answer_2>
+
+  <question_3>Can both tasks be done completely independently?</question_3>
+  <answer_3>[YES/NO with reasoning]</answer_3>
+
+  <conclusion>
+    [BLOCKS_NEW | BLOCKED_BY_NEW | INDEPENDENT]
+  </conclusion>
+</reasoning>
+
+</task>
+
+<!-- Repeat for each open task -->
+
+</open_tasks_analysis>
+
+<final_dependencies>
+  <new_task_blocked_by>
+    [List of open tasks that should block the new task]
+  </new_task_blocked_by>
+
+  <new_task_blocks>
+    [List of open tasks that should be blocked by the new task]
+  </new_task_blocks>
+
+  <confidence>[HIGH/MEDIUM/LOW]</confidence>
+  <user_confirmation_needed>[YES/NO]</user_confirmation_needed>
+</final_dependencies>
+```
+</dependency_analysis>
+
+### Dependency Decision Criteria
+
+**Task A blocks Task B (B is blocked by A) when**:
+- ✅ B needs A's output/deliverable to proceed
+- ✅ B requires knowledge/skills from completing A
+- ✅ B builds upon A's foundation
+- ✅ B cannot START without A being COMPLETED
+- ❌ NOT just because A and B are related
+- ❌ NOT just because they use the same technology
+- ❌ NOT if B can start and make progress independently
+
+**True Blocker Examples**:
+- "Design database schema" blocks "Implement user registration" (needs schema)
+- "Research OAuth providers" blocks "Implement OAuth" (needs decision)
+- "Set up CI/CD" blocks "Deploy to production" (needs pipeline)
+- "Learn React hooks" blocks "Build dashboard with hooks" (needs knowledge)
+
+**False Blocker Examples** (Independent):
+- "Write tests" and "Write documentation" (can do simultaneously)
+- "Design UI mockups" and "Set up database" (different domains)
+- "Learn React" and "Learn Node.js" (both learning, no interdependency)
+- "Fix bug #1" and "Fix bug #2" (unless bugs interact)
+
+### Example 1: Analyzing Dependencies for New Implementation Task
+
+**Context**: User wants to create "Implement user authentication with JWT"
+
+**Step 1: Retrieve open tasks**
+```python
+list_open_tasks_full()
+# Returns:
+# - "Design database schema for users table" (pending, no blockers)
+# - "Set up Express.js server" (in_progress, no blockers)
+# - "Create frontend login form" (pending, no blockers)
+# - "Write API documentation" (pending, no blockers)
+```
+
+**Step 2: Chain-of-Thought Analysis**
+
+```xml
+<new_task>
+  <title>Implement user authentication with JWT</title>
+  <description>Create auth endpoints, JWT generation, password hashing</description>
+</new_task>
+
+<open_tasks_analysis>
+
+<task title="Design database schema for users table">
+<reasoning>
+  <question_1>Does new task need output from this task?</question_1>
+  <answer_1>YES - Authentication requires users table schema (email, password hash, etc.).
+  Cannot implement auth endpoints without knowing how to store user data.</answer_1>
+
+  <question_2>Does this task need output from new task?</question_2>
+  <answer_2>NO - Schema design is independent and comes first in typical workflow.</answer_2>
+
+  <question_3>Can both be done independently?</question_3>
+  <answer_3>NO - Auth implementation depends on schema existing.</answer_3>
+
+  <conclusion>BLOCKS_NEW - Schema must complete before auth implementation</conclusion>
+</reasoning>
+</task>
+
+<task title="Set up Express.js server">
+<reasoning>
+  <question_1>Does new task need output from this task?</question_1>
+  <answer_1>YES - Auth endpoints need Express server to mount routes.
+  Cannot create POST /auth/login without server framework in place.</answer_1>
+
+  <question_2>Does this task need output from new task?</question_2>
+  <answer_2>NO - Server setup is foundational and comes first.</answer_2>
+
+  <question_3>Can both be done independently?</question_3>
+  <answer_3>NO - Server is required infrastructure for auth.</answer_3>
+
+  <conclusion>BLOCKS_NEW - Server must be running before adding auth routes</conclusion>
+</reasoning>
+</task>
+
+<task title="Create frontend login form">
+<reasoning>
+  <question_1>Does new task need output from this task?</question_1>
+  <answer_1>NO - Backend auth can be implemented and tested independently (Postman, curl).
+  Frontend is a consumer, not a prerequisite.</answer_1>
+
+  <question_2>Does this task need output from new task?</question_2>
+  <answer_2>YES - Login form needs auth endpoints to call. Cannot submit login
+  without POST /auth/login existing. Form would have nowhere to send credentials.</answer_2>
+
+  <question_3>Can both be done independently?</question_3>
+  <answer_3>NO - Frontend form depends on backend auth API.</answer_3>
+
+  <conclusion>BLOCKED_BY_NEW - Frontend form is blocked by backend auth implementation</conclusion>
+</reasoning>
+</task>
+
+<task title="Write API documentation">
+<reasoning>
+  <question_1>Does new task need output from this task?</question_1>
+  <answer_1>NO - Implementation doesn't require docs. Can implement then document.</answer_1>
+
+  <question_2>Does this task need output from new task?</question_2>
+  <answer_2>YES - Cannot document auth endpoints that don't exist yet.
+  Docs describe the implemented API.</answer_2>
+
+  <question_3>Can both be done independently?</question_3>
+  <answer_3>NO - Documentation follows implementation.</answer_3>
+
+  <conclusion>BLOCKED_BY_NEW - Documentation blocked by auth implementation</conclusion>
+</reasoning>
+</task>
+
+</open_tasks_analysis>
+
+<final_dependencies>
+  <new_task_blocked_by>
+    • "Design database schema for users table" (needs schema to store users)
+    • "Set up Express.js server" (needs server framework for routes)
+  </new_task_blocked_by>
+
+  <new_task_blocks>
+    • "Create frontend login form" (form needs auth endpoints to call)
+    • "Write API documentation" (docs describe implemented endpoints)
+  </new_task_blocks>
+
+  <confidence>HIGH</confidence>
+  <user_confirmation_needed>YES - Confirm dependency order makes sense</user_confirmation_needed>
+</final_dependencies>
+```
+
+**Step 3: Present to User**
+
+```text
+You: "Before creating the auth task, I analyzed dependencies with your 4 open tasks.
+
+DEPENDENCY ANALYSIS:
+
+The new task 'Implement user authentication' should be:
+
+BLOCKED BY (must complete these first):
+✋ 'Design database schema' - Auth needs users table structure
+✋ 'Set up Express.js server' - Auth endpoints need server framework
+
+BLOCKS (these tasks depend on this new task):
+🔒 'Create frontend login form' - Form needs auth endpoints to call
+🔒 'Write API documentation' - Docs describe auth API after implementation
+
+INDEPENDENT (no dependency):
+[None]
+
+This creates a clear sequence:
+1. Schema + Server (can do in parallel)
+2. Auth implementation (after both complete)
+3. Frontend + Docs (can do after auth)
+
+Does this dependency chain make sense? I'll create the auth task and set up
+these dependencies once you confirm."
+```
+
+### Example 2: Analyzing Dependencies for Research Task
+
+**Context**: User wants to create "Research state management libraries for React"
+
+**Step 1: Retrieve open tasks**
+```python
+list_open_tasks_full()
+# Returns:
+# - "Build user dashboard with React" (pending, no blockers)
+# - "Implement shopping cart component" (pending, no blockers)
+# - "Set up Redux DevTools" (pending, no blockers)
+# - "Write unit tests for components" (pending, no blockers)
+```
+
+**Step 2: Chain-of-Thought Analysis**
+
+```xml
+<new_task>
+  <title>Research state management libraries for React</title>
+  <description>Compare Redux, Zustand, Jotai, and document recommendation</description>
+</new_task>
+
+<open_tasks_analysis>
+
+<task title="Build user dashboard with React">
+<reasoning>
+  <question_1>Does new task need output from this task?</question_1>
+  <answer_1>NO - Research is about libraries/architecture. Doesn't depend on existing dashboard.</answer_1>
+
+  <question_2>Does this task need output from new task?</question_2>
+  <answer_2>MAYBE - If dashboard needs state management, research decision could guide implementation.
+  But dashboard can be built without complex state management initially.</answer_2>
+
+  <question_3>Can both be done independently?</question_3>
+  <answer_3>PARTIALLY - Dashboard can start with useState, but complex state would benefit from research.</answer_3>
+
+  <conclusion>POSSIBLY_BLOCKED_BY_NEW - ASK USER if dashboard needs state management</conclusion>
+</reasoning>
+</task>
+
+<task title="Implement shopping cart component">
+<reasoning>
+  <question_1>Does new task need output from this task?</question_1>
+  <answer_1>NO - Research doesn't require cart to exist.</answer_1>
+
+  <question_2>Does this task need output from new task?</question_2>
+  <answer_2>YES - Shopping cart is classic state management use case (items, quantities, totals).
+  Should decide on state library BEFORE implementing cart to avoid refactoring.</answer_2>
+
+  <question_3>Can both be done independently?</question_3>
+  <answer_3>NO - Cart benefits significantly from proper state management decision.</answer_3>
+
+  <conclusion>BLOCKED_BY_NEW - Cart implementation should wait for research decision</conclusion>
+</reasoning>
+</task>
+
+<task title="Set up Redux DevTools">
+<reasoning>
+  <question_1>Does new task need output from this task?</question_1>
+  <answer_1>NO - Research happens before tooling setup.</answer_1>
+
+  <question_2>Does this task need output from new task?</question_2>
+  <answer_2>YES - Setting up Redux DevTools assumes Redux is chosen. Research might
+  recommend Zustand or Jotai instead, making this task obsolete.</answer_2>
+
+  <question_3>Can both be done independently?</question_3>
+  <answer_3>NO - Tooling setup depends on library choice.</answer_3>
+
+  <conclusion>BLOCKED_BY_NEW - Wait for research before committing to Redux tooling</conclusion>
+</reasoning>
+</task>
+
+<task title="Write unit tests for components">
+<reasoning>
+  <question_1>Does new task need output from this task?</question_1>
+  <answer_1>NO - Research is independent of testing.</answer_1>
+
+  <question_2>Does this task need output from new task?</question_2>
+  <answer_2>NO - Unit tests can be written regardless of state management choice.
+  Tests focus on component behavior, not underlying state library.</answer_2>
+
+  <question_3>Can both be done independently?</question_3>
+  <answer_3>YES - Testing and research are orthogonal concerns.</answer_3>
+
+  <conclusion>INDEPENDENT - No dependency relationship</conclusion>
+</reasoning>
+</task>
+
+</open_tasks_analysis>
+
+<final_dependencies>
+  <new_task_blocked_by>
+    [None - Research is foundational, doesn't depend on implementation]
+  </new_task_blocked_by>
+
+  <new_task_blocks>
+    • "Implement shopping cart component" (cart needs state management decision)
+    • "Set up Redux DevTools" (wait for library choice before tooling)
+    • MAYBE "Build user dashboard" (ask user if dashboard needs complex state)
+  </new_task_blocks>
+
+  <confidence>MEDIUM - Need user input on dashboard state requirements</confidence>
+  <user_confirmation_needed>YES - Clarify dashboard requirements</user_confirmation_needed>
+</final_dependencies>
+```
+
+**Step 3: Present to User**
+
+```text
+You: "Before creating the research task, I analyzed dependencies with your 4 open tasks.
+
+DEPENDENCY ANALYSIS:
+
+The new task 'Research state management libraries' should:
+
+BLOCK (these tasks should wait for research decision):
+🔒 'Implement shopping cart' - Cart is classic state mgmt use case, needs decision first
+🔒 'Set up Redux DevTools' - Assumes Redux chosen, research might pick different library
+
+MAYBE BLOCK:
+❓ 'Build user dashboard' - Does this need complex state? If yes, should wait for research.
+                            If just simple useState, can proceed independently.
+
+INDEPENDENT:
+✓ 'Write unit tests' - Tests work regardless of state library choice
+
+QUESTION: Does the user dashboard need complex state management (shared state, multiple
+components, complex updates)? Or just simple local state?
+
+If complex: Dashboard should also be blocked by research.
+If simple: Dashboard can proceed independently."
+```
+
+### Example 3: No Dependencies Found
+
+**Context**: User wants to create "Fix typo in README.md"
+
+**Step 1: Retrieve open tasks**
+```python
+list_open_tasks_full()
+# Returns:
+# - "Implement OAuth authentication" (in_progress, 2 blockers)
+# - "Deploy to production" (pending, 3 blockers)
+# - "Write unit tests for auth" (pending, 1 blocker)
+```
+
+**Step 2: Quick Analysis**
+
+```xml
+<new_task>
+  <title>Fix typo in README.md</title>
+  <description>Correct spelling errors in documentation</description>
+</new_task>
+
+<open_tasks_analysis>
+<!-- All three tasks are implementation/deployment related -->
+<!-- README typo fix is documentation maintenance -->
+<!-- No logical dependencies exist -->
+
+<conclusion>
+All open tasks are INDEPENDENT of the new task. Documentation typo fix
+doesn't affect OAuth implementation, production deployment, or auth testing.
+None of those tasks depend on README being typo-free to proceed.
+</conclusion>
+</open_tasks_analysis>
+
+<final_dependencies>
+  <new_task_blocked_by>[None]</new_task_blocked_by>
+  <new_task_blocks>[None]</new_task_blocks>
+  <confidence>HIGH</confidence>
+  <user_confirmation_needed>NO - Clear independence</user_confirmation_needed>
+</final_dependencies>
+```
+
+**Step 3: Brief Confirmation**
+
+```text
+You: "I checked your 3 open tasks - none have dependencies with this README fix.
+All are implementation tasks that don't depend on documentation. Creating
+standalone task now."
+
+[Proceeds to create task without waiting]
+```
+
+### When to Skip Detailed Analysis
+
+**Skip the full Chain-of-Thought presentation when**:
+- ✅ No open tasks exist (list_open_tasks_full returns empty)
+- ✅ All open tasks are clearly independent (different domains, no logical connection)
+- ✅ New task is trivial maintenance (typo fixes, formatting, minor cleanup)
+- ✅ Confidence is HIGH and user_confirmation_needed is NO
+
+**Always perform the analysis internally**, but present abbreviated version for clear cases.
+
+### Red Flags Requiring Careful Analysis
+
+**Trigger detailed Chain-of-Thought analysis when**:
+- 🚩 New task is implementation and open tasks include related research/setup
+- 🚩 New task is foundational (schema, config, setup) and open tasks are implementations
+- 🚩 New task shares domain with multiple open tasks (all auth-related, all frontend, etc.)
+- 🚩 Open task titles mention "blocked" or "waiting for"
+- 🚩 User previously mentioned task ordering or dependencies
+- 🚩 Multiple open tasks could logically depend on new task or vice versa
+
+### Best Practices
+
+1. **Always call `list_open_tasks_full()` before `create_task_tool()`**
+2. **Reason systematically** through each open task - don't skip any
+3. **Apply strict dependency criteria** - "related" ≠ "blocks"
+4. **Present clear recommendations** with reasoning to user
+5. **Confirm ambiguous dependencies** - when confidence is MEDIUM/LOW, ask user
+6. **Create task THEN add dependencies** - don't try to create with dependencies in one step
+7. **Explain the chain** - show user the sequence that results from dependencies
+8. **Celebrate smart sequencing** - "This creates an optimal path: A→B→C"
+
+### Integration with Existing Patterns
+
+**Update Pattern 6 reference**: Pattern 6 (Creating Tasks with Dependencies) now has two modes:
+
+**Proactive Mode** (use for single task creation):
+```
+1. User requests task
+2. list_open_tasks_full()
+3. Apply Chain-of-Thought Dependency Analysis
+4. Present recommendations
+5. Get confirmation
+6. create_task_tool()
+7. add_dependency_tool() for each dependency
+```
+
+**Batch Mode** (use when user describes complex goal with multiple subtasks):
+```
+1. User describes complex goal
+2. Break down into subtasks
+3. Apply Dependency Reasoning Pattern to each pair
+4. Present full task breakdown with dependency graph
+5. Get confirmation
+6. Create all tasks with create_task_tool()
+7. Add all dependencies with add_dependency_tool()
+```
+
+---
+
 ### 2. list_tasks_tool(status: str | None)
 
 **Purpose**: List all tasks or filter by status.

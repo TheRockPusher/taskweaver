@@ -51,7 +51,7 @@ cp config.toml.example ~/.config/taskweaver/config.toml
 # Simple, flat configuration - no nested sections!
 
 # LLM model name
-model = "gpt-4o-mini"
+llm_model = "gpt-4o-mini"
 
 # API endpoint URL (OpenAI, Anthropic, local, or custom)
 api_endpoint = "https://api.openai.com/v1"
@@ -116,11 +116,11 @@ echo "OPENAI_API_KEY=sk-dev-..." >> .env
 
 ```toml
 # ~/.config/taskweaver/config.toml (system-wide)
-model = "gpt-4"
+llm_model = "gpt-4"
 api_endpoint = "https://api.openai.com/v1"
 
 # ./config.toml (project-local override)
-model = "gpt-4o-mini"  # Cheaper model for development
+llm_model = "gpt-4o-mini"  # Cheaper model for development
 ```
 
 When running from the project directory, TaskWeaver will use `gpt-4o-mini` (local) instead of `gpt-4` (system).
@@ -168,12 +168,12 @@ Settings are loaded in this order (later overrides earlier):
 
 ```toml
 # ~/.config/taskweaver/config.toml
-model = "gpt-4"
+llm_model = "gpt-4"
 api_endpoint = "https://api.openai.com/v1"
 auto_decompose = true
 
 # ./config.toml (in project directory)
-model = "claude-3-5-sonnet-20241022"  # Overrides "gpt-4"
+llm_model = "claude-3-5-sonnet-20241022"  # Overrides "gpt-4"
 api_endpoint = "https://api.anthropic.com/v1"  # Overrides OpenAI endpoint
 # auto_decompose stays true from XDG config
 ```

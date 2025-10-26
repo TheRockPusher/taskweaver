@@ -62,7 +62,7 @@ def _get_model_name() -> str:
 
     """
     config: Config = get_config()
-    model_name = config.model
+    model_name = config.llm_model
     if ":" not in model_name:
         model_name = f"openai:{model_name}"
     return model_name
@@ -130,10 +130,11 @@ def run_chat(handler: ChatHandler, db_path: Path) -> None:
     task_repo = TaskRepository(db_path)
     dep_repo = TaskDependencyRepository(db_path)
     completion_repo = CompletionRepository(db_path)
+    config: Config = get_config()
 
     # Initialize mem0 memory (optional - only if API key available)
     try:
-        memory = mem0_memory()
+        memory = mem0_memory(config)
         logger.info("Mem0 memory initialized successfully")
     except (KeyError, RuntimeError) as e:
         # KeyError: Missing API keys (OPENROUTER_API_KEY)
@@ -162,7 +163,6 @@ def run_chat(handler: ChatHandler, db_path: Path) -> None:
 
         try:
             if stripped_input.startswith("/github"):
-                config: Config = get_config()
                 stripped_input += f"Open Issues: {
                     json.dumps(
                         get_github_issues(config.github_repos),
@@ -177,7 +177,9 @@ def run_chat(handler: ChatHandler, db_path: Path) -> None:
             if memory is not None and not command:
                 memory_added = memory.add(stripped_input, user_id=dependencies.user_id)
                 logger.info(f"Memory added: {memory_added}")
-                dependencies.memories = json.dumps(memory.search(stripped_input, user_id=dependencies.user_id))
+                dependencies.memories = json.dumps(
+                    memory.search(stripped_input, user_id=dependencies.user_id, limit=config.mem0_max_memories)
+                )
                 logger.info(f"Retrieved memories:{dependencies.memories}")
 
             result: AgentRunResult[str] = orchestrator_agent.run_sync(
