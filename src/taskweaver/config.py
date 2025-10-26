@@ -237,7 +237,7 @@ class Config(BaseModel):
     Supports any LLM API endpoint (OpenAI, Anthropic, local models, etc.).
     """
 
-    model: str = Field(
+    llm_model: str = Field(
         default="gpt-4o-mini",
         description="LLM model name (e.g., gpt-4o-mini, claude-3-5-sonnet-20241022)",
     )
@@ -332,7 +332,7 @@ def get_config() -> Config:
     Example:
         >>> from taskweaver.config import get_config
         >>> config = get_config()
-        >>> print(config.model)
+        >>> print(config.llm_model)
         'gpt-4o-mini'
     """
     paths = get_paths()

@@ -62,7 +62,7 @@ def _get_model_name() -> str:
 
     """
     config: Config = get_config()
-    model_name = config.model
+    model_name = config.llm_model
     if ":" not in model_name:
         model_name = f"openai:{model_name}"
     return model_name

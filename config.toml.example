@@ -8,7 +8,7 @@
 # OpenRouter: "openrouter:anthropic/claude-3.5-sonnet"
 # Anthropic: "anthropic:claude-3-5-sonnet-latest"
 # Google: "google-gla:gemini-1.5-flash"
-model = "openai:gpt-4o-mini"
+llm_model = "openai:gpt-4o-mini"
 
 # Optional: Custom API endpoint for the main LLM (defaults to provider standard)
 # For self-hosted models or proxies

@@ -462,7 +462,7 @@ echo "OPENAI_API_KEY=sk-..." > .env
 
 # Option 3: config.toml (project-local or ~/.config/taskweaver/)
 cat > config.toml << EOF
-model = "gpt-4o-mini"
+llm_model = "gpt-4o-mini"
 github_repos = ["owner/repo"]
 EOF
 ```
@@ -473,16 +473,16 @@ TaskWeaver works with any LLM provider supported by PydanticAI:
 
 ```toml
 # OpenAI (default)
-model = "gpt-4o-mini"
+llm_model = "gpt-4o-mini"
 
 # OpenRouter (multi-provider gateway)
-model = "openrouter:anthropic/claude-3.5-sonnet"
+llm_model = "openrouter:anthropic/claude-3.5-sonnet"
 
 # Anthropic
-model = "anthropic:claude-3-5-sonnet-latest"
+llm_model = "anthropic:claude-3-5-sonnet-latest"
 
 # Google
-model = "google-genai:gemini-1.5-flash"
+llm_model = "google-genai:gemini-1.5-flash"
 ```
 
 **Mem0 Semantic Memory Configuration:**
@@ -507,7 +507,7 @@ Use OpenRouter as the Mem0 provider to access many LLM models through one API:
 
 ```toml
 # config.toml
-model = "gpt-4o-mini"  # Main model (can use any provider)
+llm_model = "gpt-4o-mini"  # Main model (can use any provider)
 
 # Mem0 provider configuration
 mem0_llm_provider = "openrouter"  # Automatically translates to openai provider

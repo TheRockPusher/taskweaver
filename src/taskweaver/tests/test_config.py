@@ -117,7 +117,7 @@ def test_xdg_paths_file_paths(monkeypatch, tmp_path):
 def test_config_defaults():
     """Test Config default values."""
     config = Config()
-    assert config.model == "gpt-4o-mini"
+    assert config.llm_model == "gpt-4o-mini"
     assert config.api_endpoint == "https://api.openai.com/v1"
     assert config.auto_decompose is True
 
@@ -136,7 +136,7 @@ def test_get_config_returns_defaults_when_no_file(monkeypatch, tmp_path):
 
     config = get_config()
 
-    assert config.model == "gpt-4o-mini"
+    assert config.llm_model == "gpt-4o-mini"
     assert config.api_endpoint == "https://api.openai.com/v1"
 
 
@@ -148,7 +148,7 @@ def test_get_config_loads_from_file(monkeypatch, tmp_path):
 
     # Write custom config (flat structure)
     config_file.write_text("""
-model = "gpt-4"
+llm_model = "gpt-4"
 api_endpoint = "http://localhost:1234/v1"
 auto_decompose = false
 """)
@@ -165,7 +165,7 @@ auto_decompose = false
 
     config = get_config()
 
-    assert config.model == "gpt-4"
+    assert config.llm_model == "gpt-4"
     assert config.api_endpoint == "http://localhost:1234/v1"
     assert config.auto_decompose is False
 
@@ -308,7 +308,7 @@ def test_get_config_merges_local_over_xdg(tmp_path, monkeypatch):
     xdg_config_dir.mkdir(parents=True)
     xdg_config = xdg_config_dir / "config.toml"
     xdg_config.write_text("""
-model = "gpt-4"
+llm_model = "gpt-4"
 api_endpoint = "https://api.openai.com/v1"
 auto_decompose = true
 """)
@@ -316,7 +316,7 @@ auto_decompose = true
     # Create local config (overrides model and endpoint)
     local_config = project_dir / "config.toml"
     local_config.write_text("""
-model = "claude-3-5-sonnet-20241022"
+llm_model = "claude-3-5-sonnet-20241022"
 api_endpoint = "https://api.anthropic.com/v1"
 """)
 
@@ -329,7 +329,7 @@ api_endpoint = "https://api.anthropic.com/v1"
     config = get_config()
 
     # Local overrides model and endpoint
-    assert config.model == "claude-3-5-sonnet-20241022"
+    assert config.llm_model == "claude-3-5-sonnet-20241022"
     assert config.api_endpoint == "https://api.anthropic.com/v1"
     # XDG auto_decompose is preserved
     assert config.auto_decompose is True
