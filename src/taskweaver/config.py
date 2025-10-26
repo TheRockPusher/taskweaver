@@ -254,27 +254,14 @@ class Config(BaseModel):
         description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
     )
     github_repos: list[str] = Field(default=[], description="List of repos to get from github")
-    mem0_llm_provider: str = Field(
-        default="openai",
-        description="LLM model name for memory management"
-    )
-    mem0_embedding: str = Field(
-        default="text-embedding-3-small",
-        description="Model for embedding memories"
-    )
-    mem0_embedding_provider: str = Field(
-        default="openai",
-        description="provider of the LLM model for embedding"
-    )
+    mem0_llm_provider: str = Field(default="openai", description="LLM model name for memory management")
+    mem0_embedding: str = Field(default="text-embedding-3-small", description="Model for embedding memories")
+    mem0_embedding_provider: str = Field(default="openai", description="provider of the LLM model for embedding")
     mem0_site_url: str | None = Field(
-        default=None,
-        description="Custom site URL for Mem0 LLM provider (auto-set for openrouter)"
+        default=None, description="Custom site URL for Mem0 LLM provider (auto-set for openrouter)"
     )
     mem0_max_memories: int = Field(
-        default=10,
-        ge=1,
-        le=100,
-        description="Maximum number of memories to retrieve from Mem0"
+        default=10, ge=1, le=100, description="Maximum number of memories to retrieve from Mem0"
     )
 
     @property

@@ -9,9 +9,7 @@ from loguru import logger
 from mem0 import Memory
 from qdrant_client import QdrantClient
 
-from ..config import Config
-
-from ..config import get_paths
+from ..config import Config, get_paths
 from .schema import (
     CREATE_COMPLETION,
     CREATE_COMPLETION_INDEX_CLOSED,
@@ -217,11 +215,7 @@ def mem0_memory(toml_config: Config) -> Memory:
         },
         "llm": {
             "provider": toml_config.mem0_llm_provider_resolved,
-            "config": (
-                {"site_url": toml_config.mem0_site_url_resolved}
-                if toml_config.mem0_site_url_resolved
-                else {}
-            ),
+            "config": ({"site_url": toml_config.mem0_site_url_resolved} if toml_config.mem0_site_url_resolved else {}),
         },
         "embedder": {
             "provider": toml_config.mem0_embedding_provider,
