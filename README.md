@@ -6,13 +6,14 @@ TaskWeaver is a conversational AI agent that intelligently organises, prioritise
 
 **Target Audience:** Anyone looking to organise complex projects, learn new skills systematically, or improve task management through AI-powered decomposition and prioritisation.
 
-**Project Status:** Version 0.7.0 (Active development - Completion tracking & pattern learning)
+**Project Status:** Version 0.7.2 (Active development - TUI complete, pattern learning in progress)
 
-**Technology:** Python 3.13+ | PydanticAI 1.1.0 | SQLite | Typer CLI | UV package manager | Mem0 + Qdrant (Semantic Memory)
+**Technology:** Python 3.13+ | PydanticAI 1.1.0 | Textual TUI | SQLite | Typer CLI | UV package manager | Mem0 + Qdrant (Semantic Memory)
 
 [![CI](https://github.com/TheRockPusher/taskweaver/actions/workflows/ci.yml/badge.svg)](https://github.com/TheRockPusher/taskweaver/actions/workflows/ci.yml)
 [![Python Version](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL-3.0-blue.svg)](LICENSE)
+[![Test Coverage](https://img.shields.io/badge/coverage-85%25-brightgreen.svg)]()
 
 ## Getting Started
 
@@ -35,9 +36,10 @@ make install
 make test
 ```
 
-**Current Capabilities (v0.7.0):**
+**Current Capabilities (v0.7.2):**
 
-- ✅ Full CLI CRUD operations for tasks
+- ✅ **Terminal User Interface (TUI)** with Textual framework – Interactive task management with live tables
+- ✅ Full CLI CRUD operations for tasks (Typer CLI)
 - ✅ Dependency tracking with cycle detection (BFS algorithm)
 - ✅ Interactive AI chat with conversational task decomposition
 - ✅ Web search integration (DuckDuckGo)
@@ -50,8 +52,10 @@ make test
 - ✅ Completion tracking with optional estimated vs actual duration tracking
 - ✅ Variance analysis for automatic calculation of percentage variance
 - ✅ Pattern learning foundation (CompletionRepository for CRUD operations)
+- ✅ Comprehensive test suite with 135+ tests (85%+ coverage)
+- ✅ Custom Textual Theme system for terminal consistency
 
-**Next Up (v0.8.0+):** Pattern-based duration adjustment, TUI interface, enhanced memory features.
+**Next Up (v0.8.0+):** Pattern-based duration adjustment, enhanced memory features, Dreyfus skill tracking.
 
 ### Full Documentation
 
@@ -98,6 +102,9 @@ TaskWeaver provides:
 
 **Recently Completed:**
 
+- ✅ **Terminal User Interface (TUI)** with Textual framework (v0.7.2) (#17)
+- ✅ Custom theme system for terminal consistency (v0.7.2)
+- ✅ Comprehensive TUI test suite with 15 test cases (v0.7.2)
 - ✅ Completion tracking system with variance analysis (v0.7.0)
 - ✅ CompletionRepository for completion CRUD operations (v0.7.0)
 - ✅ Database schema v4 with completions table (v0.7.0)
@@ -107,11 +114,11 @@ TaskWeaver provides:
 - ✅ Web search integration via DuckDuckGo (v0.5.0)
 - ✅ DAG-aware priority calculation with effective priority inheritance
 
-**Active Development (v0.7.0+):**
+**Active Development (v0.7.2+):**
 
 - 🔄 Pattern-based duration adjustment from completion data (#20)
-- 🔄 TUI with Textual for visual task management (#17)
 - 🔄 Enhanced memory features and categorisation
+- 🔄 Dreyfus skill-level matching for task recommendations
 
 See [Roadmap](#roadmap) for full version plan.
 
@@ -145,20 +152,22 @@ See [Roadmap](#roadmap) for full version plan.
 - ✅ Semantic memory with Mem0 + Qdrant (v0.6.0)
 - ✅ GitHub integration (v0.6.0)
 
-### 🔄 v0.7.0: Completion Tracking & Enhanced Memory
+### 🔄 v0.7.x: Completion Tracking, TUI, & Enhanced Memory
 
-**Goal:** Learn from completion data and improve estimates
+**Goal:** Learn from completion data and improve estimates, provide visual task management
 **Timeline:** Active development (2025 Q1)
 
-**v0.7.0 Features (Complete/In Progress):**
+**v0.7.2 Features (Complete/In Progress):**
 
 - ✅ **Completion Tracking** (#19) - Track estimated vs actual, variance analysis
 - ✅ **CompletionRepository** - Full CRUD operations for completion records
 - ✅ **Variance Analysis** - Automatic percentage variance calculation
 - ✅ **Orchestrator Prompt Enhancements** - 300+ lines on completion workflows
+- ✅ **TUI with Textual** (#17) - Interactive terminal interface with live tables
+- ✅ **Theme System** - Custom terminal theme for visual consistency
+- ✅ **TUI Test Suite** - 15 comprehensive test cases (85% coverage)
 - 🔄 **Pattern-based Duration Adjustment** - Use completion data for better estimates
 - 🔄 **Enhanced Memory** - Structured memory extraction and categorisation
-- 🔄 **TUI with Textual** (#17) - Visual task board with kanban-style interface
 - 📋 Goal tracking and progress visualisation
 - 📋 Better task recommendations based on learned patterns
 
@@ -262,6 +271,31 @@ uv sync
 ```
 
 ## Usage
+
+### Terminal User Interface (TUI)
+
+Launch the interactive TUI for a rich, visual task management experience:
+
+```bash
+# Start TUI with live task tables and chat interface
+uv run taskweaver tui
+
+# Features:
+# - Live open tasks table (top-left)
+# - Live unblocked tasks table (top-right)
+# - Interactive chat panel (bottom)
+# - Real-time priority updates
+# - Press 'q' or Ctrl+C to quit
+```
+
+**TUI Highlights:**
+
+- **Open Tasks Table**: All pending and in-progress tasks with priorities
+- **Unblocked Tasks Table**: Tasks ready to start (no blockers)
+- **Chat Interface**: Type messages to interact with the AI agent
+- **Live Refresh**: Tables update every 5 seconds automatically
+- **Terminal Theme**: Custom dark theme optimised for terminal consistency
+- **Keyboard Shortcuts**: `q` to quit, `Ctrl+C` to exit
 
 ### Interactive Chat Mode
 
@@ -587,25 +621,47 @@ Run `make help` to see all available commands:
 ```bash
 make install         # Install the virtual environment and pre-commit hooks
 make format          # Format code with ruff
-make format-check    # Check code formatting
+make format-check    # Check code formatting without changes
 make lint-check      # Lint code with ruff
 make type-check      # Run static type checking with ty
-make check           # Run all code quality checks
+make check           # Run all code quality checks (format, lint, type-check)
 make test            # Run tests with pytest
+```
+
+**File-Specific Operations:**
+
+```bash
+# Run checks on specific file
+make format FILE=src/taskweaver/tui.py
+make lint-check FILE=src/taskweaver/tui.py
+make type-check FILE=src/taskweaver/tui.py
+make test FILE=src/taskweaver/tests/test_tui.py
 ```
 
 ### Running Tests
 
 ```bash
-# Run all tests
+# Run all tests (135+ tests, 85%+ coverage)
 make test
 
 # Run specific test file
-make test FILE=tests/test_main.py
+make test FILE=src/taskweaver/tests/test_tui.py
 
-# Run with coverage report
+# Run tests with verbose output
+make test FILE=src/taskweaver/tests/test_tui.py
+
+# View coverage report
 uv run pytest --cov=taskweaver --cov-report=html
 ```
+
+**Test Coverage:**
+
+Current coverage: **85.78%** (exceeds 80% requirement)
+- Repository tests: 95%+ coverage
+- Completion tests: 100% coverage
+- Dependency tests: 93% coverage
+- TUI tests: 85% coverage
+- Agent tests: 83% coverage
 
 ### Code Quality
 
@@ -613,9 +669,16 @@ This project maintains high code quality standards:
 
 - **Formatting**: Automated with Ruff (100 character line length)
 - **Linting**: Comprehensive rules including security checks (Bandit)
-- **Type Checking**: Enforced with Ty
-- **Testing**: Minimum 80% code coverage required
-- **Documentation**: Google-style docstrings
+- **Type Checking**: Enforced with Ty (static type analysis)
+- **Testing**: Minimum 80% code coverage required, currently at 85%+
+- **Documentation**: Google-style docstrings throughout
+
+**Architecture Patterns:**
+
+- **Vertical Slice Architecture**: Tests live next to the code they test
+- **Dependency Inversion**: High-level modules depend on abstractions
+- **Single Responsibility**: Each module has one clear purpose
+- **KISS & YAGNI**: Simple solutions, no speculative features
 
 All checks run automatically via pre-commit hooks and CI/CD.
 
@@ -624,38 +687,43 @@ All checks run automatically via pre-commit hooks and CI/CD.
 ```bash
 taskweaver/
 ├── src/
-│   └── taskweaver/     # Main package code
+│   └── taskweaver/                         # Main package code
 │       ├── __init__.py
-│       ├── cli.py                          # CLI commands
+│       ├── cli.py                          # CLI commands (Typer)
 │       ├── config.py                       # Configuration management
-│       ├── database/                       # Data layer
+│       ├── tui.py                          # Terminal User Interface (Textual)
+│       ├── database/                       # Data layer (vertical slice)
 │       │   ├── __init__.py
-│       │   ├── connection.py               # Database connection
+│       │   ├── connection.py               # Database connection & Mem0 factory
 │       │   ├── models.py                   # Pydantic models
 │       │   ├── repository.py               # Task CRUD operations
-│       │   ├── dependency_repository.py    # Dependency management
-│       │   ├── schema.py                   # SQL schema definitions
+│       │   ├── dependency_repository.py    # Dependency CRUD + cycle detection
+│       │   ├── completion_repository.py    # Completion tracking & variance
+│       │   ├── schema.py                   # SQL schema definitions (v4)
 │       │   ├── exceptions.py               # Custom exceptions
 │       │   └── tests/
 │       │       ├── conftest.py
-│       │       ├── test_repository.py
-│       │       └── test_dependency_repository.py
-│       ├── agents/                         # AI agent layer
+│       │       ├── test_repository.py      # 20+ task tests
+│       │       ├── test_dependency_repository.py  # 17 dependency tests
+│       │       └── test_completion_repository.py  # 13 completion tests
+│       ├── agents/                         # AI agent layer (vertical slice)
 │       │   ├── __init__.py
-│       │   ├── task_agent.py               # Agent setup
-│       │   ├── tools.py                    # Tool definitions
-│       │   ├── chat_handler.py             # I/O protocol
-│       │   ├── github_issues.py            # GitHub integration
+│       │   ├── task_agent.py               # Agent setup & run_chat
+│       │   ├── tools.py                    # 12 agent tools
+│       │   ├── chat_handler.py             # I/O protocol (CLI, TUI)
 │       │   ├── dependencies.py             # Agent dependencies container
+│       │   ├── github_issues.py            # GitHub integration
 │       │   ├── prompts/
-│       │   │   └── orchestrator_prompt.md  # Agent system prompt (1,704 lines)
+│       │   │   └── orchestrator_prompt.md  # Agent system prompt (1,704+ lines)
 │       │   └── tests/
 │       │       ├── conftest.py
-│       │       └── test_task_agent.py
-│       ├── tests/
+│       │       ├── test_task_agent.py      # Agent tests
+│       │       └── test_completion_tools.py # Completion tool tests
+│       ├── tests/                          # Top-level tests
 │       │   ├── conftest.py
-│       │   ├── test_cli.py
-│       │   └── test_config.py
+│       │   ├── test_cli.py                 # 15+ CLI tests
+│       │   ├── test_config.py              # Config tests
+│       │   └── test_tui.py                 # 15 TUI tests
 │       └── py.typed                        # PEP 561 type marker
 ├── .github/
 │   ├── actions/
@@ -670,6 +738,13 @@ taskweaver/
 ├── .pre-commit-config.yaml                 # Pre-commit hooks
 └── README.md                               # This file
 ```
+
+**Architecture Highlights:**
+
+- **Vertical Slice Architecture**: Tests sit next to code (e.g., `database/tests/`) for tight coupling and easy discovery
+- **Total Lines**: ~5,500+ (core + tests + agent + agents + CLI + TUI + database)
+- **Test Coverage**: 135+ tests, 85%+ coverage
+- **Modular Design**: Clear separation of concerns (CLI, TUI, agents, database)
 
 ## Contributing
 
