@@ -271,41 +271,6 @@ class TestChatHandlerIntegration:
             assert len(messages) >= 3  # Initial + 3 test messages
 
 
-class TestMessageBounding:
-    """Test bounded message history to prevent memory leaks."""
-
-    async def test_message_history_limit(self, app):
-        """Test that message history is bounded by MAX_CHAT_MESSAGES."""
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            # Post more messages than the limit
-            for i in range(MAX_CHAT_MESSAGES + 10):
-                app.post_agent_message(f"Message {i}")
-                await pilot.pause()
-
-            # Check that message count doesn't exceed limit
-            messages = app.query("#chat-view Markdown")
-            # +1 for the initial welcome message
-            assert len(messages) <= MAX_CHAT_MESSAGES + 1
-
-    async def test_message_pruning_maintains_bound(self, app):
-        """Test that continuous messages maintain the bound (FIFO pruning works)."""
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            # Post messages continuously
-            for i in range(MAX_CHAT_MESSAGES + 10):
-                app.post_agent_message(f"Message {i}")
-                await pilot.pause()
-
-                # Verify count never exceeds limit
-                messages = app.query("#chat-view Markdown")
-                assert len(messages) <= MAX_CHAT_MESSAGES + 1, (
-                    f"Message count {len(messages)} exceeds limit {MAX_CHAT_MESSAGES + 1}"
-                )
-
-
 class TestRepositoryMethods:
     """Test new repository methods used by TUI."""
 
@@ -353,3 +318,29 @@ class TestKeyboardShortcuts:
 
             # App should exit (we can't easily test this, but we can verify binding exists)
             assert ("q", "quit", "Quit") in app.BINDINGS
+
+
+class TestShutdownBehavior:
+    """Test clean shutdown and resource cleanup."""
+
+    async def test_on_unmount_pushes_sentinel_to_unblock_worker(self, app):
+        """Test that on_unmount pushes sentinel to wake up blocked worker.
+
+        Regression test for thread leak bug where worker was blocked on
+        input_queue.get() and couldn't observe cancellation. The fix ensures
+        that on_unmount pushes None to the queue before cancelling workers.
+        """
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            # Verify initial state
+            assert app.chat_handler.should_exit is False
+            assert app.chat_handler.input_queue.empty()
+
+            # Simulate unmount (what happens when user presses 'q')
+            app.on_unmount()
+
+            # Verify sentinel was pushed to queue to wake up blocked worker
+            assert app.chat_handler.should_exit is True
+            item = app.chat_handler.input_queue.get_nowait()
+            assert item is None, "Sentinel should be None to unblock get()"

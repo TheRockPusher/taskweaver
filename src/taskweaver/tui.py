@@ -300,7 +300,15 @@ class TaskWeaverApp(App):
         self._post_message_with_limit(f"**ERROR:** {message}", "error-message")
 
     def on_unmount(self) -> None:
-        """Clean up resources on app exit."""
+        """Clean up resources on app exit.
+
+        Pushes sentinel (None) into input queue to wake up blocked worker thread,
+        then cancels workers. This prevents thread leak on exit.
+        """
+        # Signal exit and wake up blocked worker
+        self.chat_handler.should_exit = True
+        self.chat_handler.input_queue.put(None)
+
         # Cancel all workers to ensure clean exit
         self.workers.cancel_all()
         logger.debug("TUI unmounted, workers cancelled")
