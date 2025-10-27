@@ -14,7 +14,8 @@ from textual.widgets import DataTable, Footer, Header, Input
 from taskweaver.database.connection import init_database
 from taskweaver.database.models import TaskCreate, TaskStatus, TaskUpdate
 from taskweaver.database.repository import TaskRepository
-from taskweaver.tui import TaskWeaverApp, terminal_theme
+from taskweaver.tui import TaskWeaverApp
+from taskweaver.tui_constants import MAX_CHAT_MESSAGES
 
 
 @pytest.fixture
@@ -98,16 +99,6 @@ class TestTUIInitialization:
             # Check for task tables
             tables = app.query(DataTable)
             assert len(tables) == 2  # open-tasks-table and unblocked-tasks-table
-
-    async def test_theme_registration(self, app):
-        """Test that custom theme is registered and applied."""
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            # Check theme is registered
-            assert "terminal" in app.available_themes
-            # Check theme is applied
-            assert app.theme == "terminal"
 
 
 class TestMessagePosting:
@@ -280,23 +271,72 @@ class TestChatHandlerIntegration:
             assert len(messages) >= 3  # Initial + 3 test messages
 
 
-class TestTheme:
-    """Test theme configuration."""
+class TestMessageBounding:
+    """Test bounded message history to prevent memory leaks."""
 
-    def test_terminal_theme_colors(self):
-        """Test that terminal theme has all required colors."""
-        assert terminal_theme.name == "terminal"
-        assert terminal_theme.primary is not None
-        assert terminal_theme.secondary is not None
-        assert terminal_theme.accent is not None
-        assert terminal_theme.foreground is not None
-        assert terminal_theme.background is not None
-        assert terminal_theme.success is not None
-        assert terminal_theme.warning is not None
-        assert terminal_theme.error is not None
-        assert terminal_theme.surface is not None
-        assert terminal_theme.panel is not None
-        assert terminal_theme.dark is True
+    async def test_message_history_limit(self, app):
+        """Test that message history is bounded by MAX_CHAT_MESSAGES."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            # Post more messages than the limit
+            for i in range(MAX_CHAT_MESSAGES + 10):
+                app.post_agent_message(f"Message {i}")
+                await pilot.pause()
+
+            # Check that message count doesn't exceed limit
+            messages = app.query("#chat-view Markdown")
+            # +1 for the initial welcome message
+            assert len(messages) <= MAX_CHAT_MESSAGES + 1
+
+    async def test_message_pruning_maintains_bound(self, app):
+        """Test that continuous messages maintain the bound (FIFO pruning works)."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            # Post messages continuously
+            for i in range(MAX_CHAT_MESSAGES + 10):
+                app.post_agent_message(f"Message {i}")
+                await pilot.pause()
+
+                # Verify count never exceeds limit
+                messages = app.query("#chat-view Markdown")
+                assert len(messages) <= MAX_CHAT_MESSAGES + 1, (
+                    f"Message count {len(messages)} exceeds limit {MAX_CHAT_MESSAGES + 1}"
+                )
+
+
+class TestRepositoryMethods:
+    """Test new repository methods used by TUI."""
+
+    async def test_get_open_tasks_sorted(self, app):
+        """Test that TUI uses repository method for sorted tasks."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            # Get tasks through repository method
+            tasks = app.dep_repo.get_open_tasks_sorted()
+
+            # Should be sorted by effective priority descending
+            assert len(tasks) >= 2
+            # Verify sorted order
+            for i in range(len(tasks) - 1):
+                assert tasks[i].effective_priority >= tasks[i + 1].effective_priority
+
+    async def test_get_unblocked_tasks(self, app):
+        """Test filtering for unblocked tasks."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            # Get all open tasks
+            open_tasks = app.dep_repo.get_open_tasks_sorted()
+
+            # Get unblocked tasks
+            unblocked = app.dep_repo.get_unblocked_tasks(open_tasks)
+
+            # All unblocked tasks should have no active blockers
+            for task in unblocked:
+                assert not task.is_blocked
 
 
 class TestKeyboardShortcuts:

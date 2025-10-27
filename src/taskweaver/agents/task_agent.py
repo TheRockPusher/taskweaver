@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from loguru import logger
 from pydantic_ai import Agent, AgentRunResult, FunctionToolset, ModelMessage, RunContext
@@ -10,6 +11,9 @@ from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
 from taskweaver.config import Config
 
 from ..config import get_config
+
+if TYPE_CHECKING:
+    from textual.worker import Worker
 from ..database.completion_repository import CompletionRepository
 from ..database.connection import mem0_memory
 from ..database.dependency_repository import TaskDependencyRepository
@@ -113,12 +117,13 @@ def add_memories(ctx: RunContext[TaskDependencies]) -> str:
     return f"\n## MEMORIES\n{ctx.deps.memories}"
 
 
-def run_chat(handler: ChatHandler, db_path: Path) -> None:
+def run_chat(handler: ChatHandler, db_path: Path, worker: "Worker | None" = None) -> None:
     """Run interactive chat loop with the orchestrator agent.
 
     Args:
         handler: ChatHandler implementation for I/O operations.
         db_path: Path to the task database for agent operations.
+        worker: Optional worker for cancellation checking (TUI mode only).
 
     """
     logger.info(f"Starting chat session with database: {db_path}")
@@ -153,6 +158,11 @@ def run_chat(handler: ChatHandler, db_path: Path) -> None:
 
     turn_count = 0
     while True:
+        # Check if worker was cancelled (TUI mode)
+        if worker is not None and hasattr(worker, "is_cancelled") and worker.is_cancelled:
+            logger.info("Chat loop cancelled by worker")
+            break
+
         user_input = handler.get_user_input()
         command = False
         if user_input is None:

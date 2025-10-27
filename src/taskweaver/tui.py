@@ -11,38 +11,26 @@ from pathlib import Path
 from typing import ClassVar
 
 from loguru import logger
+from pydantic_ai.exceptions import (
+    AgentRunError,
+    ModelHTTPError,
+    UnexpectedModelBehavior,
+    UsageLimitExceeded,
+)
 from textual import work
 from textual.app import App, ComposeResult
+from textual.binding import BindingType
 from textual.containers import Container, VerticalScroll
-from textual.theme import Theme
 from textual.widgets import DataTable, Footer, Header, Input, Markdown, Static
+from textual.worker import Worker, get_current_worker
 
 from .agents.chat_handler import TuiChatHandler
 from .agents.task_agent import run_chat
 from .database.dependency_repository import TaskDependencyRepository
 from .database.exceptions import DependencyError, TaskNotFoundError
-from .database.models import TaskStatus, TaskWithPriority
+from .database.models import TaskWithPriority
 from .database.repository import TaskRepository
-
-# Minimal terminal-like theme using neutral grays
-terminal_theme = Theme(
-    name="terminal",
-    primary="#a8a8a8",  # Neutral gray
-    secondary="#909090",  # Slightly darker gray
-    accent="#b0b0b0",  # Subtle accent gray
-    foreground="#d0d0d0",  # Light gray for text
-    background="#1c1c1c",  # Very dark gray, almost black
-    success="#90a959",  # Muted green
-    warning="#f4bf75",  # Muted orange
-    error="#ac4142",  # Muted red
-    surface="#262626",  # Slightly lighter than background
-    panel="#303030",  # Even lighter for panels
-    dark=True,
-    variables={
-        "input-selection-background": "#404040",
-        "border": "#606060",
-    },
-)
+from .tui_constants import MAX_CHAT_MESSAGES, MAX_TITLE_LENGTH, REFRESH_INTERVAL_SECONDS, WidgetIDs
 
 
 class TaskWeaverApp(App):
@@ -58,116 +46,12 @@ class TaskWeaverApp(App):
     TITLE = "🧵 TaskWeaver"
     SUB_TITLE = "AI Task Manager"
 
-    BINDINGS: ClassVar = [
+    BINDINGS: ClassVar[list[BindingType]] = [
         ("q", "quit", "Quit"),
         ("ctrl+c", "quit", "Quit"),
     ]
 
-    CSS = """
-    /* Theme-based styling for beautiful, themeable UI */
-
-    /* Chat container - main surface with primary accent */
-    #chat-container {
-        height: 60%;
-        background: $surface;
-        border: round $primary;
-        margin: 1;
-    }
-
-    #chat-view {
-        padding: 1 2;
-        background: $surface;
-    }
-
-    /* Tasks container - divided panels */
-    #tasks-container {
-        height: 40%;
-        layout: horizontal;
-        margin: 0 1 1 1;
-    }
-
-    #open-tasks {
-        width: 1fr;
-        background: $panel;
-        border: round $primary-darken-1;
-        margin: 0 1 0 0;
-        padding: 1;
-    }
-
-    #unblocked-tasks {
-        width: 1fr;
-        background: $panel;
-        border: round $primary-darken-1;
-        padding: 1;
-    }
-
-    /* Message styling - colorful and distinct */
-    .agent-message {
-        background: $primary-muted;
-        color: $text-primary;
-        border-left: wide $primary;
-        margin: 1 0;
-        padding: 1 2;
-    }
-
-    .user-message {
-        background: $secondary-muted;
-        color: $text-secondary;
-        border-left: wide $secondary;
-        margin: 1 0;
-        padding: 1 2;
-    }
-
-    .system-message {
-        background: $surface-lighten-1;
-        color: $text-muted;
-        margin: 1 0;
-        padding: 1 2;
-    }
-
-    .error-message {
-        background: $error-muted;
-        color: $text-error;
-        border: solid $error;
-        margin: 1 0;
-        padding: 1 2;
-    }
-
-    /* Input - styled with focus effects */
-    Input {
-        dock: bottom;
-        background: $surface;
-        border: round $accent-darken-1;
-        margin: 0 1 1 1;
-        padding: 0 1;
-    }
-
-    Input:focus {
-        border: heavy $accent;
-        background: $surface-lighten-1;
-    }
-
-    /* Tables - styled with theme colors */
-    DataTable {
-        height: 100%;
-        background: transparent;
-    }
-
-    DataTable > .datatable--header {
-        background: $accent;
-        color: $text-accent;
-        text-style: bold;
-    }
-
-    .task-header {
-        text-align: left;
-        color: $primary;
-        background: $surface-darken-1;
-        text-style: bold;
-        padding: 0 1;
-        margin: 0 0 1 0;
-    }
-    """
+    CSS_PATH = "tui.tcss"
 
     def __init__(self, db_path: Path) -> None:
         """Initialize the TaskWeaver TUI application.
@@ -197,17 +81,17 @@ class TaskWeaverApp(App):
         yield Header(show_clock=True)
 
         # Chat section (top 60%)
-        with Container(id="chat-container"), VerticalScroll(id="chat-view"):
+        with Container(id=WidgetIDs.CHAT_CONTAINER), VerticalScroll(id=WidgetIDs.CHAT_VIEW):
             yield Markdown("Type a message below to interact with TaskWeaver.")
 
         # Tasks section (bottom 40%)
-        with Container(id="tasks-container"):
-            with Container(id="open-tasks"):
+        with Container(id=WidgetIDs.TASKS_CONTAINER):
+            with Container(id=WidgetIDs.OPEN_TASKS):
                 yield Static("Open Tasks (by Effective Priority)", classes="task-header")
-                yield DataTable(id="open-tasks-table")
-            with Container(id="unblocked-tasks"):
+                yield DataTable(id=WidgetIDs.OPEN_TASKS_TABLE)
+            with Container(id=WidgetIDs.UNBLOCKED_TASKS):
                 yield Static("Unblocked Tasks", classes="task-header")
-                yield DataTable(id="unblocked-tasks-table")
+                yield DataTable(id=WidgetIDs.UNBLOCKED_TASKS_TABLE)
 
         # Input at bottom
         yield Input(placeholder="Type your message...")
@@ -216,35 +100,52 @@ class TaskWeaverApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        """Initialize widgets, register theme, and start chat worker."""
+        """Initialize widgets and start chat worker."""
         logger.debug("TUI mounted, initializing widgets")
-
-        # Register and apply minimal terminal theme
-        self.register_theme(terminal_theme)
-        self.theme = "terminal"
 
         self.setup_task_tables()
         self.refresh_tasks()
-        # Refresh task data every 5 seconds
-        self.set_interval(5, self.refresh_tasks)
+        # Refresh task data periodically
+        self.set_interval(REFRESH_INTERVAL_SECONDS, self.refresh_tasks)
 
         # Start run_chat() in background worker thread
         self.start_chat_worker()
 
     @work(thread=True, exclusive=True)
     def start_chat_worker(self) -> None:
-        """Run the shared run_chat() function in a worker thread.
+        """Run agent loop with cancellation support.
 
         This runs the same agent loop as CLI, bridging blocking I/O
         with event-driven TUI via TuiChatHandler's queue.
+
+        Worker can be cancelled cleanly via on_unmount or app exit.
         """
+        worker: Worker = get_current_worker()
         logger.info("Starting chat worker thread")
-        run_chat(self.chat_handler, self.db_path)
-        logger.info("Chat worker thread ended")
+
+        try:
+            run_chat(self.chat_handler, self.db_path, worker)
+        except (ModelHTTPError, AgentRunError, UsageLimitExceeded, UnexpectedModelBehavior) as e:
+            # AI model errors
+            logger.error(f"Chat worker AI model error: {e}")
+            if not worker.is_cancelled:
+                self.call_from_thread(self.post_error_message, f"AI error: {e}")
+        except (TaskNotFoundError, DependencyError, OSError) as e:
+            # Database and file system errors
+            logger.error(f"Chat worker database error: {e}")
+            if not worker.is_cancelled:
+                self.call_from_thread(self.post_error_message, f"Database error: {e}")
+        except (ValueError, TypeError, RuntimeError) as e:
+            # Runtime errors and validation failures
+            logger.error(f"Chat worker runtime error: {e}")
+            if not worker.is_cancelled:
+                self.call_from_thread(self.post_error_message, f"Runtime error: {e}")
+        finally:
+            logger.info("Chat worker thread ended")
 
     def setup_task_tables(self) -> None:
         """Configure DataTable columns for both task tables."""
-        open_table = self.query_one("#open-tasks-table", DataTable)
+        open_table = self.query_one(f"#{WidgetIDs.OPEN_TASKS_TABLE}", DataTable)
         open_table.add_columns(
             "Title",
             "Priority",
@@ -253,7 +154,7 @@ class TaskWeaverApp(App):
             "Blocked By",
         )
 
-        unblocked_table = self.query_one("#unblocked-tasks-table", DataTable)
+        unblocked_table = self.query_one(f"#{WidgetIDs.UNBLOCKED_TASKS_TABLE}", DataTable)
         unblocked_table.add_columns(
             "Title",
             "Priority",
@@ -263,24 +164,19 @@ class TaskWeaverApp(App):
         logger.debug("Task tables configured")
 
     def refresh_tasks(self) -> None:
-        """Refresh task data from database.
+        """Refresh task data from database and update UI tables.
 
-        Queries pending and in-progress tasks, sorts by effective priority,
-        and updates both task tables.
+        Uses repository methods for business logic, keeping UI layer focused
+        on display responsibilities only.
         """
         try:
-            # Get all open tasks with priority
-            pending_tasks = self.dep_repo.list_tasks_with_priority(status=TaskStatus.PENDING)
-            in_progress_tasks = self.dep_repo.list_tasks_with_priority(status=TaskStatus.IN_PROGRESS)
-            open_tasks = pending_tasks + in_progress_tasks
+            # Get all open tasks sorted by effective priority (repository handles business logic)
+            open_tasks = self.dep_repo.get_open_tasks_sorted()
 
-            # Sort by effective priority (descending)
-            open_tasks.sort(key=lambda t: t.effective_priority, reverse=True)
+            # Filter to unblocked tasks (repository handles filtering logic)
+            unblocked_tasks = self.dep_repo.get_unblocked_tasks(open_tasks)
 
-            # Filter unblocked tasks
-            unblocked_tasks = [t for t in open_tasks if not t.is_blocked]
-
-            # Update tables
+            # Update tables (UI responsibility)
             self.update_open_tasks_table(open_tasks)
             self.update_unblocked_tasks_table(unblocked_tasks)
 
@@ -298,11 +194,11 @@ class TaskWeaverApp(App):
         Args:
             tasks: List of tasks with priority information.
         """
-        table = self.query_one("#open-tasks-table", DataTable)
+        table = self.query_one(f"#{WidgetIDs.OPEN_TASKS_TABLE}", DataTable)
         table.clear()
         for task in tasks:
             table.add_row(
-                task.title[:30],  # Truncate long titles
+                task.title[:MAX_TITLE_LENGTH],  # Truncate long titles
                 f"{task.priority:.3f}",
                 f"{task.effective_priority:.3f}",
                 task.status,
@@ -315,11 +211,11 @@ class TaskWeaverApp(App):
         Args:
             tasks: List of unblocked tasks with priority information.
         """
-        table = self.query_one("#unblocked-tasks-table", DataTable)
+        table = self.query_one(f"#{WidgetIDs.UNBLOCKED_TASKS_TABLE}", DataTable)
         table.clear()
         for task in tasks:
             table.add_row(
-                task.title[:30],
+                task.title[:MAX_TITLE_LENGTH],
                 f"{task.priority:.3f}",
                 f"{task.effective_priority:.3f}",
                 task.status,
@@ -340,7 +236,7 @@ class TaskWeaverApp(App):
         event.input.value = ""
 
         # Display user message
-        chat_view = self.query_one("#chat-view", VerticalScroll)
+        chat_view = self.query_one(f"#{WidgetIDs.CHAT_VIEW}", VerticalScroll)
         chat_view.mount(Markdown(f"**You:** {user_input}", classes="user-message"))
         chat_view.scroll_end(animate=False)
 
@@ -356,15 +252,36 @@ class TaskWeaverApp(App):
         self.chat_handler.input_queue.put(user_input)
         logger.debug(f"User input queued for agent: {user_input[:50]}...")
 
+    def _post_message_with_limit(self, message: str, classes: str) -> None:
+        """Post message with history limit (DRY helper).
+
+        Adds message to chat view and prunes oldest messages if history
+        exceeds MAX_CHAT_MESSAGES to prevent memory leak.
+
+        Args:
+            message: Formatted message text (may contain markdown).
+            classes: CSS classes to apply to message widget.
+        """
+        chat_view = self.query_one(f"#{WidgetIDs.CHAT_VIEW}", VerticalScroll)
+
+        # Add new message
+        chat_view.mount(Markdown(message, classes=classes))
+
+        # Prune if over limit (FIFO)
+        messages = list(chat_view.children)
+        if len(messages) > MAX_CHAT_MESSAGES:
+            # Remove oldest message
+            messages[0].remove()
+
+        chat_view.scroll_end(animate=False)
+
     def post_agent_message(self, message: str) -> None:
         """Display agent message in chat view.
 
         Args:
             message: Agent's response message, may contain markdown.
         """
-        chat_view = self.query_one("#chat-view", VerticalScroll)
-        chat_view.mount(Markdown(f"**TaskWeaver:** {message}", classes="agent-message"))
-        chat_view.scroll_end(animate=False)
+        self._post_message_with_limit(f"**TaskWeaver:** {message}", "agent-message")
 
     def post_system_message(self, message: str) -> None:
         """Display system message in chat view.
@@ -372,8 +289,7 @@ class TaskWeaverApp(App):
         Args:
             message: System notification message.
         """
-        chat_view = self.query_one("#chat-view", VerticalScroll)
-        chat_view.mount(Markdown(f"*{message}*", classes="system-message"))
+        self._post_message_with_limit(f"*{message}*", "system-message")
 
     def post_error_message(self, message: str) -> None:
         """Display error message in chat view.
@@ -381,9 +297,13 @@ class TaskWeaverApp(App):
         Args:
             message: Error message text.
         """
-        chat_view = self.query_one("#chat-view", VerticalScroll)
-        chat_view.mount(Markdown(f"**ERROR:** {message}", classes="error-message"))
-        chat_view.scroll_end(animate=False)
+        self._post_message_with_limit(f"**ERROR:** {message}", "error-message")
+
+    def on_unmount(self) -> None:
+        """Clean up resources on app exit."""
+        # Cancel all workers to ensure clean exit
+        self.workers.cancel_all()
+        logger.debug("TUI unmounted, workers cancelled")
 
 
 def run_tui(db_path: Path) -> None:

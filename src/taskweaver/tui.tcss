@@ -1,0 +1,103 @@
+/* Theme-based styling for beautiful, themeable UI */
+
+/* Chat container - main surface with primary accent */
+#chat-container {
+    height: 60%;
+    background: $surface;
+    border: round $primary;
+    margin: 1;
+}
+
+#chat-view {
+    padding: 1 2;
+    background: $surface;
+}
+
+/* Tasks container - divided panels */
+#tasks-container {
+    height: 40%;
+    layout: horizontal;
+    margin: 0 1 1 1;
+}
+
+#open-tasks {
+    width: 1fr;
+    background: $panel;
+    border: round $primary-darken-1;
+    margin: 0 1 0 0;
+    padding: 1;
+}
+
+#unblocked-tasks {
+    width: 1fr;
+    background: $panel;
+    border: round $primary-darken-1;
+    padding: 1;
+}
+
+/* Message styling - colorful and distinct */
+.agent-message {
+    background: $primary-muted;
+    color: $text-primary;
+    border-left: wide $primary;
+    margin: 1 0;
+    padding: 1 2;
+}
+
+.user-message {
+    background: $secondary-muted;
+    color: $text-secondary;
+    border-left: wide $secondary;
+    margin: 1 0;
+    padding: 1 2;
+}
+
+.system-message {
+    background: $surface-lighten-1;
+    color: $text-muted;
+    margin: 1 0;
+    padding: 1 2;
+}
+
+.error-message {
+    background: $error-muted;
+    color: $text-error;
+    border: solid $error;
+    margin: 1 0;
+    padding: 1 2;
+}
+
+/* Input - styled with focus effects */
+Input {
+    dock: bottom;
+    background: $surface;
+    border: round $accent-darken-1;
+    margin: 0 1 1 1;
+    padding: 0 1;
+}
+
+Input:focus {
+    border: heavy $accent;
+    background: $surface-lighten-1;
+}
+
+/* Tables - styled with theme colors */
+DataTable {
+    height: 100%;
+    background: transparent;
+}
+
+DataTable > .datatable--header {
+    background: $accent;
+    color: $text-accent;
+    text-style: bold;
+}
+
+.task-header {
+    text-align: left;
+    color: $primary;
+    background: $surface-darken-1;
+    text-style: bold;
+    padding: 0 1;
+    margin: 0 0 1 0;
+}
