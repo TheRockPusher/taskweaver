@@ -255,3 +255,45 @@ class TaskDependencyRepository:
             TaskWithPriority(**task.model_dump(), effective_priority=priorities[task.task_id])
             for task in tasks_with_deps
         ]
+
+    def get_open_tasks_sorted(self) -> list[TaskWithPriority]:
+        """Get all open tasks sorted by effective priority.
+
+        Combines pending and in-progress tasks, sorts by effective
+        priority descending (highest priority first).
+
+        This method moves business logic from UI layer to repository layer,
+        following Single Responsibility Principle.
+
+        Returns:
+            List of tasks sorted by effective priority.
+
+        Example:
+            >>> tasks = repo.get_open_tasks_sorted()
+            >>> for task in tasks:
+            ...     print(f"{task.title}: {task.effective_priority:.3f}")
+        """
+        pending = self.list_tasks_with_priority(status=TaskStatus.PENDING)
+        in_progress = self.list_tasks_with_priority(status=TaskStatus.IN_PROGRESS)
+        tasks = pending + in_progress
+        return sorted(tasks, key=lambda t: t.effective_priority, reverse=True)
+
+    def get_unblocked_tasks(self, tasks: list[TaskWithPriority] | None = None) -> list[TaskWithPriority]:
+        """Filter to unblocked tasks only.
+
+        Returns tasks that have no active blockers and can be started immediately.
+
+        Args:
+            tasks: Optional list of tasks to filter. If None, gets all open tasks.
+
+        Returns:
+            List of tasks with no active blockers.
+
+        Example:
+            >>> open_tasks = repo.get_open_tasks_sorted()
+            >>> unblocked = repo.get_unblocked_tasks(open_tasks)
+            >>> print(f"Can start: {len(unblocked)} tasks")
+        """
+        if tasks is None:
+            tasks = self.get_open_tasks_sorted()
+        return [t for t in tasks if not t.is_blocked]

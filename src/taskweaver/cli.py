@@ -17,6 +17,7 @@ from .database.connection import init_database
 from .database.dependency_repository import TaskDependencyRepository
 from .database.models import Task, TaskCreate, TaskStatus, TaskUpdate, TaskWithDependencies
 from .database.repository import TaskRepository
+from .tui import run_tui
 
 app = typer.Typer(
     help="🧵 TaskWeaver - AI-powered task organizer with intelligent decomposition",
@@ -192,6 +193,12 @@ def show(
 def chat(db_path: Annotated[Path, typer.Option("--db", help="Database file path")] = DEFAULT_DB) -> None:
     """Start an interactive conversation with the AI agent."""
     run_chat(CliChatHandler(), db_path)
+
+
+@app.command(name="tui", help="Launch Terminal User Interface")
+def tui(db_path: Annotated[Path, typer.Option("--db", help="Database file path")] = DEFAULT_DB) -> None:
+    """Launch the Textual TUI interface."""
+    run_tui(db_path)
 
 
 @app.command(name="restartDB", help="Reinitialize database schema (optionally delete existing data).")
