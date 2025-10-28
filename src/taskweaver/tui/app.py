@@ -8,6 +8,7 @@ This module provides a rich TUI for interacting with TaskWeaver, featuring:
 """
 
 import os
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -344,6 +345,7 @@ class TaskWeaverApp(App):
         # Suspend TUI and open editor
         try:
             with self.suspend():
+                # Security: editor is validated against EDITOR_FALLBACK_CHAIN or user's EDITOR env var
                 result = subprocess.call([editor, str(temp_path)])  # noqa: S603
 
             if result != 0:
@@ -396,7 +398,7 @@ class TaskWeaverApp(App):
         Returns:
             True if command exists, False otherwise.
         """
-        return subprocess.call(["which", cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0  # noqa: S603, S607
+        return shutil.which(cmd) is not None
 
     def _post_message_with_limit(self, message: str, classes: str) -> None:
         """Post message with history limit (DRY helper).
