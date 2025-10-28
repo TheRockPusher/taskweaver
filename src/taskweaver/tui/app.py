@@ -216,12 +216,19 @@ class TaskWeaverApp(App):
             self.post_error_message(f"Database access error: {e}")
 
     def update_open_tasks_table(self, tasks: list[TaskWithPriority]) -> None:
-        """Update open tasks DataTable with RowKey mapping.
+        """Update open tasks DataTable with RowKey mapping and cursor preservation.
+
+        Preserves cursor position across refresh to maintain user's navigation state.
+        If table shrinks below saved cursor row, cursor resets to top.
 
         Args:
             tasks: List of tasks with priority information.
         """
         table = self.query_one(f"#{WidgetIDs.OPEN_TASKS_TABLE}", DataTable)
+
+        # Save cursor position before clearing
+        saved_cursor = table.cursor_coordinate
+
         table.clear()
         self.open_tasks_map.clear()  # Reset mapping
 
@@ -237,13 +244,27 @@ class TaskWeaverApp(App):
             # Store full task object for later lookup
             self.open_tasks_map[row_key] = task
 
+        # Restore cursor if position is still valid
+        if table.row_count > 0 and saved_cursor.row < table.row_count:
+            table.move_cursor(row=saved_cursor.row, column=saved_cursor.column)
+            logger.debug(f"Restored cursor to row {saved_cursor.row}")
+        elif table.row_count > 0:
+            logger.debug(f"Cursor was at row {saved_cursor.row}, but table only has {table.row_count} rows")
+
     def update_unblocked_tasks_table(self, tasks: list[TaskWithPriority]) -> None:
-        """Update unblocked tasks DataTable with RowKey mapping.
+        """Update unblocked tasks DataTable with RowKey mapping and cursor preservation.
+
+        Preserves cursor position across refresh to maintain user's navigation state.
+        If table shrinks below saved cursor row, cursor resets to top.
 
         Args:
             tasks: List of unblocked tasks with priority information.
         """
         table = self.query_one(f"#{WidgetIDs.UNBLOCKED_TASKS_TABLE}", DataTable)
+
+        # Save cursor position before clearing
+        saved_cursor = table.cursor_coordinate
+
         table.clear()
         self.unblocked_tasks_map.clear()  # Reset mapping
 
@@ -258,6 +279,13 @@ class TaskWeaverApp(App):
             )
             # Store full task object for later lookup
             self.unblocked_tasks_map[row_key] = task
+
+        # Restore cursor if position is still valid
+        if table.row_count > 0 and saved_cursor.row < table.row_count:
+            table.move_cursor(row=saved_cursor.row, column=saved_cursor.column)
+            logger.debug(f"Restored cursor to row {saved_cursor.row}")
+        elif table.row_count > 0:
+            logger.debug(f"Cursor was at row {saved_cursor.row}, but table only has {table.row_count} rows")
 
     def action_submit_text(self) -> None:
         """Submit TextArea content (Ctrl+Enter or F2)."""

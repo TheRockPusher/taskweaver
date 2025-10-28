@@ -458,3 +458,93 @@ class TestModalIntegration:
             # Verify cursor_type is set to "row"
             assert open_table.cursor_type == "row"
             assert unblocked_table.cursor_type == "row"
+
+
+class TestCursorPreservation:
+    """Test cursor position preservation during table refreshes."""
+
+    async def test_cursor_preserved_in_open_tasks_on_refresh(self, app):
+        """Test cursor stays at same position after refresh."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            # Get open tasks table and move cursor to row 1
+            open_table = app.query_one("#open-tasks-table", DataTable)
+            open_table.move_cursor(row=1)
+
+            initial_cursor = open_table.cursor_coordinate
+            assert initial_cursor.row == 1
+
+            # Trigger refresh
+            app.refresh_tasks()
+            await pilot.pause()
+
+            # Cursor should still be at row 1
+            final_cursor = open_table.cursor_coordinate
+            assert final_cursor.row == 1
+            assert final_cursor.row == initial_cursor.row
+
+    async def test_cursor_preserved_in_unblocked_tasks_on_refresh(self, app):
+        """Test cursor stays at same position after refresh in unblocked table."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            # Get unblocked tasks table and move cursor to row 1
+            unblocked_table = app.query_one("#unblocked-tasks-table", DataTable)
+
+            # Only test if table has rows
+            if unblocked_table.row_count > 1:
+                unblocked_table.move_cursor(row=1)
+                initial_cursor = unblocked_table.cursor_coordinate
+
+                # Trigger refresh
+                app.refresh_tasks()
+                await pilot.pause()
+
+                # Cursor should still be at row 1
+                final_cursor = unblocked_table.cursor_coordinate
+                assert final_cursor.row == initial_cursor.row
+
+    async def test_cursor_clamps_when_table_shrinks(self, app, test_db):
+        """Test cursor resets if table shrinks below saved position."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            # Move cursor to last row
+            open_table = app.query_one("#open-tasks-table", DataTable)
+            if open_table.row_count > 0:
+                last_row = open_table.row_count - 1
+                open_table.move_cursor(row=last_row)
+
+                # Mark all tasks as completed (should shrink open tasks table)
+                repo = TaskRepository(test_db)
+                tasks = repo.list_tasks(status=TaskStatus.PENDING)
+                for task in tasks:
+                    repo.update_task(task.task_id, TaskUpdate(status=TaskStatus.COMPLETED))
+
+                # Trigger refresh
+                app.refresh_tasks()
+                await pilot.pause()
+
+                # Cursor should be clamped (at 0 if table is now empty)
+                final_cursor = open_table.cursor_coordinate
+                assert final_cursor.row < open_table.row_count or open_table.row_count == 0
+
+    async def test_cursor_handles_empty_table(self, app, test_db):
+        """Test cursor preservation doesn't crash on empty table."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            # Complete all tasks
+            repo = TaskRepository(test_db)
+            tasks = repo.list_tasks()
+            for task in tasks:
+                repo.update_task(task.task_id, TaskUpdate(status=TaskStatus.COMPLETED))
+
+            # Refresh should handle empty table gracefully
+            app.refresh_tasks()
+            await pilot.pause()
+
+            # No assertion needed - just verify no crash
+            open_table = app.query_one("#open-tasks-table", DataTable)
+            assert open_table.row_count == 0
