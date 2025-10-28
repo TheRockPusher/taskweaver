@@ -6,14 +6,14 @@ TaskWeaver is a conversational AI agent that intelligently organises, prioritise
 
 **Target Audience:** Anyone looking to organise complex projects, learn new skills systematically, or improve task management through AI-powered decomposition and prioritisation.
 
-**Project Status:** Version 0.7.2 (Active development - TUI complete, pattern learning in progress)
+**Project Status:** Version 0.8.0 (Active development - TUI complete and refined, pattern learning in progress)
 
 **Technology:** Python 3.13+ | PydanticAI 1.1.0 | Textual TUI | SQLite | Typer CLI | UV package manager | Mem0 + Qdrant (Semantic Memory)
 
 [![CI](https://github.com/TheRockPusher/taskweaver/actions/workflows/ci.yml/badge.svg)](https://github.com/TheRockPusher/taskweaver/actions/workflows/ci.yml)
 [![Python Version](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL-3.0-blue.svg)](LICENSE)
-[![Test Coverage](https://img.shields.io/badge/coverage-85%25-brightgreen.svg)]()
+[![Test Coverage](https://img.shields.io/badge/coverage-81.3%25-brightgreen.svg)]()
 
 ## Getting Started
 
@@ -36,9 +36,9 @@ make install
 make test
 ```
 
-**Current Capabilities (v0.7.2):**
+**Current Capabilities (v0.8.0):**
 
-- ✅ **Terminal User Interface (TUI)** with Textual framework – Interactive task management with live tables
+- ✅ **Terminal User Interface (TUI)** with Textual framework – Interactive task management with live tables and modal detail screens
 - ✅ Full CLI CRUD operations for tasks (Typer CLI)
 - ✅ Dependency tracking with cycle detection (BFS algorithm)
 - ✅ Interactive AI chat with conversational task decomposition
@@ -48,12 +48,13 @@ make test
 - ✅ Effective priority surfacing for critical path identification
 - ✅ Semantic memory with Mem0 + Qdrant (local-first, persistent)
 - ✅ GitHub issue integration for task import and synchronisation
-- ✅ Optimised orchestrator prompt (1,704+ lines, 20% token efficiency improvement)
-- ✅ Completion tracking with optional estimated vs actual duration tracking
+- ✅ Optimised orchestrator prompt (2,568 lines, 20% token efficiency improvement)
+- ✅ Completion tracking with estimated vs actual duration tracking
 - ✅ Variance analysis for automatic calculation of percentage variance
 - ✅ Pattern learning foundation (CompletionRepository for CRUD operations)
-- ✅ Comprehensive test suite with 135+ tests (85%+ coverage)
+- ✅ Comprehensive test suite with 178 tests (81.3% coverage)
 - ✅ Custom Textual Theme system for terminal consistency
+- ✅ Modularised TUI architecture with worker threads for chat integration
 
 **Next Up (v0.8.0+):** Pattern-based duration adjustment, enhanced memory features, Dreyfus skill tracking.
 
@@ -97,8 +98,8 @@ TaskWeaver provides:
 
 ## Current Status
 
-**Version:** 0.7.0 (Active development)
-**Development Stage:** Completion tracking implemented, refining pattern learning
+**Version:** 0.8.0 (Active development)
+**Development Stage:** TUI system complete and refined, refining pattern learning
 
 **Recently Completed:**
 
@@ -124,7 +125,7 @@ See [Roadmap](#roadmap) for full version plan.
 
 ## Roadmap
 
-### ✅ Completed (v0.1.0 - v0.6.0)
+### ✅ Completed (v0.1.0 - v0.8.0)
 
 **Foundation:**
 
@@ -138,7 +139,7 @@ See [Roadmap](#roadmap) for full version plan.
 - ✅ PydanticAI agent framework
 - ✅ 12 agent tools (6 task management + 5 dependency + 1 web search)
 - ✅ Interactive chat interface
-- ✅ Optimised orchestrator prompt (1,704 lines)
+- ✅ Optimised orchestrator prompt (2,568 lines)
 - ✅ Task dependency tracking with DAG structure
 - ✅ BFS-based cycle detection
 - ✅ Dependency-aware task analysis
@@ -152,20 +153,22 @@ See [Roadmap](#roadmap) for full version plan.
 - ✅ Semantic memory with Mem0 + Qdrant (v0.6.0)
 - ✅ GitHub integration (v0.6.0)
 
-### 🔄 v0.7.x: Completion Tracking, TUI, & Enhanced Memory
+### ✅ v0.7.x - v0.8.0: Completion Tracking, TUI, & Enhanced Memory (Complete)
 
 **Goal:** Learn from completion data and improve estimates, provide visual task management
-**Timeline:** Active development (2025 Q1)
+**Timeline:** Completed (2025 Q1)
 
-**v0.7.2 Features (Complete/In Progress):**
+**v0.8.0 Features (Complete):**
 
 - ✅ **Completion Tracking** (#19) - Track estimated vs actual, variance analysis
 - ✅ **CompletionRepository** - Full CRUD operations for completion records
 - ✅ **Variance Analysis** - Automatic percentage variance calculation
-- ✅ **Orchestrator Prompt Enhancements** - 300+ lines on completion workflows
-- ✅ **TUI with Textual** (#17) - Interactive terminal interface with live tables
+- ✅ **Orchestrator Prompt Enhancements** - 2,568 lines total (includes 300+ on completion workflows)
+- ✅ **TUI with Textual** (#17) - Interactive terminal interface with live tables and modal screens
 - ✅ **Theme System** - Custom terminal theme for visual consistency
-- ✅ **TUI Test Suite** - 15 comprehensive test cases (85% coverage)
+- ✅ **TUI Test Suite** - Comprehensive test coverage (50+ TUI tests)
+- ✅ **Modularised TUI Architecture** - app.py, screens.py, constants.py, styles.tcss
+- ✅ **Modal Detail Screens** - TaskDetailScreen for task inspection
 - 🔄 **Pattern-based Duration Adjustment** - Use completion data for better estimates
 - 🔄 **Enhanced Memory** - Structured memory extraction and categorisation
 - 📋 Goal tracking and progress visualisation
@@ -641,14 +644,14 @@ make test FILE=src/taskweaver/tests/test_tui.py
 ### Running Tests
 
 ```bash
-# Run all tests (135+ tests, 85%+ coverage)
+# Run all tests (178 tests, 81.3% coverage)
 make test
 
 # Run specific test file
 make test FILE=src/taskweaver/tests/test_tui.py
 
 # Run tests with verbose output
-make test FILE=src/taskweaver/tests/test_tui.py
+make test FILE=src/taskweaver/tests/test_tui.py -v
 
 # View coverage report
 uv run pytest --cov=taskweaver --cov-report=html
@@ -656,12 +659,13 @@ uv run pytest --cov=taskweaver --cov-report=html
 
 **Test Coverage:**
 
-Current coverage: **85.78%** (exceeds 80% requirement)
-- Repository tests: 95%+ coverage
+Current coverage: **81.3%** (exceeds 80% requirement)
+- Database tests: 95%+ coverage
 - Completion tests: 100% coverage
-- Dependency tests: 93% coverage
-- TUI tests: 85% coverage
+- Dependency tests: 92% coverage
+- TUI tests: 58% coverage (integration-heavy)
 - Agent tests: 83% coverage
+- CLI tests: 27% coverage (integration-heavy)
 
 ### Code Quality
 
@@ -670,7 +674,7 @@ This project maintains high code quality standards:
 - **Formatting**: Automated with Ruff (100 character line length)
 - **Linting**: Comprehensive rules including security checks (Bandit)
 - **Type Checking**: Enforced with Ty (static type analysis)
-- **Testing**: Minimum 80% code coverage required, currently at 85%+
+- **Testing**: Minimum 80% code coverage required, currently at 81.3%
 - **Documentation**: Google-style docstrings throughout
 
 **Architecture Patterns:**
@@ -691,7 +695,15 @@ taskweaver/
 │       ├── __init__.py
 │       ├── cli.py                          # CLI commands (Typer)
 │       ├── config.py                       # Configuration management
-│       ├── tui.py                          # Terminal User Interface (Textual)
+│       ├── tui/                            # Terminal User Interface module (Textual)
+│       │   ├── __init__.py
+│       │   ├── app.py                      # TUI main application class
+│       │   ├── screens.py                  # Modal screens (TaskDetailScreen)
+│       │   ├── constants.py                # UI constants
+│       │   ├── dependencies.py             # TUI dependencies
+│       │   ├── styles.tcss                 # Textual CSS styling
+│       │   └── tests/
+│       │       └── test_tui.py             # 50+ TUI integration tests
 │       ├── database/                       # Data layer (vertical slice)
 │       │   ├── __init__.py
 │       │   ├── connection.py               # Database connection & Mem0 factory
@@ -714,16 +726,15 @@ taskweaver/
 │       │   ├── dependencies.py             # Agent dependencies container
 │       │   ├── github_issues.py            # GitHub integration
 │       │   ├── prompts/
-│       │   │   └── orchestrator_prompt.md  # Agent system prompt (1,704+ lines)
+│       │   │   └── orchestrator_prompt.md  # Agent system prompt (2,568 lines)
 │       │   └── tests/
 │       │       ├── conftest.py
 │       │       ├── test_task_agent.py      # Agent tests
 │       │       └── test_completion_tools.py # Completion tool tests
 │       ├── tests/                          # Top-level tests
 │       │   ├── conftest.py
-│       │   ├── test_cli.py                 # 15+ CLI tests
-│       │   ├── test_config.py              # Config tests
-│       │   └── test_tui.py                 # 15 TUI tests
+│       │   ├── test_cli.py                 # CLI tests
+│       │   └── test_config.py              # Config tests
 │       └── py.typed                        # PEP 561 type marker
 ├── .github/
 │   ├── actions/
@@ -742,9 +753,10 @@ taskweaver/
 **Architecture Highlights:**
 
 - **Vertical Slice Architecture**: Tests sit next to code (e.g., `database/tests/`) for tight coupling and easy discovery
-- **Total Lines**: ~5,500+ (core + tests + agent + agents + CLI + TUI + database)
-- **Test Coverage**: 135+ tests, 85%+ coverage
-- **Modular Design**: Clear separation of concerns (CLI, TUI, agents, database)
+- **Total Lines**: ~7,000+ (core + tests + agent + agents + CLI + modularised TUI + database)
+- **Test Coverage**: 178 tests, 81.3% coverage
+- **Modular Design**: Clear separation of concerns (CLI, modularised TUI, agents, database)
+- **TUI Architecture**: Worker threads for async chat integration with event-driven UI updates
 
 ## Contributing
 
