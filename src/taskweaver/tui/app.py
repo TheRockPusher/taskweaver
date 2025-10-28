@@ -7,6 +7,9 @@ This module provides a rich TUI for interacting with TaskWeaver, featuring:
 - Terminal theme colors for consistent appearance
 """
 
+import os
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import ClassVar
 
@@ -21,16 +24,22 @@ from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import BindingType
 from textual.containers import Container, VerticalScroll
-from textual.widgets import DataTable, Footer, Header, Input, Markdown, Static
+from textual.widgets import DataTable, Footer, Header, Markdown, Static, TextArea
 from textual.worker import Worker, get_current_worker
 
-from .agents.chat_handler import TuiChatHandler
-from .agents.task_agent import run_chat
-from .database.dependency_repository import TaskDependencyRepository
-from .database.exceptions import DependencyError, TaskNotFoundError
-from .database.models import TaskWithPriority
-from .database.repository import TaskRepository
-from .tui_constants import MAX_CHAT_MESSAGES, MAX_TITLE_LENGTH, REFRESH_INTERVAL_SECONDS, WidgetIDs
+from ..agents.chat_handler import TuiChatHandler
+from ..agents.task_agent import run_chat
+from ..database.dependency_repository import TaskDependencyRepository
+from ..database.exceptions import DependencyError, TaskNotFoundError
+from ..database.models import TaskWithPriority
+from ..database.repository import TaskRepository
+from .constants import (
+    EDITOR_FALLBACK_CHAIN,
+    MAX_CHAT_MESSAGES,
+    MAX_TITLE_LENGTH,
+    REFRESH_INTERVAL_SECONDS,
+    WidgetIDs,
+)
 
 
 class TaskWeaverApp(App):
@@ -49,9 +58,12 @@ class TaskWeaverApp(App):
     BINDINGS: ClassVar[list[BindingType]] = [
         ("q", "quit", "Quit"),
         ("ctrl+c", "quit", "Quit"),
+        ("ctrl+e", "open_editor", "Open Editor"),
+        ("ctrl+enter", "submit_text", "Submit"),
+        ("f2", "submit_text", "Submit"),
     ]
 
-    CSS_PATH = "tui.tcss"
+    CSS_PATH = "styles.tcss"
 
     def __init__(self, db_path: Path) -> None:
         """Initialize the TaskWeaver TUI application.
@@ -93,8 +105,13 @@ class TaskWeaverApp(App):
                 yield Static("Unblocked Tasks", classes="task-header")
                 yield DataTable(id=WidgetIDs.UNBLOCKED_TASKS_TABLE)
 
-        # Input at bottom
-        yield Input(placeholder="Type your message...")
+        # TextArea at bottom (multiline input)
+        yield TextArea(
+            id="input-field",
+            language=None,  # No syntax highlighting
+            show_line_numbers=False,
+            soft_wrap=True,
+        )
 
         # Footer with keybindings
         yield Footer()
@@ -148,6 +165,7 @@ class TaskWeaverApp(App):
         open_table = self.query_one(f"#{WidgetIDs.OPEN_TASKS_TABLE}", DataTable)
         open_table.add_columns(
             "Title",
+            "Duration",
             "Priority",
             "Eff. Priority",
             "Status",
@@ -157,11 +175,13 @@ class TaskWeaverApp(App):
         unblocked_table = self.query_one(f"#{WidgetIDs.UNBLOCKED_TASKS_TABLE}", DataTable)
         unblocked_table.add_columns(
             "Title",
+            "Duration",
+            "Requirement",
             "Priority",
             "Eff. Priority",
             "Status",
         )
-        logger.debug("Task tables configured")
+        logger.debug("Task tables configured with duration and requirement columns")
 
     def refresh_tasks(self) -> None:
         """Refresh task data from database and update UI tables.
@@ -189,7 +209,7 @@ class TaskWeaverApp(App):
             self.post_error_message(f"Database access error: {e}")
 
     def update_open_tasks_table(self, tasks: list[TaskWithPriority]) -> None:
-        """Update open tasks DataTable.
+        """Update open tasks DataTable with duration column.
 
         Args:
             tasks: List of tasks with priority information.
@@ -199,6 +219,7 @@ class TaskWeaverApp(App):
         for task in tasks:
             table.add_row(
                 task.title[:MAX_TITLE_LENGTH],  # Truncate long titles
+                str(task.duration_min),
                 f"{task.priority:.3f}",
                 f"{task.effective_priority:.3f}",
                 task.status,
@@ -206,7 +227,7 @@ class TaskWeaverApp(App):
             )
 
     def update_unblocked_tasks_table(self, tasks: list[TaskWithPriority]) -> None:
-        """Update unblocked tasks DataTable.
+        """Update unblocked tasks DataTable with duration and requirement.
 
         Args:
             tasks: List of unblocked tasks with priority information.
@@ -216,24 +237,23 @@ class TaskWeaverApp(App):
         for task in tasks:
             table.add_row(
                 task.title[:MAX_TITLE_LENGTH],
+                str(task.duration_min),
+                task.requirement[:MAX_TITLE_LENGTH],
                 f"{task.priority:.3f}",
                 f"{task.effective_priority:.3f}",
                 task.status,
             )
 
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        """Handle user input submission.
-
-        Args:
-            event: The input submission event containing user text.
-        """
-        user_input = event.value.strip()
+    def action_submit_text(self) -> None:
+        """Submit TextArea content (Ctrl+Enter or F2)."""
+        text_area = self.query_one(TextArea)
+        user_input = text_area.text.strip()
 
         if not user_input:
             return
 
-        # Clear input field
-        event.input.value = ""
+        # Clear TextArea
+        text_area.clear()
 
         # Display user message
         chat_view = self.query_one(f"#{WidgetIDs.CHAT_VIEW}", VerticalScroll)
@@ -251,6 +271,89 @@ class TaskWeaverApp(App):
         # Put input in queue for run_chat() worker to process
         self.chat_handler.input_queue.put(user_input)
         logger.debug(f"User input queued for agent: {user_input[:50]}...")
+
+    def action_open_editor(self) -> None:
+        """Open external editor (Ctrl+E).
+
+        Uses EDITOR environment variable, falls back to vim → nano → vi.
+        Suspends TUI while editor is open, then loads content back.
+        """
+        # Get editor command
+        editor = self._get_editor_command()
+        if not editor:
+            self.post_error_message("No suitable editor found (tried: vim, nano, vi)")
+            return
+
+        # Get current TextArea content
+        text_area = self.query_one(TextArea)
+        current_text = text_area.text
+
+        # Create temp file
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as tf:
+                tf.write(current_text)
+                temp_path = Path(tf.name)
+        except OSError as e:
+            logger.error(f"Failed to create temp file: {e}")
+            self.post_error_message(f"Failed to create temp file: {e}")
+            return
+
+        # Suspend TUI and open editor
+        try:
+            with self.suspend():
+                result = subprocess.call([editor, str(temp_path)])  # noqa: S603
+
+            if result != 0:
+                logger.warning(f"Editor exited with code {result}")
+                self.post_system_message(f"Editor exited with code {result}")
+
+            # Read back edited content
+            try:
+                edited_text = temp_path.read_text(encoding="utf-8")
+                text_area.text = edited_text
+                logger.info(f"Loaded {len(edited_text)} characters from editor")
+            except OSError as e:
+                logger.error(f"Failed to read edited file: {e}")
+                self.post_error_message(f"Failed to read edited file: {e}")
+
+        finally:
+            # Clean up temp file
+            try:
+                temp_path.unlink()
+            except OSError as e:
+                logger.warning(f"Failed to delete temp file: {e}")
+
+    def _get_editor_command(self) -> str | None:
+        """Get editor command from environment or fallback chain.
+
+        Returns:
+            Editor command if found, None otherwise.
+        """
+        # Try EDITOR environment variable
+        editor = os.environ.get("EDITOR")
+        if editor:
+            # Verify it exists in PATH
+            if self._command_exists(editor):
+                return editor
+            logger.warning(f"EDITOR={editor} not found in PATH, trying fallbacks")
+
+        # Try fallback chain
+        for fallback in EDITOR_FALLBACK_CHAIN:
+            if self._command_exists(fallback):
+                return fallback
+
+        return None
+
+    def _command_exists(self, cmd: str) -> bool:
+        """Check if command exists in PATH.
+
+        Args:
+            cmd: Command to check.
+
+        Returns:
+            True if command exists, False otherwise.
+        """
+        return subprocess.call(["which", cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0  # noqa: S603, S607
 
     def _post_message_with_limit(self, message: str, classes: str) -> None:
         """Post message with history limit (DRY helper).

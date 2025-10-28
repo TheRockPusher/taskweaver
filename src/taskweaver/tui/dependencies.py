@@ -7,8 +7,8 @@ following the same pattern as agents/dependencies.py.
 from dataclasses import dataclass
 from pathlib import Path
 
-from .database.dependency_repository import TaskDependencyRepository
-from .database.repository import TaskRepository
+from ..database.dependency_repository import TaskDependencyRepository
+from ..database.repository import TaskRepository
 
 
 @dataclass

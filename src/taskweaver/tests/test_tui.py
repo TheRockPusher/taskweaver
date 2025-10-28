@@ -9,13 +9,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from textual.widgets import DataTable, Footer, Header, Input
+from textual.widgets import DataTable, Footer, Header, TextArea
 
 from taskweaver.database.connection import init_database
 from taskweaver.database.models import TaskCreate, TaskStatus, TaskUpdate
 from taskweaver.database.repository import TaskRepository
 from taskweaver.tui import TaskWeaverApp
-from taskweaver.tui_constants import MAX_CHAT_MESSAGES
 
 
 @pytest.fixture
@@ -93,8 +92,8 @@ class TestTUIInitialization:
             # Check for Footer
             assert app.query_one(Footer) is not None
 
-            # Check for Input widget
-            assert app.query_one(Input) is not None
+            # Check for TextArea widget
+            assert app.query_one(TextArea) is not None
 
             # Check for task tables
             tables = app.query(DataTable)
@@ -171,10 +170,10 @@ class TestTaskTables:
             unblocked_table = app.query_one("#unblocked-tasks-table", DataTable)
 
             # Check open tasks table has correct number of columns
-            assert len(open_table.columns) == 5
+            assert len(open_table.columns) == 6  # Title, Duration, Priority, Eff. Priority, Status, Blocked By
 
             # Check unblocked tasks table has correct number of columns
-            assert len(unblocked_table.columns) == 4
+            assert len(unblocked_table.columns) == 6  # Title, Duration, Requirement, Priority, Eff. Priority, Status
 
     async def test_task_tables_refresh(self, app):
         """Test that task tables show data from database."""
@@ -196,23 +195,23 @@ class TestInputHandling:
     """Test input handling and queue interaction."""
 
     async def test_input_submission(self, app):
-        """Test that input submission queues user input."""
+        """Test that TextArea submission queues user input."""
         async with app.run_test() as pilot:
             await pilot.pause()
 
-            # Get input widget
-            input_widget = app.query_one(Input)
+            # Get TextArea widget
+            text_area = app.query_one(TextArea)
 
             # Simulate user typing
-            input_widget.value = "test message"
+            text_area.text = "test message"
             await pilot.pause()
 
-            # Submit input
-            await pilot.press("enter")
+            # Submit input with Ctrl+Enter
+            await pilot.press("ctrl+enter")
             await pilot.pause()
 
-            # Check input was cleared
-            assert input_widget.value == ""
+            # Check TextArea was cleared
+            assert text_area.text == ""
 
             # Check message was queued
             assert not app.chat_handler.input_queue.empty()
@@ -224,14 +223,14 @@ class TestInputHandling:
         async with app.run_test() as pilot:
             await pilot.pause()
 
-            # Get input widget
-            input_widget = app.query_one(Input)
+            # Get TextArea widget
+            text_area = app.query_one(TextArea)
 
             # Test 'exit' command
-            input_widget.value = "exit"
+            text_area.text = "exit"
             await pilot.pause()
 
-            await pilot.press("enter")
+            await pilot.press("ctrl+enter")
             await pilot.pause()
 
             # Check exit flag is set

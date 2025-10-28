@@ -67,16 +67,18 @@
     padding: 1 2;
 }
 
-/* Input - styled with focus effects */
-Input {
+/* TextArea - multiline input with focus effects */
+TextArea {
     dock: bottom;
     background: $surface;
     border: round $accent-darken-1;
     margin: 0 1 1 1;
     padding: 0 1;
+    max-height: 20%;
+    height: auto;
 }
 
-Input:focus {
+TextArea:focus {
     border: heavy $accent;
     background: $surface-lighten-1;
 }

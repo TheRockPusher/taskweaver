@@ -15,6 +15,11 @@ MAX_CHAT_MESSAGES = 100
 # Refresh intervals (seconds)
 REFRESH_INTERVAL_SECONDS = 5
 
+# TextArea configuration
+MAX_TEXTAREA_HEIGHT = "20%"  # Max height as percentage of screen
+DEFAULT_EDITOR = "vim"  # Fallback if EDITOR not set
+EDITOR_FALLBACK_CHAIN = ["vim", "nano", "vi"]  # Try in order
+
 
 class WidgetIDs:
     """Widget ID constants (prevents typos, enables refactoring).
