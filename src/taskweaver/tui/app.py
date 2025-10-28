@@ -20,7 +20,7 @@ from pydantic_ai.exceptions import (
     UnexpectedModelBehavior,
     UsageLimitExceeded,
 )
-from textual import work
+from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import BindingType
 from textual.containers import Container, VerticalScroll
@@ -40,6 +40,7 @@ from .constants import (
     REFRESH_INTERVAL_SECONDS,
     WidgetIDs,
 )
+from .screens import TaskDetailScreen
 
 
 class TaskWeaverApp(App):
@@ -80,6 +81,10 @@ class TaskWeaverApp(App):
 
         # Create TUI chat handler (run_chat will use this)
         self.chat_handler = TuiChatHandler(self)
+
+        # Row key mappings for both tables (RowKey -> TaskWithPriority)
+        self.open_tasks_map: dict[object, TaskWithPriority] = {}
+        self.unblocked_tasks_map: dict[object, TaskWithPriority] = {}
 
         logger.info(f"TaskWeaver TUI initialized with database: {db_path}")
 
@@ -163,6 +168,7 @@ class TaskWeaverApp(App):
     def setup_task_tables(self) -> None:
         """Configure DataTable columns for both task tables."""
         open_table = self.query_one(f"#{WidgetIDs.OPEN_TASKS_TABLE}", DataTable)
+        open_table.cursor_type = "row"  # Enable row cursor for keyboard navigation
         open_table.add_columns(
             "Title",
             "Duration",
@@ -173,6 +179,7 @@ class TaskWeaverApp(App):
         )
 
         unblocked_table = self.query_one(f"#{WidgetIDs.UNBLOCKED_TASKS_TABLE}", DataTable)
+        unblocked_table.cursor_type = "row"  # Enable row cursor for keyboard navigation
         unblocked_table.add_columns(
             "Title",
             "Duration",
@@ -209,15 +216,17 @@ class TaskWeaverApp(App):
             self.post_error_message(f"Database access error: {e}")
 
     def update_open_tasks_table(self, tasks: list[TaskWithPriority]) -> None:
-        """Update open tasks DataTable with duration column.
+        """Update open tasks DataTable with RowKey mapping.
 
         Args:
             tasks: List of tasks with priority information.
         """
         table = self.query_one(f"#{WidgetIDs.OPEN_TASKS_TABLE}", DataTable)
         table.clear()
+        self.open_tasks_map.clear()  # Reset mapping
+
         for task in tasks:
-            table.add_row(
+            row_key = table.add_row(
                 task.title[:MAX_TITLE_LENGTH],  # Truncate long titles
                 str(task.duration_min),
                 f"{task.priority:.3f}",
@@ -225,17 +234,21 @@ class TaskWeaverApp(App):
                 task.status,
                 str(task.active_blocker_count),
             )
+            # Store full task object for later lookup
+            self.open_tasks_map[row_key] = task
 
     def update_unblocked_tasks_table(self, tasks: list[TaskWithPriority]) -> None:
-        """Update unblocked tasks DataTable with duration and requirement.
+        """Update unblocked tasks DataTable with RowKey mapping.
 
         Args:
             tasks: List of unblocked tasks with priority information.
         """
         table = self.query_one(f"#{WidgetIDs.UNBLOCKED_TASKS_TABLE}", DataTable)
         table.clear()
+        self.unblocked_tasks_map.clear()  # Reset mapping
+
         for task in tasks:
-            table.add_row(
+            row_key = table.add_row(
                 task.title[:MAX_TITLE_LENGTH],
                 str(task.duration_min),
                 task.requirement[:MAX_TITLE_LENGTH],
@@ -243,6 +256,8 @@ class TaskWeaverApp(App):
                 f"{task.effective_priority:.3f}",
                 task.status,
             )
+            # Store full task object for later lookup
+            self.unblocked_tasks_map[row_key] = task
 
     def action_submit_text(self) -> None:
         """Submit TextArea content (Ctrl+Enter or F2)."""
@@ -401,6 +416,34 @@ class TaskWeaverApp(App):
             message: Error message text.
         """
         self._post_message_with_limit(f"**ERROR:** {message}", "error-message")
+
+    @on(DataTable.RowSelected, f"#{WidgetIDs.OPEN_TASKS_TABLE}")
+    def on_open_tasks_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Show detail modal when open task row is selected.
+
+        Args:
+            event: Row selection event containing row_key.
+        """
+        task = self.open_tasks_map.get(event.row_key)
+        if task:
+            logger.debug(f"Opening detail modal for task: {task.task_id}")
+            self.push_screen(TaskDetailScreen(task))
+        else:
+            logger.warning(f"No task found for row_key: {event.row_key}")
+
+    @on(DataTable.RowSelected, f"#{WidgetIDs.UNBLOCKED_TASKS_TABLE}")
+    def on_unblocked_tasks_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Show detail modal when unblocked task row is selected.
+
+        Args:
+            event: Row selection event containing row_key.
+        """
+        task = self.unblocked_tasks_map.get(event.row_key)
+        if task:
+            logger.debug(f"Opening detail modal for task: {task.task_id}")
+            self.push_screen(TaskDetailScreen(task))
+        else:
+            logger.warning(f"No task found for row_key: {event.row_key}")
 
     def on_unmount(self) -> None:
         """Clean up resources on app exit.

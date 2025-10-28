@@ -12,9 +12,10 @@ import pytest
 from textual.widgets import DataTable, Footer, Header, TextArea
 
 from taskweaver.database.connection import init_database
-from taskweaver.database.models import TaskCreate, TaskStatus, TaskUpdate
+from taskweaver.database.models import TaskCreate, TaskStatus, TaskUpdate, TaskWithPriority
 from taskweaver.database.repository import TaskRepository
 from taskweaver.tui import TaskWeaverApp
+from taskweaver.tui.screens import TaskDetailScreen
 
 
 @pytest.fixture
@@ -343,3 +344,117 @@ class TestShutdownBehavior:
             assert app.chat_handler.should_exit is True
             item = app.chat_handler.input_queue.get_nowait()
             assert item is None, "Sentinel should be None to unblock get()"
+
+
+class TestModalIntegration:
+    """Test modal screen integration with main app."""
+
+    async def test_row_mappings_initialized(self, app):
+        """Test that row mappings are initialized on app creation."""
+        assert hasattr(app, "open_tasks_map")
+        assert hasattr(app, "unblocked_tasks_map")
+        assert isinstance(app.open_tasks_map, dict)
+        assert isinstance(app.unblocked_tasks_map, dict)
+
+    async def test_row_mappings_populated_on_refresh(self, app):
+        """Test that row mappings are populated when tasks refresh."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            # Trigger refresh
+            app.refresh_tasks()
+            await pilot.pause()
+
+            # Mappings should be populated
+            assert len(app.open_tasks_map) >= 2  # We have 2 test tasks
+            assert len(app.unblocked_tasks_map) >= 0
+
+    async def test_open_tasks_row_selection_handler_exists(self, app):
+        """Test that open tasks table has row selection handler configured."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            # Verify handler method exists
+            assert hasattr(app, "on_open_tasks_row_selected")
+            assert callable(app.on_open_tasks_row_selected)
+
+    async def test_unblocked_tasks_row_selection_handler_exists(self, app):
+        """Test that unblocked tasks table has row selection handler configured."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            # Verify handler method exists
+            assert hasattr(app, "on_unblocked_tasks_row_selected")
+            assert callable(app.on_unblocked_tasks_row_selected)
+
+    async def test_can_create_modal_with_task(self, app):
+        """Test that modal can be created with task data from mapping."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            # Ensure tables are populated
+            app.refresh_tasks()
+            await pilot.pause()
+
+            # Get first task from open_tasks_map
+            if app.open_tasks_map:
+                first_row_key = next(iter(app.open_tasks_map.keys()))
+                expected_task = app.open_tasks_map[first_row_key]
+
+                # Create modal directly (simulating what handler does)
+                modal = TaskDetailScreen(expected_task)
+                assert modal.task_data.task_id == expected_task.task_id
+                assert modal.task_data.title == expected_task.title
+
+    async def test_modal_has_escape_binding(self):
+        """Test that modal has escape binding configured."""
+        task = TaskWithPriority(
+            title="Test Task",
+            duration_min=30,
+            llm_value=50.0,
+            requirement="Test",
+            status=TaskStatus.PENDING,
+            tasks_blocked_count=0,
+            active_blocker_count=0,
+            effective_priority=1.0,
+        )
+        modal = TaskDetailScreen(task)
+
+        # Verify escape binding exists
+        assert any(binding[0] == "escape" for binding in modal.BINDINGS)
+
+    async def test_row_mapping_updates_on_refresh(self, app):
+        """Test that row mappings are updated when tables refresh."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            # Initial refresh
+            app.refresh_tasks()
+            await pilot.pause()
+
+            # Store initial mapping size
+            initial_open_count = len(app.open_tasks_map)
+
+            # Refresh again
+            app.refresh_tasks()
+            await pilot.pause()
+
+            # Mappings should still be populated
+            assert len(app.open_tasks_map) > 0
+            assert len(app.unblocked_tasks_map) >= 0
+
+            # Count should be consistent (no tasks were added/removed)
+            assert len(app.open_tasks_map) == initial_open_count
+
+    async def test_tables_have_row_cursor_enabled(self, app):
+        """Test that tables have row cursor enabled for navigation."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            # Get both tables
+            open_table = app.query_one("#open-tasks-table", DataTable)
+            unblocked_table = app.query_one("#unblocked-tasks-table", DataTable)
+
+            # Verify cursor_type is set to "row"
+            assert open_table.cursor_type == "row"
+            assert unblocked_table.cursor_type == "row"
