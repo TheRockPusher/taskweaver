@@ -13,7 +13,7 @@ MAX_TITLE_LENGTH = 30
 MAX_CHAT_MESSAGES = 100
 
 # Refresh intervals (seconds)
-REFRESH_INTERVAL_SECONDS = 5
+REFRESH_INTERVAL_SECONDS = 30
 
 # TextArea configuration
 MAX_TEXTAREA_HEIGHT = "20%"  # Max height as percentage of screen

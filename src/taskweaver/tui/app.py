@@ -217,18 +217,19 @@ class TaskWeaverApp(App):
             self.post_error_message(f"Database access error: {e}")
 
     def update_open_tasks_table(self, tasks: list[TaskWithPriority]) -> None:
-        """Update open tasks DataTable with RowKey mapping and cursor preservation.
+        """Update open tasks DataTable with RowKey mapping and cursor/scroll preservation.
 
-        Preserves cursor position across refresh to maintain user's navigation state.
-        If table shrinks below saved cursor row, cursor resets to top.
+        Preserves both cursor position and scroll offset across refresh to maintain
+        user's navigation state. If table shrinks, cursor and scroll are clamped to valid range.
 
         Args:
             tasks: List of tasks with priority information.
         """
         table = self.query_one(f"#{WidgetIDs.OPEN_TASKS_TABLE}", DataTable)
 
-        # Save cursor position before clearing
+        # Save cursor position and scroll offset before clearing
         saved_cursor = table.cursor_coordinate
+        saved_scroll = table.scroll_offset
 
         table.clear()
         self.open_tasks_map.clear()  # Reset mapping
@@ -252,19 +253,28 @@ class TaskWeaverApp(App):
         elif table.row_count > 0:
             logger.debug(f"Cursor was at row {saved_cursor.row}, but table only has {table.row_count} rows")
 
-    def update_unblocked_tasks_table(self, tasks: list[TaskWithPriority]) -> None:
-        """Update unblocked tasks DataTable with RowKey mapping and cursor preservation.
+        # Restore scroll offset if table has content
+        if table.row_count > 0:
+            # Clamp scroll to valid range (prevent scrolling past end)
+            max_scroll_y = max(0, table.max_scroll_y)
+            clamped_y = min(saved_scroll.y, max_scroll_y)
+            table.scroll_to(saved_scroll.x, clamped_y, animate=False)
+            logger.debug(f"Restored scroll to ({saved_scroll.x}, {clamped_y})")
 
-        Preserves cursor position across refresh to maintain user's navigation state.
-        If table shrinks below saved cursor row, cursor resets to top.
+    def update_unblocked_tasks_table(self, tasks: list[TaskWithPriority]) -> None:
+        """Update unblocked tasks DataTable with RowKey mapping and cursor/scroll preservation.
+
+        Preserves both cursor position and scroll offset across refresh to maintain
+        user's navigation state. If table shrinks, cursor and scroll are clamped to valid range.
 
         Args:
             tasks: List of unblocked tasks with priority information.
         """
         table = self.query_one(f"#{WidgetIDs.UNBLOCKED_TASKS_TABLE}", DataTable)
 
-        # Save cursor position before clearing
+        # Save cursor position and scroll offset before clearing
         saved_cursor = table.cursor_coordinate
+        saved_scroll = table.scroll_offset
 
         table.clear()
         self.unblocked_tasks_map.clear()  # Reset mapping
@@ -287,6 +297,14 @@ class TaskWeaverApp(App):
             logger.debug(f"Restored cursor to row {saved_cursor.row}")
         elif table.row_count > 0:
             logger.debug(f"Cursor was at row {saved_cursor.row}, but table only has {table.row_count} rows")
+
+        # Restore scroll offset if table has content
+        if table.row_count > 0:
+            # Clamp scroll to valid range (prevent scrolling past end)
+            max_scroll_y = max(0, table.max_scroll_y)
+            clamped_y = min(saved_scroll.y, max_scroll_y)
+            table.scroll_to(saved_scroll.x, clamped_y, animate=False)
+            logger.debug(f"Restored scroll to ({saved_scroll.x}, {clamped_y})")
 
     def action_submit_text(self) -> None:
         """Submit TextArea content (Ctrl+Enter or F2)."""

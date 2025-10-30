@@ -548,3 +548,104 @@ class TestCursorPreservation:
             # No assertion needed - just verify no crash
             open_table = app.query_one("#open-tasks-table", DataTable)
             assert open_table.row_count == 0
+
+    async def test_scroll_preserved_in_open_tasks_on_refresh(self, app):
+        """Test scroll position stays the same after refresh."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            # Get open tasks table
+            open_table = app.query_one("#open-tasks-table", DataTable)
+
+            # Scroll down if table has enough rows
+            if open_table.row_count > 5:
+                # Scroll to middle of table
+                target_y = 100.0  # Arbitrary scroll position
+                open_table.scroll_to(0, target_y, animate=False)
+                await pilot.pause()
+
+                initial_scroll = open_table.scroll_offset
+
+                # Trigger refresh
+                app.refresh_tasks()
+                await pilot.pause()
+
+                # Scroll should be preserved
+                final_scroll = open_table.scroll_offset
+                assert abs(final_scroll.y - initial_scroll.y) < 1.0  # Allow 1px tolerance
+
+    async def test_scroll_preserved_in_unblocked_tasks_on_refresh(self, app):
+        """Test scroll position stays the same after refresh in unblocked table."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            # Get unblocked tasks table
+            unblocked_table = app.query_one("#unblocked-tasks-table", DataTable)
+
+            # Only test if table has rows
+            if unblocked_table.row_count > 5:
+                # Scroll down
+                target_y = 50.0
+                unblocked_table.scroll_to(0, target_y, animate=False)
+                await pilot.pause()
+
+                initial_scroll = unblocked_table.scroll_offset
+
+                # Trigger refresh
+                app.refresh_tasks()
+                await pilot.pause()
+
+                # Scroll should be preserved
+                final_scroll = unblocked_table.scroll_offset
+                assert abs(final_scroll.y - initial_scroll.y) < 1.0
+
+    async def test_scroll_clamps_when_table_shrinks(self, app, test_db):
+        """Test scroll position clamps if table shrinks significantly."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            # Get open tasks table
+            open_table = app.query_one("#open-tasks-table", DataTable)
+
+            if open_table.row_count > 5:
+                # Scroll to bottom
+                max_y = open_table.max_scroll_y
+                open_table.scroll_to(0, max_y, animate=False)
+                await pilot.pause()
+
+                # Mark most tasks as completed (shrink table)
+                repo = TaskRepository(test_db)
+                tasks = repo.list_tasks(status=TaskStatus.PENDING)
+                for i, task in enumerate(tasks):
+                    if i < len(tasks) - 2:  # Leave 2 tasks
+                        repo.update_task(task.task_id, TaskUpdate(status=TaskStatus.COMPLETED))
+
+                # Trigger refresh
+                app.refresh_tasks()
+                await pilot.pause()
+
+                # Scroll should be clamped (not past new max)
+                final_scroll = open_table.scroll_offset
+                new_max = open_table.max_scroll_y
+                assert final_scroll.y <= new_max + 1.0  # Allow 1px tolerance
+
+    async def test_scroll_handles_empty_table(self, app, test_db):
+        """Test scroll preservation doesn't crash on empty table."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            # Complete all tasks
+            repo = TaskRepository(test_db)
+            tasks = repo.list_tasks()
+            for task in tasks:
+                repo.update_task(task.task_id, TaskUpdate(status=TaskStatus.COMPLETED))
+
+            # Refresh should handle empty table gracefully
+            app.refresh_tasks()
+            await pilot.pause()
+
+            # No assertion needed - just verify no crash
+            open_table = app.query_one("#open-tasks-table", DataTable)
+            assert open_table.row_count == 0
+            # Scroll offset should be 0 for empty table
+            assert open_table.scroll_offset.y == 0
