@@ -1,6 +1,5 @@
 """First-time setup wizard for TaskWeaver."""
 
-
 from rich.console import Console
 from rich.prompt import Confirm, Prompt
 
