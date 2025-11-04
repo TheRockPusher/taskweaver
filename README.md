@@ -22,18 +22,21 @@ TaskWeaver helps you accomplish complex goals by breaking them down into achieva
 ### Quick Start
 
 ```bash
+# Install UV if you haven't already
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
 # Clone the repository
 git clone https://github.com/TheRockPusher/taskweaver.git
 cd taskweaver
 
-# Install UV if you haven't already
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
 # Install dependencies
 make install
 
-# Run tests to verify installation
-make test
+# Configure TaskWeaver (required - sets up API keys)
+uv run taskweaver setup
+
+# Start using TaskWeaver
+uv run taskweaver tui
 ```
 
 **Current Capabilities (v0.8.0):**
@@ -267,6 +270,9 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 # Install directly from GitHub
 uv tool install git+https://github.com/TheRockPusher/taskweaver.git
 
+# Configure API key (REQUIRED - run once after install)
+taskweaver setup
+
 # Run anywhere on your system
 taskweaver tui
 taskweaver chat
@@ -289,32 +295,34 @@ cd taskweaver
 # Install dependencies
 make install
 
+# Configure API key (REQUIRED - run once)
+uv run taskweaver setup
+
 # Run from project directory
 uv run taskweaver tui
 ```
 
 ### First Run Setup
 
-After installation, TaskWeaver will guide you through API key configuration on first use:
+**Required:** After installation, run the setup wizard to configure your API key:
 
 ```bash
-# Run any command to trigger setup
-taskweaver chat
-
-# Or run setup explicitly
+# Run setup wizard (required on first use)
 taskweaver setup
 ```
 
-**Setup wizard will:**
+The setup wizard will:
 1. Prompt you to choose an LLM provider (OpenAI, OpenRouter, Anthropic, Google)
-2. Guide you to get an API key
-3. Save configuration to `~/.config/taskweaver/`
-4. Create default settings
+2. Guide you to get an API key from your chosen provider
+3. Save configuration to `~/.config/taskweaver/config.toml`
+4. Save API key securely to `~/.config/taskweaver/.env`
 
-**View your configuration:**
+**After setup, verify your configuration:**
 ```bash
 taskweaver info
 ```
+
+**Note:** You can reconfigure at any time by running `taskweaver setup` again.
 
 ## Usage
 
