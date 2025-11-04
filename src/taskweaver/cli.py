@@ -12,11 +12,12 @@ from rich.table import Table
 
 from .agents.chat_handler import CliChatHandler
 from .agents.task_agent import run_chat
-from .config import get_paths
+from .config import get_config, get_paths
 from .database.connection import init_database
 from .database.dependency_repository import TaskDependencyRepository
 from .database.models import Task, TaskCreate, TaskStatus, TaskUpdate, TaskWithDependencies
 from .database.repository import TaskRepository
+from .setup import run_first_time_setup
 from .tui import run_tui
 
 app = typer.Typer(
@@ -257,6 +258,75 @@ def blockers(
     for blocker in blockers:
         table.add_row(str(blocker.task_id), blocker.title)
     console.print(table)
+
+
+@app.command(name="setup", help="Run first-time setup wizard")
+def setup_command() -> None:
+    """Run interactive first-time setup wizard to configure API keys."""
+    run_first_time_setup()
+
+
+@app.command(name="info", help="Show configuration and data locations")
+def info_command() -> None:
+    """Display TaskWeaver configuration, data locations, and statistics."""
+    paths = get_paths()
+    config = get_config()
+
+    console.print("\n[bold cyan]📊 TaskWeaver Information[/bold cyan]\n")
+
+    # Data Locations
+    console.print("[yellow]Data Locations:[/yellow]")
+    console.print(f"  Database:  {paths.database_file}")
+    console.print(f"  Qdrant:    {paths.qdrant_dir}")
+    console.print(f"  Config:    {paths.config_file}")
+    console.print(f"  API Keys:  {paths.env_file}")
+    console.print(f"  Logs:      {paths.log_file}")
+
+    # File Status
+    console.print("\n[yellow]Status:[/yellow]")
+    db_exists = paths.database_file.exists()
+    qdrant_exists = paths.qdrant_dir.exists()
+    config_exists = paths.config_file.exists()
+    env_exists = paths.env_file.exists()
+
+    console.print(f"  Database:  {'✅ exists' if db_exists else '❌ not found'}")
+    console.print(f"  Qdrant:    {'✅ exists' if qdrant_exists else '❌ not found'}")
+    console.print(f"  Config:    {'✅ exists' if config_exists else '❌ not found'}")
+    console.print(f"  API Keys:  {'✅ exists' if env_exists else '❌ not found (run: taskweaver setup)'}")
+
+    # Configuration
+    console.print("\n[yellow]Configuration:[/yellow]")
+    console.print(f"  LLM Model:       {config.llm_model}")
+    console.print(f"  Memory Provider: {config.mem0_llm_provider}")
+    console.print(f"  Memory Limit:    {config.mem0_max_memories}")
+    if config.github_repos:
+        console.print(f"  GitHub Repos:    {', '.join(config.github_repos)}")
+
+    # Task Statistics
+    if db_exists:
+        try:
+            repo = TaskRepository(paths.database_file)
+            all_tasks = repo.list_tasks()
+            pending = [t for t in all_tasks if t.status == TaskStatus.PENDING]
+            in_progress = [t for t in all_tasks if t.status == TaskStatus.IN_PROGRESS]
+            completed = [t for t in all_tasks if t.status == TaskStatus.COMPLETED]
+            cancelled = [t for t in all_tasks if t.status == TaskStatus.CANCELLED]
+
+            console.print("\n[yellow]Task Statistics:[/yellow]")
+            console.print(f"  Total:       {len(all_tasks)}")
+            console.print(f"  Pending:     {len(pending)}")
+            console.print(f"  In Progress: {len(in_progress)}")
+            console.print(f"  Completed:   {len(completed)}")
+            console.print(f"  Cancelled:   {len(cancelled)}")
+
+            # Database size
+            db_size = paths.database_file.stat().st_size
+            size_str = f"{db_size / 1024:.1f} KB" if db_size < 1024 * 1024 else f"{db_size / (1024 * 1024):.1f} MB"
+            console.print(f"\n[dim]Database size: {size_str}[/dim]")
+        except (OSError, ValueError) as e:
+            logger.warning(f"Failed to read task statistics: {e}")
+
+    console.print()
 
 
 def main() -> None:

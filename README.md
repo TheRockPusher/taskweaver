@@ -259,18 +259,61 @@ sudo pacman -S python
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-### Install the package
+### Install TaskWeaver
+
+**Recommended: UV Tool Install** (Isolated, system-wide access)
 
 ```bash
-# Clone from source (currently the only installation method)
+# Install directly from GitHub
+uv tool install git+https://github.com/TheRockPusher/taskweaver.git
+
+# Run anywhere on your system
+taskweaver tui
+taskweaver chat
+taskweaver info
+
+# Update to latest version
+uv tool upgrade taskweaver
+
+# Uninstall
+uv tool uninstall taskweaver
+```
+
+**Alternative: Development Install** (For contributors)
+
+```bash
+# Clone repository
 git clone https://github.com/TheRockPusher/taskweaver.git
 cd taskweaver
 
 # Install dependencies
 make install
 
-# Or manually with UV
-uv sync
+# Run from project directory
+uv run taskweaver tui
+```
+
+### First Run Setup
+
+After installation, TaskWeaver will guide you through API key configuration on first use:
+
+```bash
+# Run any command to trigger setup
+taskweaver chat
+
+# Or run setup explicitly
+taskweaver setup
+```
+
+**Setup wizard will:**
+1. Prompt you to choose an LLM provider (OpenAI, OpenRouter, Anthropic, Google)
+2. Guide you to get an API key
+3. Save configuration to `~/.config/taskweaver/`
+4. Create default settings
+
+**View your configuration:**
+```bash
+taskweaver info
 ```
 
 ## Usage
@@ -475,6 +518,68 @@ Blocks: "Implement OAuth2 authentication"
 
 Result: Learning task inherits effective priority of 0.71
 → Learning becomes urgent despite low intrinsic value
+```
+
+### Data Storage
+
+TaskWeaver stores all data **locally on your machine**. No data is sent to external services except LLM API calls.
+
+**UV Tool Install** (Recommended):
+
+```bash
+# All data stored in XDG-compliant directories
+~/.local/share/taskweaver/tasks.db           # SQLite database
+~/.local/share/taskweaver/qdrant_store/      # Vector database (Mem0)
+~/.config/taskweaver/config.toml             # User configuration
+~/.config/taskweaver/.env                    # API keys (secrets)
+~/.local/state/taskweaver/taskweaver.log     # Application logs
+```
+
+**Development Install** (From source):
+
+```bash
+# Data stored in project directory
+./tasks.db                                   # SQLite database
+./qdrant_store/                              # Vector database
+./config.toml                                # Project config
+./.env                                       # Project API keys
+```
+
+**View your data locations:**
+
+```bash
+taskweaver info
+```
+
+**Backup your data:**
+
+```bash
+# Backup all TaskWeaver data
+tar -czf taskweaver-backup-$(date +%Y%m%d).tar.gz \
+  ~/.local/share/taskweaver \
+  ~/.config/taskweaver
+
+# Restore from backup
+tar -xzf taskweaver-backup-20250104.tar.gz -C ~/
+```
+
+**Migration from development to installed:**
+
+If you were using TaskWeaver from source and want to migrate to UV tool install:
+
+```bash
+# Install via UV tool
+uv tool install git+https://github.com/TheRockPusher/taskweaver.git
+
+# Copy your data
+mkdir -p ~/.local/share/taskweaver ~/.config/taskweaver
+cp ./tasks.db ~/.local/share/taskweaver/
+cp -r ./qdrant_store ~/.local/share/taskweaver/
+cp ./config.toml ~/.config/taskweaver/  # optional
+cp ./.env ~/.config/taskweaver/         # optional
+
+# Verify
+taskweaver info
 ```
 
 ### Configuration
