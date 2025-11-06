@@ -108,6 +108,7 @@ orchestrator_agent: Agent[TaskDependencies, str] = Agent[TaskDependencies, str](
     tools=[duckduckgo_search_tool()],
     toolsets=[_task_toolset, _dependency_toolset],
     defer_model_check=True,
+    instrument=True,
 )
 
 
