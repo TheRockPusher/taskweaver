@@ -17,6 +17,7 @@ from .database.connection import init_database
 from .database.dependency_repository import TaskDependencyRepository
 from .database.models import Task, TaskCreate, TaskStatus, TaskUpdate, TaskWithDependencies
 from .database.repository import TaskRepository
+from .observability import start_langfuse
 from .setup import run_first_time_setup
 from .tui import run_tui
 
@@ -191,14 +192,24 @@ def show(
 
 
 @app.command(name="chat", help="Start interactive conversation with AI agent.")
-def chat(db_path: Annotated[Path, typer.Option("--db", help="Database file path")] = DEFAULT_DB) -> None:
+def chat(
+    db_path: Annotated[Path, typer.Option("--db", help="Database file path")] = DEFAULT_DB,
+    langfuse: Annotated[bool, typer.Option("--o", help="start observability platform")] = False,
+) -> None:
     """Start an interactive conversation with the AI agent."""
+    if langfuse:
+        start_langfuse()
     run_chat(CliChatHandler(), db_path)
 
 
 @app.command(name="tui", help="Launch Terminal User Interface")
-def tui(db_path: Annotated[Path, typer.Option("--db", help="Database file path")] = DEFAULT_DB) -> None:
+def tui(
+    db_path: Annotated[Path, typer.Option("--db", help="Database file path")] = DEFAULT_DB,
+    langfuse: Annotated[bool, typer.Option("--o", help="start observability platform")] = False,
+) -> None:
     """Launch the Textual TUI interface."""
+    if langfuse:
+        start_langfuse()
     run_tui(db_path)
 
 
