@@ -29,6 +29,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
+    "langfuse>=3.9.0",
     "loguru>=0.7.3",
     "mem0ai>=1.0.0",
     "pydantic>=2.12.3",
