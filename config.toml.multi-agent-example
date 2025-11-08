@@ -1,0 +1,113 @@
+# TaskWeaver Multi-Agent Configuration Example
+# Copy this to config.toml and customize as needed
+
+# ============================================================================
+# Core Settings
+# ============================================================================
+
+llm_model = "gpt-4o-mini"  # Default model for general agent
+api_endpoint = "https://api.openai.com/v1"
+auto_decompose = true
+log_level = "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+
+# ============================================================================
+# Multi-Agent System
+# ============================================================================
+
+# Enable the multi-agent system (specialist agents for different tasks)
+multi_agent_enabled = true
+
+# Allow parallel execution of multiple agents (faster for independent tasks)
+multi_agent_parallel = true
+
+# Maximum number of agents to run concurrently
+multi_agent_max_parallel = 3
+
+# Fall back to general agent if specialist fails
+multi_agent_fallback = true
+
+# Minimum confidence threshold for routing to specialist (0.0 - 1.0)
+# Lower = more aggressive routing, Higher = more conservative
+multi_agent_min_confidence = 0.3
+
+# ============================================================================
+# Specialist Agent Configuration
+# ============================================================================
+
+# TaskDecomposerAgent - Breaks down complex goals into actionable tasks
+agent_task_decomposer_enabled = true
+agent_task_decomposer_model = "gpt-4o-mini"  # Fast model for task creation
+
+# DependencyAnalyzerAgent - Analyzes task relationships and dependencies
+agent_dependency_analyzer_enabled = true
+agent_dependency_analyzer_model = "gpt-4o"  # Stronger model for graph reasoning
+
+# EstimationAgent - Estimates task durations based on patterns
+agent_estimation_enabled = true
+agent_estimation_model = "gpt-4o-mini"
+
+# PriorityCalculatorAgent - Calculates task priorities
+agent_priority_calculator_enabled = true
+agent_priority_calculator_model = "gpt-4o-mini"
+
+# LearningPathAgent - Identifies Just-In-Time learning opportunities
+agent_learning_path_enabled = true
+agent_learning_path_model = "gpt-4o"  # Stronger model for strategic analysis
+
+# SkillGapAnalyzerAgent - Analyzes skill requirements vs capabilities
+agent_skill_gap_enabled = true
+agent_skill_gap_model = "gpt-4o-mini"
+
+# ============================================================================
+# Memory Configuration (Mem0)
+# ============================================================================
+
+mem0_llm_provider = "openai"
+mem0_embedding = "text-embedding-3-small"
+mem0_embedding_provider = "openai"
+mem0_max_memories = 10
+
+# ============================================================================
+# GitHub Integration
+# ============================================================================
+
+github_repos = []  # e.g., ["owner/repo1", "owner/repo2"]
+
+# ============================================================================
+# Model Selection Guide
+# ============================================================================
+#
+# Fast & Cheap (for simple tasks):
+#   - gpt-4o-mini
+#   - claude-3-5-haiku-20241022
+#
+# Powerful (for complex reasoning):
+#   - gpt-4o
+#   - claude-3-5-sonnet-20241022
+#
+# Via OpenRouter (multi-provider):
+#   llm_model = "openrouter/anthropic/claude-3.5-sonnet"
+#   api_endpoint = "https://openrouter.ai/api/v1"
+#   # Set OPENROUTER_API_KEY in .env
+#
+# ============================================================================
+# Performance Tuning Tips
+# ============================================================================
+#
+# For maximum speed:
+#   - Use gpt-4o-mini for all agents
+#   - Enable parallel execution
+#   - Set max_parallel_agents = 5 (if you have quota)
+#
+# For maximum quality:
+#   - Use gpt-4o or claude-3.5-sonnet for complex agents
+#     (DependencyAnalyzer, LearningPath)
+#   - Use gpt-4o-mini for simple agents
+#     (TaskDecomposer, Estimation, Priority)
+#
+# For cost optimization:
+#   - Disable agents you don't need
+#   - Use gpt-4o-mini everywhere
+#   - Set min_confidence higher (0.5-0.6) to route less often
+#
+# ============================================================================

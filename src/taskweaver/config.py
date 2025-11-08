@@ -264,6 +264,51 @@ class Config(BaseModel):
         default=10, ge=1, le=100, description="Maximum number of memories to retrieve from Mem0"
     )
 
+    # Multi-Agent System Configuration
+    multi_agent_enabled: bool = Field(
+        default=False,
+        description="Enable multi-agent system (specialist agents for different tasks)",
+    )
+    multi_agent_parallel: bool = Field(
+        default=True,
+        description="Allow parallel execution of multiple agents",
+    )
+    multi_agent_max_parallel: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="Maximum number of agents to run in parallel",
+    )
+    multi_agent_fallback: bool = Field(
+        default=True,
+        description="Fall back to general agent if specialist fails",
+    )
+    multi_agent_min_confidence: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Minimum confidence threshold for routing to specialist",
+    )
+
+    # Per-Agent Configuration
+    agent_task_decomposer_enabled: bool = Field(default=True, description="Enable TaskDecomposerAgent")
+    agent_task_decomposer_model: str = Field(default="gpt-4o-mini", description="Model for TaskDecomposerAgent")
+
+    agent_dependency_analyzer_enabled: bool = Field(default=True, description="Enable DependencyAnalyzerAgent")
+    agent_dependency_analyzer_model: str = Field(default="gpt-4o", description="Model for DependencyAnalyzerAgent")
+
+    agent_estimation_enabled: bool = Field(default=True, description="Enable EstimationAgent")
+    agent_estimation_model: str = Field(default="gpt-4o-mini", description="Model for EstimationAgent")
+
+    agent_priority_calculator_enabled: bool = Field(default=True, description="Enable PriorityCalculatorAgent")
+    agent_priority_calculator_model: str = Field(default="gpt-4o-mini", description="Model for PriorityCalculatorAgent")
+
+    agent_learning_path_enabled: bool = Field(default=True, description="Enable LearningPathAgent")
+    agent_learning_path_model: str = Field(default="gpt-4o", description="Model for LearningPathAgent")
+
+    agent_skill_gap_enabled: bool = Field(default=True, description="Enable SkillGapAnalyzerAgent")
+    agent_skill_gap_model: str = Field(default="gpt-4o-mini", description="Model for SkillGapAnalyzerAgent")
+
     @property
     def mem0_llm_provider_resolved(self) -> str:
         """Get the actual provider for Mem0 (translates openrouter → openai).
