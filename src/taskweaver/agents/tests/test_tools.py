@@ -10,8 +10,9 @@ from pydantic_ai.exceptions import ModelRetry
 from taskweaver.agents.dependencies import TaskDependencies
 from taskweaver.agents.tools import (
     get_task_details_tool,
-    list_open_tasks_dep_count_tool,
     list_tasks_tool,
+    search_tasks_tool,
+    update_task_status_tool,
     update_task_tool,
 )
 from taskweaver.database.completion_repository import CompletionRepository
@@ -88,21 +89,23 @@ class TestUpdateTaskTool:
 
 
 class TestListTasksTool:
-    """Tests for list_tasks_tool."""
+    """Tests for list_tasks_tool (backward compatibility)."""
 
     def test_list_all_tasks(self, ctx: RunContext[TaskDependencies], sample_task: Task) -> None:
-        """Test listing all tasks without filter."""
+        """Test listing all tasks returns concise format by default."""
         result = list_tasks_tool(ctx)
 
-        assert len(result) == 1
-        assert result[0].task_id == sample_task.task_id
+        assert isinstance(result, str)
+        assert "Found 1 task" in result
+        assert sample_task.title in result
 
     def test_list_tasks_by_status(self, ctx: RunContext[TaskDependencies], sample_task: Task) -> None:  # noqa: ARG002
         """Test listing tasks filtered by status."""
-        result = list_tasks_tool(ctx, status="pending")
+        result = list_tasks_tool(ctx, status="pending", response_format="detailed")
 
-        assert len(result) == 1
-        assert result[0].status == TaskStatus.PENDING
+        assert isinstance(result, dict)
+        assert len(result["tasks"]) == 1
+        assert result["tasks"][0].status == TaskStatus.PENDING
 
     def test_list_tasks_empty_filter(self, ctx: RunContext[TaskDependencies]) -> None:
         """Test listing with filter that matches no tasks."""
@@ -117,7 +120,8 @@ class TestListTasksTool:
 
         result = list_tasks_tool(ctx, status="pending")
 
-        assert len(result) == 0
+        assert isinstance(result, str)
+        assert "No tasks found" in result
 
     def test_list_tasks_multiple(self, ctx: RunContext[TaskDependencies]) -> None:
         """Test listing multiple tasks."""
@@ -131,9 +135,10 @@ class TestListTasksTool:
                 )
             )
 
-        result = list_tasks_tool(ctx)
+        result = list_tasks_tool(ctx, response_format="detailed")
 
-        assert len(result) == 3
+        assert isinstance(result, dict)
+        assert len(result["tasks"]) == 3
 
 
 class TestGetTaskDetailsTool:
@@ -148,45 +153,191 @@ class TestGetTaskDetailsTool:
         assert result.title == sample_task.title
 
     def test_get_nonexistent_task(self, ctx: RunContext[TaskDependencies]) -> None:
-        """Test retrieving non-existent task returns error message."""
+        """Test retrieving non-existent task raises ModelRetry."""
         fake_id = uuid4()
-        result = get_task_details_tool(ctx, fake_id)
+
+        with pytest.raises(ModelRetry, match="not found"):
+            get_task_details_tool(ctx, fake_id)
+
+
+class TestListTasksPagination:
+    """Tests for list_tasks_tool pagination."""
+
+    def test_pagination_first_page(self, ctx: RunContext[TaskDependencies]) -> None:
+        """Test first page returns correct limit."""
+        # Create 25 tasks
+        for i in range(25):
+            ctx.deps.task_repo.create_task(
+                TaskCreate(title=f"Task {i}", duration_min=30, llm_value=50.0, requirement=f"Req {i}")
+            )
+
+        result = list_tasks_tool(ctx, limit=10, offset=0, response_format="detailed")
+
+        assert isinstance(result, dict)
+        assert len(result["tasks"]) == 10
+        assert result["total_count"] == 25
+        assert result["has_more"] is True
+
+    def test_pagination_last_page(self, ctx: RunContext[TaskDependencies]) -> None:
+        """Test last page has fewer results."""
+        for i in range(25):
+            ctx.deps.task_repo.create_task(
+                TaskCreate(title=f"Task {i}", duration_min=30, llm_value=50.0, requirement=f"Req {i}")
+            )
+
+        result = list_tasks_tool(ctx, limit=10, offset=20, response_format="detailed")
+
+        assert isinstance(result, dict)
+        assert len(result["tasks"]) == 5
+        assert result["has_more"] is False
+
+    def test_max_limit_enforced(self, ctx: RunContext[TaskDependencies]) -> None:
+        """Test limit capped at 50."""
+        for i in range(60):
+            ctx.deps.task_repo.create_task(
+                TaskCreate(title=f"Task {i}", duration_min=30, llm_value=50.0, requirement=f"Req {i}")
+            )
+
+        result = list_tasks_tool(ctx, limit=100, response_format="detailed")
+
+        assert isinstance(result, dict)
+        assert len(result["tasks"]) <= 50
+
+    def test_concise_format_returns_string(self, ctx: RunContext[TaskDependencies], sample_task: Task) -> None:
+        """Test concise format returns summary string."""
+        result = list_tasks_tool(ctx, response_format="concise")
 
         assert isinstance(result, str)
-        assert "not found" in result.lower()
-        assert str(fake_id) in result
+        assert "Found 1 task" in result
+        assert sample_task.title in result
+
+    def test_invalid_sort_by_raises(self, ctx: RunContext[TaskDependencies]) -> None:
+        """Test invalid sort_by raises ModelRetry."""
+        with pytest.raises(ModelRetry, match="Invalid sort_by"):
+            list_tasks_tool(ctx, sort_by="invalid")
+
+    def test_invalid_response_format_raises(self, ctx: RunContext[TaskDependencies]) -> None:
+        """Test invalid response_format raises ModelRetry."""
+        with pytest.raises(ModelRetry, match="Invalid response_format"):
+            list_tasks_tool(ctx, response_format="xml")
 
 
-class TestListOpenTasksDepCountTool:
-    """Tests for list_open_tasks_dep_count_tool."""
+class TestSearchTasksTool:
+    """Tests for search_tasks_tool."""
 
-    def test_list_open_tasks_with_deps(self, ctx: RunContext[TaskDependencies]) -> None:
-        """Test listing open tasks with dependency counts."""
-        task1_data = TaskCreate(
-            title="Task 1",
-            duration_min=30,
-            llm_value=50.0,
-            requirement="Requirement 1",
+    def test_search_by_title(self, ctx: RunContext[TaskDependencies]) -> None:
+        """Test searching tasks by title keyword."""
+        ctx.deps.task_repo.create_task(
+            TaskCreate(title="Build login feature", duration_min=120, llm_value=80.0, requirement="OAuth2")
         )
-        task2_data = TaskCreate(
-            title="Task 2",
-            duration_min=60,
-            llm_value=75.0,
-            requirement="Requirement 2",
+        ctx.deps.task_repo.create_task(
+            TaskCreate(title="Fix logout bug", duration_min=30, llm_value=60.0, requirement="Session")
         )
 
-        task1 = ctx.deps.task_repo.create_task(task1_data)
-        task2 = ctx.deps.task_repo.create_task(task2_data)
-        ctx.deps.dep_repo.add_dependency(task2.task_id, task1.task_id)
+        result = search_tasks_tool(ctx, "login", response_format="detailed")
 
-        result = list_open_tasks_dep_count_tool(ctx)
+        assert isinstance(result, dict)
+        assert result["total_matches"] == 1
+        assert "login" in result["tasks"][0].title.lower()
 
-        assert len(result) == 2
-        assert all(hasattr(task, "active_blocker_count") for task in result)
-        assert all(hasattr(task, "tasks_blocked_count") for task in result)
+    def test_search_by_requirement(self, ctx: RunContext[TaskDependencies]) -> None:
+        """Test searching tasks by requirement field."""
 
-    def test_list_open_tasks_empty(self, ctx: RunContext[TaskDependencies]) -> None:
-        """Test listing when no open tasks exist."""
-        result = list_open_tasks_dep_count_tool(ctx)
+        ctx.deps.task_repo.create_task(
+            TaskCreate(title="Setup auth", duration_min=60, llm_value=75.0, requirement="OAuth2 implementation")
+        )
 
-        assert len(result) == 0
+        result = search_tasks_tool(ctx, "OAuth2", response_format="detailed")
+
+        assert isinstance(result, dict)
+        assert result["total_matches"] == 1
+
+    def test_search_no_matches(self, ctx: RunContext[TaskDependencies]) -> None:
+        """Test search with no matching tasks."""
+
+        ctx.deps.task_repo.create_task(
+            TaskCreate(title="Build feature", duration_min=60, llm_value=70.0, requirement="Test")
+        )
+
+        result = search_tasks_tool(ctx, "nonexistent", response_format="concise")
+
+        assert isinstance(result, str)
+        assert "No tasks found" in result
+
+    def test_search_empty_query_raises(self, ctx: RunContext[TaskDependencies]) -> None:
+        """Test empty query raises ModelRetry."""
+
+        with pytest.raises(ModelRetry, match="cannot be empty"):
+            search_tasks_tool(ctx, "")
+
+    def test_search_with_min_priority(self, ctx: RunContext[TaskDependencies]) -> None:
+        """Test search with priority filter."""
+
+        ctx.deps.task_repo.create_task(
+            TaskCreate(title="High priority task", duration_min=30, llm_value=90.0, requirement="Test")
+        )
+        ctx.deps.task_repo.create_task(
+            TaskCreate(title="Low priority task", duration_min=120, llm_value=30.0, requirement="Test")
+        )
+
+        result = search_tasks_tool(ctx, "task", min_priority=2.0, response_format="detailed")
+
+        assert isinstance(result, dict)
+        assert result["total_matches"] == 1
+        assert result["tasks"][0].priority >= 2.0
+
+
+class TestUpdateTaskStatusTool:
+    """Tests for consolidated update_task_status_tool."""
+
+    def test_mark_in_progress(self, ctx: RunContext[TaskDependencies], sample_task: Task) -> None:
+        """Test marking task as in_progress."""
+
+        result = update_task_status_tool(ctx, sample_task.task_id, "in_progress")
+
+        assert "in progress" in result.lower()
+        task = ctx.deps.task_repo.get_task(sample_task.task_id)
+        assert task is not None
+        assert task.status == TaskStatus.IN_PROGRESS
+
+    def test_mark_completed_without_tracking(self, ctx: RunContext[TaskDependencies], sample_task: Task) -> None:
+        """Test marking task completed without duration."""
+
+        result = update_task_status_tool(ctx, sample_task.task_id, "completed")
+
+        assert "completed" in result.lower()
+        completion = ctx.deps.completion_repo.get_completion_by_task_id(sample_task.task_id)
+        assert completion is None
+
+    def test_mark_completed_with_tracking(self, ctx: RunContext[TaskDependencies], sample_task: Task) -> None:
+        """Test marking task completed with duration tracking."""
+
+        result = update_task_status_tool(ctx, sample_task.task_id, "completed", duration_actual=90)
+
+        assert "90min actual" in result
+        assert "variance" in result.lower()
+        completion = ctx.deps.completion_repo.get_completion_by_task_id(sample_task.task_id)
+        assert completion is not None
+        assert completion.duration_actual == 90
+
+    def test_mark_cancelled(self, ctx: RunContext[TaskDependencies], sample_task: Task) -> None:
+        """Test marking task cancelled."""
+
+        result = update_task_status_tool(ctx, sample_task.task_id, "cancelled")
+
+        assert "cancelled" in result.lower()
+        task = ctx.deps.task_repo.get_task(sample_task.task_id)
+        assert task is not None
+        assert task.status == TaskStatus.CANCELLED
+
+    def test_invalid_status_raises(self, ctx: RunContext[TaskDependencies], sample_task: Task) -> None:
+        """Test invalid status raises ModelRetry."""
+
+        with pytest.raises(ModelRetry, match="Invalid new_status"):
+            update_task_status_tool(ctx, sample_task.task_id, "invalid")
+
+    def test_nonexistent_task_raises(self, ctx: RunContext[TaskDependencies]) -> None:
+        """Test non-existent task raises ModelRetry."""
+
+        with pytest.raises(ModelRetry, match="not found"):
+            update_task_status_tool(ctx, uuid4(), "completed")
