@@ -29,10 +29,9 @@ from .tools import (
     get_task_details_tool,
     list_open_tasks_full,
     list_tasks_tool,
-    mark_task_cancelled_tool,
-    mark_task_completed_tool,
-    mark_task_in_progress_tool,
     remove_dependency_tool,
+    search_tasks_tool,
+    update_task_status_tool,
     update_task_tool,
 )
 
@@ -77,10 +76,9 @@ _task_toolset = FunctionToolset(
     tools=[
         create_task_tool,
         list_tasks_tool,
+        search_tasks_tool,
         get_task_details_tool,
-        mark_task_completed_tool,
-        mark_task_in_progress_tool,
-        mark_task_cancelled_tool,
+        update_task_status_tool,
         update_task_tool,
     ],
     max_retries=3,

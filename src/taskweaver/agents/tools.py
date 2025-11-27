@@ -9,6 +9,7 @@ Error Handling Strategy:
 - The LLM receives the error message and can retry with corrected parameters
 """
 
+from enum import Enum
 from uuid import UUID
 
 from pydantic import ValidationError
@@ -20,7 +21,6 @@ from taskweaver.database.models import (
     CompletionCreate,
     CompletionStatus,
     TaskDependency,
-    TaskWithDependencies,
     TaskWithPriority,
 )
 
@@ -30,6 +30,31 @@ from .dependencies import TaskDependencies
 # Display constants
 MAX_TITLE_LENGTH = 60
 MAX_DESCRIPTION_LENGTH = 40
+
+
+class ResponseFormat(str, Enum):
+    """Output format for tool results."""
+
+    CONCISE = "concise"  # Human-readable summary (token-efficient)
+    DETAILED = "detailed"  # Full structured data (for tool chaining)
+
+
+def _format_task_concise(task: Task, index: int = 0) -> str:
+    """Format task as concise single-line summary.
+
+    Args:
+        task: Task object to format.
+        index: Display index (1-based for user display).
+
+    Returns:
+        Single-line task summary string.
+    """
+    idx_str = f"{index}. " if index > 0 else ""
+    return (
+        f"{idx_str}{task.title[:MAX_TITLE_LENGTH]} "
+        f"(Status: {task.status}, Priority: {task.priority:.2f}, "
+        f"Duration: {task.duration_min}min)"
+    )
 
 
 def create_task_tool(  # noqa: PLR0913
@@ -120,29 +145,190 @@ def update_task_tool(  # noqa: PLR0913
         raise ModelRetry(str(e)) from e
 
 
-def list_tasks_tool(ctx: RunContext[TaskDependencies], status: str | None = None) -> list[Task]:
-    """List all tasks or filter by status.
+def list_tasks_tool(  # noqa: PLR0913
+    ctx: RunContext[TaskDependencies],
+    status: str | None = None,
+    limit: int = 10,
+    offset: int = 0,
+    sort_by: str = "priority",
+    response_format: str = "concise",
+) -> str | dict:
+    r"""List tasks with pagination and flexible output format.
 
-    Returns all tasks or filters by status to help user view workload.
-    Use without status to get complete overview, or with status to focus on specific categories.
+    Returns up to `limit` tasks to avoid overwhelming context window.
+    Use response_format='concise' for token-efficient summaries,
+    'detailed' for full Task objects when chaining tools.
 
     Args:
         ctx: Runtime context containing TaskDependencies.
-        status: Optional status filter. Valid values: 'pending', 'in_progress', 'completed', 'cancelled'.
+        status: Optional filter (pending, in_progress, completed, cancelled).
+        limit: Maximum tasks to return (default 10, max 50).
+        offset: Number of tasks to skip for pagination.
+        sort_by: Sort order: priority (default), created_at, duration_min.
+        response_format: Output format: concise (default) or detailed.
 
     Returns:
-        List of Task objects matching the filter (or all tasks if no filter).
+        If concise: Human-readable summary string.
+        If detailed: Dict with tasks, total_count, has_more, suggestion.
+
+    Raises:
+        ModelRetry: If sort_by or response_format is invalid.
 
     Example:
-        >>> list_tasks_tool(ctx, status="pending")
-        [Task(...), Task(...), ...]
+        >>> list_tasks_tool(ctx, status="pending", limit=5)
+        "Found 12 tasks:\\n1. Build login (Status: pending, Priority: 2.5)..."
     """
-    # Parse status string to enum if provided
+    # Validate response_format
+    try:
+        fmt = ResponseFormat(response_format)
+    except ValueError:
+        raise ModelRetry(f"Invalid response_format: {response_format}. Use: concise, detailed") from None
+
+    # Validate and convert status
     task_status = TaskStatus(status) if status else None
+    all_tasks = ctx.deps.task_repo.list_tasks(status=task_status)
 
-    tasks: list[Task] = ctx.deps.task_repo.list_tasks(status=task_status)
+    # Sort based on sort_by parameter
+    if sort_by == "priority":
+        all_tasks.sort(key=lambda t: t.priority, reverse=True)
+    elif sort_by == "created_at":
+        all_tasks.sort(key=lambda t: t.created_at, reverse=True)
+    elif sort_by == "duration_min":
+        all_tasks.sort(key=lambda t: t.duration_min)
+    else:
+        raise ModelRetry(f"Invalid sort_by: {sort_by}. Use: priority, created_at, duration_min") from None
 
-    return tasks
+    # Enforce max limit and paginate
+    effective_limit = min(limit, 50)
+    paginated = all_tasks[offset : offset + effective_limit]
+    total_count = len(all_tasks)
+    has_more = (offset + len(paginated)) < total_count
+
+    # Format based on response_format
+    if fmt == ResponseFormat.CONCISE:
+        if not paginated:
+            status_str = f" with status '{status}'" if status else ""
+            return f"No tasks found{status_str}."
+
+        lines = [f"Found {total_count} task{'s' if total_count != 1 else ''}:\n"]
+        for i, task in enumerate(paginated, start=offset + 1):
+            lines.append(_format_task_concise(task, i))
+
+        if has_more:
+            remaining = total_count - (offset + len(paginated))
+            lines.append(f"\n... {remaining} more (use offset={offset + effective_limit})")
+
+        return "\n".join(lines)
+
+    # Detailed format
+    result: dict = {
+        "tasks": paginated,
+        "total_count": total_count,
+        "has_more": has_more,
+    }
+    if has_more:
+        remaining = total_count - (offset + len(paginated))
+        result["suggestion"] = (
+            f"Showing {len(paginated)} of {total_count}. Use offset={offset + effective_limit} for next page."
+        )
+    return result
+
+
+def search_tasks_tool(  # noqa: PLR0913
+    ctx: RunContext[TaskDependencies],
+    query: str,
+    status: str | None = None,
+    min_priority: float | None = None,
+    max_duration: int | None = None,
+    limit: int = 10,
+    response_format: str = "concise",
+) -> str | dict:
+    r"""Search tasks by keyword with optional filters.
+
+    Searches across title, description, and requirement fields.
+    More token-efficient than list_tasks_tool when looking for specific tasks.
+
+    Args:
+        ctx: Runtime context containing TaskDependencies.
+        query: Keyword to search (case-insensitive, partial match).
+        status: Optional status filter.
+        min_priority: Only tasks with priority >= this value.
+        max_duration: Only tasks with duration_min <= this value.
+        limit: Maximum results (default 10, max 50).
+        response_format: concise (default) or detailed.
+
+    Returns:
+        If concise: Human-readable string with matching tasks.
+        If detailed: Dict with tasks, total_matches, query.
+
+    Raises:
+        ModelRetry: If query empty or response_format invalid.
+
+    Example:
+        >>> search_tasks_tool(ctx, "login", status="pending")
+        "Found 3 matches for 'login':\\n1. Build login (Priority: 2.5)..."
+    """
+    # Validate query
+    if not query or not query.strip():
+        raise ModelRetry("Search query cannot be empty.") from None
+
+    # Validate response_format
+    try:
+        fmt = ResponseFormat(response_format)
+    except ValueError:
+        raise ModelRetry(f"Invalid response_format: {response_format}. Use: concise, detailed") from None
+
+    # Get base task list
+    task_status = TaskStatus(status) if status else None
+    all_tasks = ctx.deps.task_repo.list_tasks(status=task_status)
+
+    # Filter by keyword (case-insensitive)
+    query_lower = query.strip().lower()
+    matching = [
+        t
+        for t in all_tasks
+        if query_lower in t.title.lower()
+        or (t.description and query_lower in t.description.lower())
+        or query_lower in t.requirement.lower()
+    ]
+
+    # Apply additional filters
+    if min_priority is not None:
+        matching = [t for t in matching if t.priority >= min_priority]
+    if max_duration is not None:
+        matching = [t for t in matching if t.duration_min <= max_duration]
+
+    # Sort by priority and paginate
+    matching.sort(key=lambda t: t.priority, reverse=True)
+    effective_limit = min(limit, 50)
+    paginated = matching[:effective_limit]
+    total_matches = len(matching)
+    has_more = len(matching) > len(paginated)
+
+    # Format response
+    if fmt == ResponseFormat.CONCISE:
+        if not paginated:
+            return f"No tasks found matching '{query}'."
+
+        lines = [f"Found {total_matches} match{'es' if total_matches != 1 else ''} for '{query}':\n"]
+        for i, task in enumerate(paginated, start=1):
+            lines.append(_format_task_concise(task, i))
+
+        if has_more:
+            remaining = total_matches - len(paginated)
+            lines.append(f"\n... {remaining} more matches")
+
+        return "\n".join(lines)
+
+    # Detailed format
+    result: dict = {
+        "tasks": paginated,
+        "total_matches": total_matches,
+        "query": query,
+    }
+    if has_more:
+        result["suggestion"] = f"Showing {len(paginated)} of {total_matches} matches."
+    return result
 
 
 def mark_task_completed_tool(
@@ -281,53 +467,127 @@ def mark_task_cancelled_tool(
         raise ModelRetry(str(e)) from e
 
 
-def get_task_details_tool(ctx: RunContext[TaskDependencies], task_id: UUID) -> Task | str:
+def update_task_status_tool(
+    ctx: RunContext[TaskDependencies],
+    task_id: UUID,
+    new_status: str,
+    duration_actual: int | None = None,
+    conclusion: str | None = None,
+) -> str:
+    """Update task status with optional completion tracking.
+
+    Transitions tasks through workflow states:
+    - pending -> in_progress: Start working
+    - in_progress -> completed: Finish with optional time tracking
+    - any -> cancelled: Abandon with optional reason
+
+    Replaces separate mark_task_completed, mark_task_in_progress,
+    and mark_task_cancelled tools.
+
+    Args:
+        ctx: Runtime context containing TaskDependencies.
+        task_id: UUID of task to update.
+        new_status: Target status (in_progress, completed, cancelled).
+        duration_actual: Actual time in minutes (for completed/cancelled).
+        conclusion: Notes or reason (for completed/cancelled).
+
+    Returns:
+        Confirmation message with status details.
+
+    Raises:
+        ModelRetry: If task not found or new_status invalid.
+
+    Example:
+        >>> update_task_status_tool(ctx, task_id, "in_progress")
+        "Task 'Build login' marked as in progress"
+        >>> update_task_status_tool(ctx, task_id, "completed", duration_actual=90)
+        "Completed 'Build login' (120min estimated, 90min actual, -25.0% variance)"
+    """
+    valid_statuses = ["in_progress", "completed", "cancelled"]
+    if new_status not in valid_statuses:
+        raise ModelRetry(f"Invalid new_status: {new_status}. Use: {', '.join(valid_statuses)}") from None
+
+    try:
+        new_status_enum = TaskStatus(new_status)
+
+        if new_status_enum == TaskStatus.COMPLETED:
+            task = ctx.deps.task_repo.mark_completed(task_id)
+            if duration_actual is not None:
+                completion = ctx.deps.completion_repo.create_completion(
+                    CompletionCreate(
+                        task_id=task_id,
+                        status=CompletionStatus.COMPLETED,
+                        duration_expected=task.duration_min,
+                        duration_actual=duration_actual,
+                        conclusion=conclusion,
+                    )
+                )
+                sign = "+" if completion.variance_minutes > 0 else ""
+                return (
+                    f"✅ Completed '{task.title}' "
+                    f"({completion.duration_expected}min estimated, "
+                    f"{completion.duration_actual}min actual, "
+                    f"{sign}{completion.variance_percent:.1f}% variance)"
+                )
+            return f"✅ Task '{task.title}' marked as completed"
+
+        if new_status_enum == TaskStatus.IN_PROGRESS:
+            task = ctx.deps.task_repo.mark_in_progress(task_id)
+            return f"🚀 Task '{task.title}' marked as in progress"
+
+        if new_status_enum == TaskStatus.CANCELLED:
+            task = ctx.deps.task_repo.mark_cancelled(task_id)
+            if duration_actual is not None:
+                ctx.deps.completion_repo.create_completion(
+                    CompletionCreate(
+                        task_id=task_id,
+                        status=CompletionStatus.CANCELLED,
+                        duration_expected=task.duration_min,
+                        duration_actual=duration_actual,
+                        conclusion=conclusion,
+                    )
+                )
+                return f"❌ Cancelled '{task.title}' (spent {duration_actual}min)"
+            return f"❌ Task '{task.title}' cancelled"
+
+        # Unreachable - all valid statuses handled above
+        msg = f"Unexpected status: {new_status_enum}"
+        raise RuntimeError(msg)
+
+    except TaskNotFoundError as e:
+        raise ModelRetry(
+            f"Task {task_id} not found. Use list_tasks_tool(response_format='detailed') to find task IDs."
+        ) from e
+
+
+def get_task_details_tool(ctx: RunContext[TaskDependencies], task_id: UUID) -> Task:
     """Get detailed information about a specific task.
 
-    Retrieves full task metadata including title, description, status, and timestamps.
-    Use when user needs to see all details about a specific task.
+    Retrieves full task metadata for inspection or tool chaining.
+    Use when you need complete task data before updating.
 
     Args:
         ctx: Runtime context containing TaskDependencies.
         task_id: UUID of the task to retrieve.
 
     Returns:
-        Task object if found, error message string if not found.
+        Task object with all fields.
+
+    Raises:
+        ModelRetry: If task not found. Use list_tasks_tool to find valid IDs.
 
     Example:
-        >>> get_task_details_tool(ctx, UUID("123e4567-e89b-12d3-a456-426614174000"))
-        Task(task_id=..., title='Build login feature', ...)
+        >>> task = get_task_details_tool(ctx, UUID("..."))
+        >>> print(f"{task.title}: {task.requirement}")
     """
     task: Task | None = ctx.deps.task_repo.get_task(task_id)
 
     if task is None:
-        return f"❌ Task not found: {task_id}"
+        raise ModelRetry(
+            f"Task {task_id} not found. Use list_tasks_tool(response_format='detailed') to see available task IDs."
+        ) from None
 
     return task
-
-
-def list_open_tasks_dep_count_tool(ctx: RunContext[TaskDependencies]) -> list[TaskWithDependencies]:
-    """List open tasks with dependency information.
-
-    Retrieves all open (pending/in_progress) tasks with pre-calculated blocker
-    and blocked counts from the tasks_full view. Helps identify ready tasks
-    and tasks that are waiting for dependencies to complete.
-
-    Args:
-        ctx: Runtime context containing TaskDependencies.
-
-    Returns:
-        List of TaskWithDependencies objects including active_blocker_count
-        and tasks_blocked_count for each task.
-
-    Example:
-        >>> list_open_tasks_dep_count_tool(ctx)
-        [TaskWithDependencies(...), TaskWithDependencies(...), ...]
-    """
-    # Get all tasks with dependency counts from tasks_full view
-    all_tasks: list[TaskWithDependencies] = ctx.deps.task_repo.list_tasks_with_deps()
-
-    return all_tasks
 
 
 def list_open_tasks_full(ctx: RunContext[TaskDependencies]) -> list[TaskWithPriority]:
