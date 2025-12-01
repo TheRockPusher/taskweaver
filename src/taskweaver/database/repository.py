@@ -215,6 +215,19 @@ class TaskRepository:
             new_status = task_data.status
             changes.append(f"status: {old_status} -> {new_status}")
             task.status = task_data.status
+            
+            # Trigger dependency cleanup when task becomes completed or cancelled
+            should_cleanup = (
+                old_status in [TaskStatus.PENDING, TaskStatus.IN_PROGRESS] and
+                new_status in [TaskStatus.COMPLETED, TaskStatus.CANCELLED]
+            )
+            if should_cleanup:
+                # Import here to avoid circular dependency
+                from .dependency_repository import TaskDependencyRepository
+                dep_repo = TaskDependencyRepository(self.db_path)
+                removed_count = dep_repo.cleanup_dependencies_for_completed_task(task_id)
+                if removed_count > 0:
+                    changes.append(f"cleaned up {removed_count} stale dependencies")
         if task_data.duration_min is not None:
             changes.append(f"duration_min: {task.duration_min} -> {task_data.duration_min}")
             task.duration_min = task_data.duration_min

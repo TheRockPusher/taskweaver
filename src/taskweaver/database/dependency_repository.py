@@ -297,3 +297,47 @@ class TaskDependencyRepository:
         if tasks is None:
             tasks = self.get_open_tasks_sorted()
         return [t for t in tasks if not t.is_blocked]
+
+    def cleanup_dependencies_for_completed_task(self, completed_task_id: UUID) -> int:
+        """Remove all dependencies where the completed task was acting as a blocker.
+
+        When a task transitions to completed or cancelled status, it should no longer
+        block other tasks. This method removes all dependency relationships where
+        the completed task was acting as a blocker.
+
+        Args:
+            completed_task_id: UUID of the task that has been completed/cancelled.
+
+        Returns:
+            Number of dependencies removed.
+
+        Example:
+            >>> # Task A blocks Task B and Task C
+            >>> # When Task A is completed, cleanup removes both dependencies
+            >>> removed_count = repo.cleanup_dependencies_for_completed_task(task_a_id)
+            >>> print(f"Removed {removed_count} stale dependencies")
+        """
+        logger.debug(f"Cleaning up dependencies for completed task: {completed_task_id}")
+        
+        # First, get all tasks that were blocked by this task (for logging)
+        blocked_tasks = self.get_blocked(completed_task_id)
+        
+        with get_connection(self.db_path) as conn:
+            # Remove all dependencies where this task was the blocker
+            cursor = conn.execute(
+                "DELETE FROM task_dependencies WHERE blocker_id = ?",
+                (str(completed_task_id),)
+            )
+            removed_count = cursor.rowcount
+            conn.commit()
+            
+        if removed_count > 0:
+            blocked_task_ids = [str(task.task_id) for task in blocked_tasks]
+            logger.info(
+                f"Cleaned up {removed_count} stale dependencies for completed task {completed_task_id}. "
+                f"Unblocked tasks: {blocked_task_ids}"
+            )
+        else:
+            logger.debug(f"No dependencies to clean up for task {completed_task_id}")
+            
+        return removed_count
