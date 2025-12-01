@@ -90,6 +90,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # Use PAT to allow pushing to .github/workflows/ if needed
+          token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Load instructions
         id: load-instructions
