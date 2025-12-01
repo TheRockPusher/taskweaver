@@ -1,0 +1,190 @@
+name: Claude Assistant
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+env:
+  # Centralized authorized users list
+  AUTHORIZED_USERS: '["TheRockPusher"]'
+
+jobs:
+  # Determine which action to take
+  parse-command:
+    runs-on: ubuntu-latest
+    outputs:
+      command: ${{ steps.parse.outputs.command }}
+      is_authorized: ${{ steps.parse.outputs.is_authorized }}
+      issue_number: ${{ steps.parse.outputs.issue_number }}
+    steps:
+      - name: Parse command and authorization
+        id: parse
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const comment = context.payload.comment.body;
+            const user = context.payload.comment.user.login;
+            const authorizedUsers = ${{ env.AUTHORIZED_USERS }};
+
+            // Determine command
+            let command = 'none';
+            if (comment.includes('@claude-fix') || comment.includes('@claude-create')) {
+              command = 'fix';
+            } else if (comment.includes('@claude-review')) {
+              command = 'review';
+            }
+
+            // Get issue/PR number
+            const issueNumber = context.issue?.number || context.payload.pull_request?.number;
+
+            core.setOutput('command', command);
+            core.setOutput('is_authorized', authorizedUsers.includes(user));
+            core.setOutput('issue_number', issueNumber);
+
+            console.log(`Command: ${command}, User: ${user}, Authorized: ${authorizedUsers.includes(user)}`);
+
+  # Handle unauthorized attempts
+  unauthorized:
+    needs: parse-command
+    if: needs.parse-command.outputs.command != 'none' && needs.parse-command.outputs.is_authorized != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const body = `@${context.actor} - Not authorized to use Claude commands.`;
+
+            if (context.eventName === 'issue_comment') {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body
+              });
+            } else {
+              await github.rest.pulls.createReplyForReviewComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.payload.pull_request.number,
+                comment_id: context.payload.comment.id,
+                body
+              });
+            }
+
+  # Claude Fix/Create - Write access
+  claude-fix:
+    needs: parse-command
+    if: needs.parse-command.outputs.command == 'fix' && needs.parse-command.outputs.is_authorized == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Load instructions
+        id: load-instructions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUM: ${{ needs.parse-command.outputs.issue_number }}
+        run: |
+          # Fetch issue metadata
+          ISSUE_JSON=$(gh issue view $ISSUE_NUM --json labels,title,body)
+          LABELS=$(echo "$ISSUE_JSON" | jq -r '.labels[].name' | tr '\n' ' ')
+          TITLE=$(echo "$ISSUE_JSON" | jq -r '.title')
+          BODY=$(echo "$ISSUE_JSON" | jq -r '.body')
+
+          # Select template based on labels
+          if echo "$LABELS" | grep -qiE "enhancement|feature|new feature"; then
+            TEMPLATE_FILE=".github/workflows/prompts/end-to-end-feature-github.md"
+          else
+            TEMPLATE_FILE=".github/workflows/prompts/bug-fix-github.md"
+          fi
+
+          # Verify template exists
+          if [ ! -f "$TEMPLATE_FILE" ]; then
+            echo "::error::Template not found: $TEMPLATE_FILE"
+            exit 1
+          fi
+
+          # Load and substitute template variables
+          TEMPLATE=$(cat "$TEMPLATE_FILE")
+          TEMPLATE="${TEMPLATE//\$REPOSITORY/${{ github.repository }}}"
+          TEMPLATE="${TEMPLATE//\$ISSUE_NUMBER/$ISSUE_NUM}"
+          TEMPLATE="${TEMPLATE//\$ISSUE_TITLE/$TITLE}"
+          TEMPLATE="${TEMPLATE//\$ISSUE_BODY/$BODY}"
+          TEMPLATE="${TEMPLATE//\$TRIGGERED_BY/${{ github.event.comment.user.login }}}"
+          TEMPLATE="${TEMPLATE//\$BRANCH_NAME/fix/issue-$ISSUE_NUM-claude}"
+          TEMPLATE="${TEMPLATE//\$CREATE_BRANCH/true}"
+          TEMPLATE="${TEMPLATE//\$CREATE_PR/true}"
+          TEMPLATE="${TEMPLATE//\$COMMENT_ON_ISSUE/true}"
+          TEMPLATE="${TEMPLATE//\$PLAN_PATH/}"
+
+          # Output with unique delimiter
+          DELIMITER="INSTRUCTIONS_$(date +%s)_EOF"
+          echo "CUSTOM_INSTRUCTIONS<<${DELIMITER}" >> $GITHUB_OUTPUT
+          echo "$TEMPLATE" >> $GITHUB_OUTPUT
+          echo "${DELIMITER}" >> $GITHUB_OUTPUT
+
+      - name: Run Claude Code
+        uses: anthropics/claude-code-action@beta
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          custom_instructions: ${{ steps.load-instructions.outputs.CUSTOM_INSTRUCTIONS }}
+          direct_prompt: "true"
+
+  # Claude Review - Read only
+  claude-review:
+    needs: parse-command
+    if: needs.parse-command.outputs.command == 'review' && needs.parse-command.outputs.is_authorized == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Load instructions
+        id: load-instructions
+        env:
+          ISSUE_NUM: ${{ needs.parse-command.outputs.issue_number }}
+        run: |
+          TEMPLATE_FILE=".github/workflows/prompts/code-review-github.md"
+
+          # Verify template exists
+          if [ ! -f "$TEMPLATE_FILE" ]; then
+            echo "::error::Template not found: $TEMPLATE_FILE"
+            exit 1
+          fi
+
+          TEMPLATE=$(cat "$TEMPLATE_FILE")
+          TEMPLATE="${TEMPLATE//\$REPOSITORY/${{ github.repository }}}"
+          TEMPLATE="${TEMPLATE//\$PR_NUMBER/$ISSUE_NUM}"
+          TEMPLATE="${TEMPLATE//\$TRIGGERED_BY/${{ github.event.comment.user.login }}}"
+          TEMPLATE="${TEMPLATE//\$IF_COMMENT_ON_PR/}"
+          TEMPLATE="${TEMPLATE//\$ENDIF_COMMENT_ON_PR/}"
+
+          DELIMITER="INSTRUCTIONS_$(date +%s)_EOF"
+          echo "CUSTOM_INSTRUCTIONS<<${DELIMITER}" >> $GITHUB_OUTPUT
+          echo "$TEMPLATE" >> $GITHUB_OUTPUT
+          echo "${DELIMITER}" >> $GITHUB_OUTPUT
+
+      - name: Run Claude Code Review
+        uses: anthropics/claude-code-action@beta
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          custom_instructions: ${{ steps.load-instructions.outputs.CUSTOM_INSTRUCTIONS }}
+          direct_prompt: "true"
