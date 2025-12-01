@@ -282,10 +282,19 @@ Cross-reference results:
 
 ## Phase 5: Post Review
 
-Post review using `gh` CLI:
+Post review using `gh` CLI.
+
+**Choose the appropriate action based on findings:**
 
 ```bash
-gh pr review $PR_NUMBER --[approve|request-changes|comment] --body "$(cat <<'EOF'
+# If NO critical/blocking issues found → APPROVE
+gh pr review $PR_NUMBER --approve --body "$(cat <<'EOF'
+
+# If critical/blocking issues found → REQUEST CHANGES
+# gh pr review $PR_NUMBER --request-changes --body "$(cat <<'EOF'
+
+# If only suggestions/nits → COMMENT (no approval decision)
+# gh pr review $PR_NUMBER --comment --body "$(cat <<'EOF'
 ## Code Review: PR #$PR_NUMBER
 
 **Repository**: $REPOSITORY
