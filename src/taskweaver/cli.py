@@ -11,7 +11,7 @@ from rich.console import Console
 from rich.table import Table
 
 from .agents.chat_handler import CliChatHandler
-from .agents.task_agent import run_chat
+from .agents.orchestrator import run_chat
 from .config import get_config, get_paths
 from .database.connection import init_database
 from .database.dependency_repository import TaskDependencyRepository

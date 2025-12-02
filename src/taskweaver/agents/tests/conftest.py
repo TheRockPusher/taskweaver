@@ -7,11 +7,11 @@ from unittest.mock import Mock
 import pytest
 from pydantic_ai import Agent
 
-# Set dummy API keys BEFORE importing task_agent to prevent client initialization errors
+# Set dummy API keys BEFORE importing orchestrator to prevent client initialization errors
 os.environ.setdefault("OPENAI_API_KEY", "sk-test-dummy-key-for-testing")
 os.environ.setdefault("OPENROUTER_API_KEY", "sk-or-test-dummy-key-for-testing")
 
-from taskweaver.agents import task_agent
+import taskweaver.agents.orchestrator as orchestrator_module
 
 
 class MockChatHandler:
@@ -51,7 +51,7 @@ def mock_agent(monkeypatch: pytest.MonkeyPatch) -> Mock:
 
     """
     agent = Mock(spec=Agent)
-    monkeypatch.setattr(task_agent, "orchestrator_agent", agent)
+    monkeypatch.setattr(orchestrator_module, "orchestrator_agent", agent)
     return agent
 
 
@@ -62,12 +62,12 @@ def mock_mem0_memory(monkeypatch: pytest.MonkeyPatch) -> Mock:
     Returns None to simulate memory not being available, which is
     the graceful degradation path in production.
 
-    Patches the function in task_agent module (where it's used) rather than
+    Patches the function in orchestrator module (where it's used) rather than
     connection module (where it's defined) to handle the direct import.
 
     """
     mock_memory_func = Mock(return_value=None)
-    monkeypatch.setattr(task_agent, "mem0_memory", mock_memory_func)
+    monkeypatch.setattr(orchestrator_module, "mem0_memory", mock_memory_func)
     return mock_memory_func
 
 
