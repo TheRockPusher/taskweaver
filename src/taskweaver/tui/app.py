@@ -29,7 +29,7 @@ from textual.widgets import DataTable, Footer, Header, Markdown, Static, TextAre
 from textual.worker import Worker, get_current_worker
 
 from ..agents.chat_handler import TuiChatHandler
-from ..agents.task_agent import run_chat
+from ..agents.orchestrator import run_chat
 from ..database.dependency_repository import TaskDependencyRepository
 from ..database.exceptions import DependencyError, TaskNotFoundError
 from ..database.models import TaskWithPriority

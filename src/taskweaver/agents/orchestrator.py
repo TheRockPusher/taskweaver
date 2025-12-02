@@ -1,12 +1,11 @@
-"""PydanticAI agent for task orchestration."""
+"""Orchestrator agent with delegation to specialized agents."""
 
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from loguru import logger
-from pydantic_ai import Agent, AgentRunResult, FunctionToolset, ModelMessage, RunContext
-from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
+from pydantic_ai import AgentRunResult, ModelMessage, RunContext
 
 from taskweaver.config import Config
 
@@ -14,99 +13,78 @@ from ..config import get_config
 
 if TYPE_CHECKING:
     from textual.worker import Worker
+
 from ..database.completion_repository import CompletionRepository
 from ..database.connection import mem0_memory
 from ..database.dependency_repository import TaskDependencyRepository
 from ..database.repository import TaskRepository
 from .chat_handler import ChatHandler
 from .dependencies import TaskDependencies
-from .github_issues import get_github_issues
-from .tools import (
-    add_dependency_tool,
-    create_task_tool,
-    get_blocked_tool,
-    get_blockers_tool,
-    get_task_details_tool,
-    list_open_tasks_full,
-    list_tasks_tool,
-    remove_dependency_tool,
-    search_tasks_tool,
-    update_task_status_tool,
-    update_task_tool,
-)
-
-# Prompts directory
-PROMPTS_DIR = Path(__file__).parent / "prompts"
+from .research import research_agent
+from .shared import create_agent
+from .task_management import task_agent
 
 
-def load_prompt(name: str) -> str:
-    """Load prompt from markdown file.
+# Delegation tools for orchestrator
+def delegate_to_task_agent(
+    ctx: RunContext[TaskDependencies],
+    user_request: str,
+) -> str:
+    """Delegate task management operations to TaskAgent.
+
+    Use when user wants to:
+    - Create, update, or search tasks
+    - Manage dependencies between tasks
+    - Mark tasks complete or cancelled
+    - View task details or priorities
 
     Args:
-        name: Prompt filename without .md extension.
+        ctx: Runtime context with dependencies
+        user_request: User's request for task operations
 
     Returns:
-        Prompt content as string.
-
-    Raises:
-        FileNotFoundError: If prompt file doesn't exist.
-
+        TaskAgent response
     """
-    prompt_path = PROMPTS_DIR / f"{name}.md"
-    return prompt_path.read_text(encoding="utf-8")
+    result = task_agent.run_sync(
+        user_request,
+        deps=ctx.deps,
+    )
+    return result.output
 
 
-# Prepare model name with provider prefix
-def _get_model_name() -> str:
-    """Get model name with provider prefix for agent initialization.
+def delegate_to_research_agent(
+    ctx: RunContext[TaskDependencies],
+    user_request: str,
+) -> str:
+    """Delegate research operations to ResearchAgent.
+
+    Use when user wants to:
+    - Search the web for information
+    - Import GitHub issues
+    - Research best practices or technologies
+
+    Args:
+        ctx: Runtime context with dependencies
+        user_request: User's research request
 
     Returns:
-        Model name with provider prefix (e.g., 'openai:gpt-4o-mini').
-
+        ResearchAgent response
     """
-    config: Config = get_config()
-    model_name = config.llm_model
-    if ":" not in model_name:
-        model_name = f"openai:{model_name}"
-    return model_name
+    result = research_agent.run_sync(
+        user_request,
+        deps=ctx.deps,
+    )
+    return result.output
 
 
-# Toolset 1: Task Management CRUD
-_task_toolset = FunctionToolset(
+# Orchestrator agent (lightweight - just routes to sub-agents)
+orchestrator_agent = create_agent(
+    prompt_name="orchestrator",
     tools=[
-        create_task_tool,
-        list_tasks_tool,
-        search_tasks_tool,
-        get_task_details_tool,
-        update_task_status_tool,
-        update_task_tool,
+        delegate_to_task_agent,
+        delegate_to_research_agent,
     ],
-    max_retries=3,
-)
-
-# Toolset 2: Dependency Management DAG
-_dependency_toolset = FunctionToolset(
-    tools=[
-        list_open_tasks_full,
-        add_dependency_tool,
-        remove_dependency_tool,
-        get_blockers_tool,
-        get_blocked_tool,
-    ],
-    max_retries=3,
-)
-
-# Module-level agent instance (PydanticAI recommended pattern)
-# Instantiated once and reused throughout the application, similar to FastAPI.
-# defer_model_check=True prevents API key validation at import time (enables testing)
-orchestrator_agent: Agent[TaskDependencies, str] = Agent[TaskDependencies, str](
-    _get_model_name(),
     deps_type=TaskDependencies,
-    system_prompt=load_prompt("orchestrator_prompt"),
-    tools=[duckduckgo_search_tool()],
-    toolsets=[_task_toolset, _dependency_toolset],
-    defer_model_check=True,
-    instrument=True,
 )
 
 
@@ -123,7 +101,6 @@ def run_chat(handler: ChatHandler, db_path: Path, worker: "Worker | None" = None
         handler: ChatHandler implementation for I/O operations.
         db_path: Path to the task database for agent operations.
         worker: Optional worker for cancellation checking (TUI mode only).
-
     """
     logger.info(f"Starting chat session with database: {db_path}")
     handler.display_system_message(f"Current database path: {db_path}")
@@ -172,14 +149,8 @@ def run_chat(handler: ChatHandler, db_path: Path, worker: "Worker | None" = None
 
         try:
             if stripped_input.startswith("/github"):
-                stripped_input += f"Open Issues: {
-                    json.dumps(
-                        get_github_issues(config.github_repos),
-                        indent=2,
-                        default=str,  # Handles datetime, UUID, etc.
-                    )
-                }"
-                # No memory addition if commands are used
+                # Pass to research agent via orchestrator
+                stripped_input = "Import GitHub issues from configured repositories"
                 command = True
 
             # Add user input to memory if available
