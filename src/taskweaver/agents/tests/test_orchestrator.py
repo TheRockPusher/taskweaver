@@ -72,7 +72,7 @@ class TestDelegationIntegration:
         result = delegate_to_task_agent(mock_ctx, "Create a test task")
 
         assert result == "Task created successfully"
-        mock_task_agent.run_sync.assert_called_once_with("Create a test task", deps=mock_ctx.deps, usage=mock_ctx.usage)
+        mock_task_agent.run_sync.assert_called_once_with("Create a test task", deps=mock_ctx.deps)
 
     @patch("taskweaver.agents.orchestrator.research_agent")
     def test_delegate_to_research_agent_calls_agent(self, mock_research_agent: Mock, mock_ctx: Mock) -> None:
@@ -84,6 +84,4 @@ class TestDelegationIntegration:
         result = delegate_to_research_agent(mock_ctx, "Search for Python best practices")
 
         assert result == "Search results here"
-        mock_research_agent.run_sync.assert_called_once_with(
-            "Search for Python best practices", deps=mock_ctx.deps, usage=mock_ctx.usage
-        )
+        mock_research_agent.run_sync.assert_called_once_with("Search for Python best practices", deps=mock_ctx.deps)

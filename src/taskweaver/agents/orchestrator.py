@@ -48,7 +48,6 @@ def delegate_to_task_agent(
     result = task_agent.run_sync(
         user_request,
         deps=ctx.deps,
-        usage=ctx.usage,
     )
     return result.output
 
@@ -74,7 +73,6 @@ def delegate_to_research_agent(
     result = research_agent.run_sync(
         user_request,
         deps=ctx.deps,
-        usage=ctx.usage,
     )
     return result.output
 
