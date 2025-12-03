@@ -6,6 +6,7 @@ from .tools import (
     # Dependencies (5 tools)
     add_dependency_tool,
     # Task CRUD (6 tools)
+    calculator_tool,
     create_task_tool,
     get_blocked_tool,
     get_blockers_tool,
@@ -24,6 +25,7 @@ from .tools import (
 # All task-related tools
 TASK_TOOLS = [
     # CRUD
+    calculator_tool,
     create_task_tool,
     update_task_tool,
     list_tasks_tool,

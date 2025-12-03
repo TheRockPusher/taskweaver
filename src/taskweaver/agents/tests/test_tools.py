@@ -9,6 +9,7 @@ from pydantic_ai.exceptions import ModelRetry
 
 from taskweaver.agents.dependencies import TaskDependencies
 from taskweaver.agents.tools import (
+    calculator_tool,
     get_task_details_tool,
     list_tasks_tool,
     search_tasks_tool,
@@ -341,3 +342,98 @@ class TestUpdateTaskStatusTool:
 
         with pytest.raises(ModelRetry, match="not found"):
             update_task_status_tool(ctx, uuid4(), "completed")
+
+
+class TestCalculatorTool:
+    """Tests for calculator_tool."""
+
+    def test_calculator_basic_addition(self, ctx: RunContext[TaskDependencies]) -> None:
+        """Test basic addition."""
+        result = calculator_tool(ctx, "2 + 2")
+        assert "2 + 2 = 4" in result
+
+    def test_calculator_basic_subtraction(self, ctx: RunContext[TaskDependencies]) -> None:
+        """Test basic subtraction."""
+        result = calculator_tool(ctx, "10 - 3")
+        assert "10 - 3 = 7" in result
+
+    def test_calculator_basic_multiplication(self, ctx: RunContext[TaskDependencies]) -> None:
+        """Test basic multiplication."""
+        result = calculator_tool(ctx, "5 * 6")
+        assert "5 * 6 = 30" in result
+
+    def test_calculator_basic_division(self, ctx: RunContext[TaskDependencies]) -> None:
+        """Test basic division with float result."""
+        result = calculator_tool(ctx, "85.0 / 120")
+        assert "85.0 / 120" in result
+        assert "0.7083" in result
+
+    def test_calculator_complex_expression(self, ctx: RunContext[TaskDependencies]) -> None:
+        """Test complex weighted calculation."""
+        result = calculator_tool(ctx, "(92 * 0.35) + (78 * 0.30) + (88 * 0.35)")
+        assert "86.4" in result
+
+    def test_calculator_order_of_operations(self, ctx: RunContext[TaskDependencies]) -> None:
+        """Test order of operations with parentheses."""
+        result = calculator_tool(ctx, "2 + 3 * 4")
+        assert "2 + 3 * 4 = 14" in result
+
+        result_parens = calculator_tool(ctx, "(2 + 3) * 4")
+        assert "(2 + 3) * 4 = 20" in result_parens
+
+    def test_calculator_power_operation(self, ctx: RunContext[TaskDependencies]) -> None:
+        """Test exponentiation."""
+        result = calculator_tool(ctx, "2 ** 8")
+        assert "2 ** 8 = 256" in result
+
+    def test_calculator_modulo_operation(self, ctx: RunContext[TaskDependencies]) -> None:
+        """Test modulo operation."""
+        result = calculator_tool(ctx, "17 % 5")
+        assert "17 % 5 = 2" in result
+
+    def test_calculator_time_conversion(self, ctx: RunContext[TaskDependencies]) -> None:
+        """Test time conversion (hours to minutes)."""
+        result = calculator_tool(ctx, "2.5 * 60")
+        assert "2.5 * 60" in result
+        assert "150" in result
+
+    def test_calculator_division_by_zero_raises(self, ctx: RunContext[TaskDependencies]) -> None:
+        """Test division by zero raises ModelRetry."""
+        with pytest.raises(ModelRetry, match="Division by zero"):
+            calculator_tool(ctx, "10 / 0")
+
+    def test_calculator_empty_expression_raises(self, ctx: RunContext[TaskDependencies]) -> None:
+        """Test empty expression raises ModelRetry."""
+        with pytest.raises(ModelRetry, match="cannot be empty"):
+            calculator_tool(ctx, "")
+
+    def test_calculator_whitespace_only_raises(self, ctx: RunContext[TaskDependencies]) -> None:
+        """Test whitespace-only expression raises ModelRetry."""
+        with pytest.raises(ModelRetry, match="cannot be empty"):
+            calculator_tool(ctx, "   ")
+
+    def test_calculator_invalid_syntax_raises(self, ctx: RunContext[TaskDependencies]) -> None:
+        """Test malformed expression raises ModelRetry."""
+        with pytest.raises(ModelRetry, match="Invalid mathematical expression"):
+            calculator_tool(ctx, "2 + + 3")
+
+    def test_calculator_undefined_variable_raises(self, ctx: RunContext[TaskDependencies]) -> None:
+        """Test undefined variable raises ModelRetry."""
+        with pytest.raises(ModelRetry, match="Invalid mathematical expression"):
+            calculator_tool(ctx, "x + 5")
+
+    def test_calculator_float_precision(self, ctx: RunContext[TaskDependencies]) -> None:
+        """Test float results formatted to 4 decimal places."""
+        result = calculator_tool(ctx, "1 / 3")
+        assert "1 / 3" in result
+        assert "0.3333" in result
+
+    def test_calculator_negative_numbers(self, ctx: RunContext[TaskDependencies]) -> None:
+        """Test negative number handling."""
+        result = calculator_tool(ctx, "-5 + 3")
+        assert "-5 + 3 = -2" in result
+
+    def test_calculator_large_expression(self, ctx: RunContext[TaskDependencies]) -> None:
+        """Test complex multi-operation expression."""
+        result = calculator_tool(ctx, "((100 - 20) * 0.5) + (30 / 2) - 10")
+        assert "45" in result

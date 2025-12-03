@@ -15,6 +15,7 @@ from uuid import UUID
 from pydantic import ValidationError
 from pydantic_ai import RunContext
 from pydantic_ai.exceptions import ModelRetry
+from simpleeval import simple_eval
 
 from taskweaver.database.exceptions import DependencyError, TaskNotFoundError
 from taskweaver.database.models import (
@@ -706,3 +707,64 @@ def remove_dependency_tool(ctx: RunContext[TaskDependencies], task_id: UUID, blo
         return f"✅ Dependency removed: {task_id} no longer blocked by {blocker_id}"
     except (DependencyError, TaskNotFoundError) as e:
         raise ModelRetry(str(e)) from e
+
+
+def calculator_tool(
+    ctx: RunContext[TaskDependencies],
+    expression: str,
+) -> str:
+    """Evaluate mathematical expressions safely for task calculations.
+
+    Enables the agent to perform calculations for:
+    - Time unit conversions (e.g., "2.5 * 60" for hours to minutes)
+    - Priority score computations (e.g., "85.0 / 120")
+    - Multi-dimensional value scoring (e.g., "(85 * 0.35) + (65 * 0.30) + (95 * 0.35)")
+    - Budget and financial impact calculations
+
+    Uses ast-based safe evaluation (no code execution). Supports:
+    - Arithmetic: +, -, *, /, **, %
+    - Parentheses for order of operations
+    - Integers and floating-point numbers
+
+    Args:
+        ctx: Runtime context containing TaskDependencies.
+        expression: Mathematical expression to evaluate (e.g., "(92 * 0.35) + (78 * 0.30)").
+
+    Returns:
+        Formatted calculation result as string: "{expression} = {result}".
+
+    Raises:
+        ModelRetry: If expression is invalid, empty, or causes evaluation error.
+            LLM receives error message and can retry with corrected expression.
+
+    Example:
+        >>> calculator_tool(ctx, expression="(92 * 0.35) + (78 * 0.30) + (88 * 0.35)")
+        "(92 * 0.35) + (78 * 0.30) + (88 * 0.35) = 86.4000"
+
+        >>> calculator_tool(ctx, expression="85.0 / 120")
+        "85.0 / 120 = 0.7083"
+
+        >>> calculator_tool(ctx, expression="2.5 * 60")
+        "2.5 * 60 = 150.0000"
+    """
+    # Validate input
+    if not expression or not expression.strip():
+        raise ModelRetry("Expression cannot be empty") from None
+
+    try:
+        # Safe evaluation using ast-based simpleeval
+        result = simple_eval(expression.strip())
+
+        # Format result
+        if isinstance(result, (int, float)):
+            # Format floats with 4 decimal places, integers as-is
+            formatted_result = f"{result:.4f}" if isinstance(result, float) else str(result)
+            return f"{expression} = {formatted_result}"
+
+        # Non-numeric result (shouldn't happen with math expressions)
+        return f"{expression} = {result}"
+
+    except ZeroDivisionError as e:
+        raise ModelRetry(f"Division by zero in expression: {expression}") from e
+    except (SyntaxError, TypeError, ValueError, NameError) as e:
+        raise ModelRetry(f"Invalid mathematical expression: {expression}. Error: {e}") from e

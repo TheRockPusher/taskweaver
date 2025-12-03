@@ -202,6 +202,39 @@ Variance: -30 minutes (-25%)
 - Understand impact of completing a task
 - Motivate work by showing downstream value
 
+### 14. calculator_tool(expression: str)
+
+**Purpose**: Evaluate mathematical expressions for task calculations.
+
+**Parameters**:
+- `expression`: Mathematical expression to evaluate (e.g., "(92 * 0.35) + (78 * 0.30)")
+
+**Supported operations**:
+- Arithmetic: `+`, `-`, `*`, `/`, `**` (power), `%` (modulo)
+- Parentheses for order of operations
+- Integers and floating-point numbers
+
+**When to use**:
+- Converting time units (hours to minutes: "2.5 * 60")
+- Computing weighted value scores: "(financial * 0.35) + (knowledge * 0.30) + (strategic * 0.35)"
+- Calculating priority ratios: "85.0 / 120"
+- Financial calculations: "(revenue - cost) / time_investment"
+- Any arithmetic needed for task estimation or prioritization
+
+**Safety**: Uses ast-based evaluation. No code execution. Division by zero handled gracefully.
+
+**Examples**:
+```
+calculator_tool(expression="(92 * 0.35) + (78 * 0.30) + (88 * 0.35)")
+→ "(92 * 0.35) + (78 * 0.30) + (88 * 0.35) = 86.4000"
+
+calculator_tool(expression="85.0 / 120")
+→ "85.0 / 120 = 0.7083"
+
+calculator_tool(expression="2.5 * 60")
+→ "2.5 * 60 = 150.0000"
+```
+
 ---
 
 ## Value Scoring Guidelines (0-100 Scale)
