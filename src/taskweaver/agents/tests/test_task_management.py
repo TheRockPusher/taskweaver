@@ -10,9 +10,9 @@ class TestTaskAgent:
         """Test TaskAgent instance is created."""
         assert task_agent is not None
 
-    def test_task_agent_has_13_tools(self) -> None:
-        """Test TaskAgent has all 13 task-related tools."""
-        assert len(TASK_TOOLS) == 13
+    def test_task_agent_has_14_tools(self) -> None:
+        """Test TaskAgent has all 14 task-related tools."""
+        assert len(TASK_TOOLS) == 14
 
     def test_task_tools_list_complete(self) -> None:
         """Test TASK_TOOLS contains expected tool names."""
@@ -36,3 +36,6 @@ class TestTaskAgent:
         # Completions (2 tools)
         assert "mark_task_completed_tool" in tool_names
         assert "mark_task_cancelled_tool" in tool_names
+
+        # Utilities (1 tool)
+        assert "calculator_tool" in tool_names
