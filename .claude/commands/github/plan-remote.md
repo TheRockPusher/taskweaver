@@ -9,6 +9,7 @@ allowed-tools:
   - WebFetch
   - Task
   - TodoWrite
+  - AskUserQuestion
   - Bash(git status:*)
   - Bash(git branch:*)
   - Bash(git checkout:*)

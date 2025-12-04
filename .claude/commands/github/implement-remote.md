@@ -9,6 +9,7 @@ allowed-tools:
   - Bash
   - TodoWrite
   - Task
+  - AskUserQuestion
   - WebSearch
   - WebFetch
 argument-hint: <path-to-plan>
