@@ -11,7 +11,7 @@ allowed-tools:
   - Task
   - AskUserQuestion
 argument-hint: <path-to-plan>
-model: sonnet
+model: opus
 ---
 
 # Execute: Implement from Plan
@@ -88,15 +88,8 @@ For EACH task in order:
 ### c. Verify and update
 
 - Check syntax after changes
-- **Run relevant tests for this phase** (catch issues early, not just at end)
 - Mark task `completed` in TodoWrite
 - Mark next task `in_progress`
-
-### d. Namespace check (when creating new files/exports)
-
-- If creating new module: verify name doesn't match any exported symbol
-- If adding export: verify symbol doesn't shadow existing module
-- Quick test: `python -c "from package import X; print(type(X))"`
 
 ---
 
@@ -106,28 +99,69 @@ After implementation tasks:
 
 - Create test files from plan
 - Implement all specified test cases
-- **Update test fixtures if module structure changed** (e.g., renames, new agents)
 - Run tests, fix failures before proceeding
-
-**Test Fixture Checklist** (if refactoring):
-- [ ] Fixture imports point to correct modules (check for renamed files)
-- [ ] Mock targets reference actual module/class locations
-- [ ] Integration fixtures updated for new architecture
 
 ---
 
-## Phase 5: Validation
+## Phase 5: Validation (MANDATORY ITERATION)
 
-Execute ALL validation commands from plan:
+**CRITICAL**: This phase MUST complete successfully before finishing.
+
+Execute ALL validation commands from plan in order:
 
 ```bash
-# Level 1: Lint/format
-# Level 2: Type check
-# Level 3: Unit tests
-# Level 4: Integration tests
+# Level 1: Lint/format (e.g., ruff check ., npm run lint)
+# Level 2: Type check (e.g., mypy ., npx tsc --noEmit)
+# Level 3: Unit tests (e.g., pytest, npm test)
+# Level 4: Integration tests (e.g., pytest tests/integration/)
+# Level 5: Manual validation steps from plan
 ```
 
-If any fails: fix → re-run → continue only when passing.
+### Validation Iteration Loop
+
+**For EACH validation command:**
+
+1. **Run the command**
+   - Execute exactly as specified in plan
+   - Capture full output
+
+2. **Check result**
+   - ✅ **PASS**: Continue to next validation level
+   - ❌ **FAIL**: Enter fix iteration loop
+
+3. **Fix iteration loop (if failed)**
+   - Analyze the error output carefully
+   - Identify root cause (don't just fix symptoms)
+   - Make necessary fixes using Edit tool
+   - Re-run the SAME validation command
+   - Repeat until PASS
+
+4. **Only proceed when ALL validations pass**
+
+### Validation Failure Handling
+
+**Common failures and fixes:**
+
+- **Linting errors**: Fix code style, imports, unused variables
+- **Type errors**: Add/correct type hints, fix type mismatches
+- **Test failures**: Fix logic bugs, update tests if requirements changed
+- **Integration failures**: Check dependencies, environment, external services
+
+**If stuck after 3 iterations on same error:**
+
+- Use AskUserQuestion to get user guidance
+- Document the blocker in completion report
+- Do NOT mark implementation as complete
+
+### Validation Success Criteria
+
+Implementation is ONLY complete when:
+
+- [ ] All Level 1-4 validation commands exit with code 0
+- [ ] No errors, warnings, or failures in output
+- [ ] Manual validation steps (Level 5) documented as passing
+
+**NEVER skip validation or continue with failures.**
 
 ---
 
@@ -145,19 +179,45 @@ Skip if changes are internal-only with no documentation impact.
 
 ## Phase 7: Completion Report
 
+**Only generate this report after ALL validations pass.**
+
 ### Summary
 
-- Tasks completed (from TodoWrite)
-- Files created/modified
-- Docs updated (if any)
+- ✅ Tasks completed (list from TodoWrite)
+- 📝 Files created/modified (with line counts)
+- 📚 Documentation updated (if any)
 
 ### Validation Results
 
-- All command outputs (pass/fail)
+**MUST show all passing:**
+
+```text
+✅ Level 1 (Lint/Format): [command] - PASSED
+✅ Level 2 (Type Safety): [command] - PASSED
+✅ Level 3 (Unit Tests): [command] - PASSED
+✅ Level 4 (Integration): [command] - PASSED / N/A
+✅ Level 5 (Manual): [steps] - COMPLETED
+```
+
+If any validation failed, show:
+
+- ❌ Error output
+- 🔧 Fixes applied
+- 🔁 Iterations required
+- ✅ Final passing status
+
+### Implementation Metrics
+
+- Total tasks: X
+- Files changed: Y
+- Validation iterations: Z
+- Time to passing: N/A (don't estimate)
 
 ### Next Steps
 
-- Ready for `/commit`
+- ✅ **Ready for `/commit`** (all validations passed)
+- OR
+- ❌ **Blocked** (document why, ask user for guidance)
 
 ---
 
