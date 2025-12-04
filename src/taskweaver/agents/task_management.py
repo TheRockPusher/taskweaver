@@ -5,6 +5,8 @@ from .shared import create_agent
 from .tools import (
     # Dependencies (5 tools)
     add_dependency_tool,
+    # Utilities (1 tool)
+    calculator_tool,
     # Task CRUD (6 tools)
     create_task_tool,
     get_blocked_tool,
@@ -39,6 +41,8 @@ TASK_TOOLS = [
     # Completions
     mark_task_completed_tool,
     mark_task_cancelled_tool,
+    # Utilities
+    calculator_tool,
 ]
 
 # Create TaskAgent using factory (composition!)

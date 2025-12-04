@@ -38,6 +38,7 @@ dependencies = [
     "pygithub>=2.8.1",
     "python-dotenv>=1.1.1",
     "qdrant-client>=1.15.1",
+    "simpleeval>=1.0.0",
     "textual>=0.47.0",
     "typer>=0.19.2",
 ]
