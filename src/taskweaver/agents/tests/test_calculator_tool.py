@@ -182,7 +182,7 @@ class TestCalculatorTool:
     def test_calculator_invalid_syntax_raises(self, ctx: RunContext[TaskDependencies]) -> None:
         """Test invalid syntax raises ModelRetry with helpful message."""
         with pytest.raises(ModelRetry, match="Invalid mathematical expression"):
-            calculator_tool(ctx, "2 + + 2")
+            calculator_tool(ctx, "2 + * 2")
 
     def test_calculator_undefined_variable_raises(self, ctx: RunContext[TaskDependencies]) -> None:
         """Test undefined variable raises ModelRetry (security check)."""

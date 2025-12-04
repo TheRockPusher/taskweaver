@@ -15,7 +15,7 @@ from uuid import UUID
 from pydantic import ValidationError
 from pydantic_ai import RunContext
 from pydantic_ai.exceptions import ModelRetry
-from simpleeval import simple_eval
+from simpleeval import InvalidExpression, simple_eval
 
 from taskweaver.database.exceptions import DependencyError, TaskNotFoundError
 from taskweaver.database.models import (
@@ -782,6 +782,12 @@ def calculator_tool(
 
     except ZeroDivisionError as e:
         raise ModelRetry(f"Division by zero in expression: '{expression}'. Check the denominator.") from e
+    except InvalidExpression as e:
+        # Catches NameNotDefined, FunctionNotDefined, and other simpleeval-specific errors
+        raise ModelRetry(
+            f"Invalid mathematical expression: '{expression}'. "
+            f"Error: {e}. Use only numbers and operators (+, -, *, /, **, %)."
+        ) from e
     except (SyntaxError, TypeError, ValueError, NameError) as e:
         raise ModelRetry(
             f"Invalid mathematical expression: '{expression}'. "
