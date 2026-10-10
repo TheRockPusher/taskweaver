@@ -126,10 +126,6 @@ INSERT INTO task_dependencies (dependency_id, task_id, blocker_id, created_at)
 VALUES (?, ?, ?, ?);
 """
 
-SELECT_DEPENDENCY_BY_ID = """
-SELECT * FROM task_dependencies WHERE dependency_id = ?;
-"""
-
 SELECT_BLOCKERS = """
 SELECT blocker.* FROM task_dependencies td
 JOIN tasks blocker ON blocker.task_id = td.blocker_id
@@ -153,11 +149,6 @@ ORDER BY td.created_at;
 
 DELETE_DEPENDENCY = """
 DELETE FROM task_dependencies
-WHERE task_id = ? AND blocker_id = ?;
-"""
-
-CHECK_DEPENDENCY_EXISTS = """
-SELECT dependency_id FROM task_dependencies
 WHERE task_id = ? AND blocker_id = ?;
 """
 

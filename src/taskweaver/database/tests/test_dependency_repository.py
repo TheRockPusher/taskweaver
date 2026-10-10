@@ -172,18 +172,17 @@ def test_cycle_check_no_cycle(dep_repo: TaskDependencyRepository, tasks: dict[st
     dep_repo.add_dependency(task_id=tasks["A"], blocker_id=tasks["B"])
     dep_repo.add_dependency(task_id=tasks["B"], blocker_id=tasks["C"])
 
-    # D -> A should not create a cycle
-    has_cycle = dep_repo._cycle_check(tasks["A"], tasks["D"])
-    assert has_cycle is False
+    dep_repo.add_dependency(tasks["D"], tasks["A"])
+    assert [task.task_id for task in dep_repo.get_blockers(tasks["D"])] == [tasks["A"]]
 
 
 def test_cycle_check_direct_cycle(dep_repo: TaskDependencyRepository, tasks: dict[str, UUID]) -> None:
     """Test detection of direct cycle (A -> B -> A)."""
     dep_repo.add_dependency(task_id=tasks["A"], blocker_id=tasks["B"])
 
-    # B -> A would create direct cycle
-    has_cycle = dep_repo._cycle_check(tasks["B"], tasks["A"])
-    assert has_cycle is True
+    with pytest.raises(DependencyError):
+        dep_repo.add_dependency(tasks["B"], tasks["A"])
+    assert dep_repo.get_blockers(tasks["B"]) == []
 
 
 def test_cycle_check_transitive_cycle(dep_repo: TaskDependencyRepository, tasks: dict[str, UUID]) -> None:
@@ -191,15 +190,16 @@ def test_cycle_check_transitive_cycle(dep_repo: TaskDependencyRepository, tasks:
     dep_repo.add_dependency(task_id=tasks["A"], blocker_id=tasks["B"])
     dep_repo.add_dependency(task_id=tasks["B"], blocker_id=tasks["C"])
 
-    # C -> A would create transitive cycle
-    has_cycle = dep_repo._cycle_check(tasks["C"], tasks["A"])
-    assert has_cycle is True
+    with pytest.raises(DependencyError):
+        dep_repo.add_dependency(tasks["C"], tasks["A"])
+    assert dep_repo.get_blockers(tasks["C"]) == []
 
 
 def test_cycle_check_self_reference(dep_repo: TaskDependencyRepository, tasks: dict[str, UUID]) -> None:
     """Test detection of self-referencing cycle (A -> A)."""
-    has_cycle = dep_repo._cycle_check(tasks["A"], tasks["A"])
-    assert has_cycle is True
+    with pytest.raises(DependencyError):
+        dep_repo.add_dependency(tasks["A"], tasks["A"])
+    assert dep_repo.get_blockers(tasks["A"]) == []
 
 
 def test_cycle_check_complex_graph(dep_repo: TaskDependencyRepository, tasks: dict[str, UUID]) -> None:
@@ -210,13 +210,10 @@ def test_cycle_check_complex_graph(dep_repo: TaskDependencyRepository, tasks: di
     dep_repo.add_dependency(task_id=tasks["B"], blocker_id=tasks["D"])
     dep_repo.add_dependency(task_id=tasks["C"], blocker_id=tasks["D"])
 
-    # D -> A would create cycle through multiple paths (D->B->A or D->C->A)
-    has_cycle = dep_repo._cycle_check(tasks["D"], tasks["A"])
-    assert has_cycle is True
-
-    # D -> B would also create cycle (D->B->D already exists)
-    has_cycle = dep_repo._cycle_check(tasks["D"], tasks["B"])
-    assert has_cycle is True
-
-    has_cycle = dep_repo._cycle_check(tasks["A"], tasks["D"])
-    assert has_cycle is False
+    with pytest.raises(DependencyError):
+        dep_repo.add_dependency(tasks["D"], tasks["A"])
+    with pytest.raises(DependencyError):
+        dep_repo.add_dependency(tasks["D"], tasks["B"])
+    assert dep_repo.get_blockers(tasks["D"]) == []
+    dep_repo.add_dependency(tasks["A"], tasks["D"])
+    assert {task.task_id for task in dep_repo.get_blockers(tasks["A"])} == {tasks["B"], tasks["C"], tasks["D"]}

@@ -56,7 +56,7 @@ check: ## Run all code quality tools (format-check, lint-check, type-check)
 test: ## Test the code with pytest (use FILE=path to test specific file)
 	@echo "🚀 Testing code: Running pytest"
 ifdef FILE
-	@uv run python -m pytest $(FILE)
+	@uv run python -m pytest -o addopts="" $(FILE)
 else
 	@uv run python -m pytest
 endif

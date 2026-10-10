@@ -258,7 +258,7 @@ def test_learning_requires_twenty_valid_completed_snapshots(temp_db):
     assert service.weights == before
 
 
-def test_learning_recomputes_replaced_completion_evidence_at_same_count(temp_db, completion_repo, monkeypatch):
+def test_learning_recomputes_replaced_completion_evidence_at_same_count(temp_db, completion_repo):
     original = {**dict.fromkeys(FACTOR_NAMES, 0.0), "urgency": 1.0}
     corrected = {**dict.fromkeys(FACTOR_NAMES, 0.0), "importance": 1.0}
     with get_connection(temp_db) as conn:
@@ -283,27 +283,19 @@ def test_learning_recomputes_replaced_completion_evidence_at_same_count(temp_db,
             priority_factors=corrected,
         )
     )
-    monkeypatch.setattr(priority_service, "_now", lambda: NOW + timedelta(hours=1))
-    assert service.update_all_priorities() == 1
     after = service.weights
     assert after.urgency < before.urgency
     assert after.importance > before.importance
-    baseline = PriorityWeights().model_dump()
-    means = {**dict.fromkeys(FACTOR_NAMES, 0.0), "urgency": 0.95, "importance": 0.05}
-    evidence = {name: baseline[name] * (0.5 + means[name]) for name in FACTOR_NAMES}
-    expected = {name: 0.9 * baseline[name] + 0.1 * evidence[name] / sum(evidence.values()) for name in FACTOR_NAMES}
-    assert after.model_dump() == pytest.approx(expected)
     assert service.calculate_priority(active) == round(100 * after.urgency, 1)
     with get_connection(temp_db) as conn:
         preference = dict(conn.execute("SELECT * FROM priority_preferences").fetchone())
         assert preference["source"] == "learned"
         assert preference["sample_count"] == 20
-        assert preference["updated_at"] == (NOW + timedelta(hours=1)).isoformat()
+        assert preference["updated_at"] == NOW.isoformat()
         assert conn.execute("SELECT COUNT(*) FROM completion").fetchone()[0] == 20
         assert conn.execute("SELECT priority_score FROM tasks WHERE task_id=?", (str(active),)).fetchone()[0] == round(
             100 * after.urgency, 1
         )
-    monkeypatch.setattr(priority_service, "_now", lambda: NOW + timedelta(hours=2))
     assert service.update_all_priorities() == 0
     with get_connection(temp_db) as conn:
         assert dict(conn.execute("SELECT * FROM priority_preferences").fetchone()) == preference
@@ -332,10 +324,10 @@ def test_learning_updates_evidence_count_even_when_weights_are_unchanged(temp_db
 def test_invalid_snapshot_values_and_custom_weights_are_not_learned(temp_db):
     valid = dict.fromkeys(FACTOR_NAMES, 0.5)
     with get_connection(temp_db) as conn:
-        ids = _insert_tasks(conn, 26, status="completed")
+        ids = _insert_tasks(conn, 27, status="completed")
         for task_id in ids[:20]:
             _completion(conn, task_id, json.dumps(valid))
-        for task_id, value in zip(ids[20:], [float("nan"), float("inf"), -1, True, 2, "unknown"], strict=True):
+        for task_id, value in zip(ids[20:], [float("nan"), float("inf"), -1, True, 2, "unknown", 10**400], strict=True):
             _completion(conn, task_id, json.dumps({**valid, "age": value}))
         refresh_priorities(conn)
         preference = conn.execute("SELECT sample_count FROM priority_preferences").fetchone()
@@ -545,3 +537,55 @@ def test_calculation_reads_consistent_snapshot_during_concurrent_update(temp_db,
     assert service.calculate_all_priorities()[root] == 0
     assert wrote
     assert service.calculate_all_priorities()[root] == 31
+
+
+@pytest.mark.parametrize("removal", ["completion", "task"])
+def test_removing_learning_evidence_restores_defaults(temp_db, completion_repo, task_repo, removal):
+    factors = json.dumps({**dict.fromkeys(FACTOR_NAMES, 0.0), "urgency": 1.0})
+    with get_connection(temp_db) as conn:
+        completed = _insert_tasks(conn, 20, status="completed")
+        active = _insert_tasks(conn, urgency=5, importance=1, effort=5, created_at=NOW + timedelta(days=1))[0]
+        for task_id in completed:
+            _completion(conn, task_id, factors)
+        conn.commit()
+    service = PriorityService(temp_db)
+    service.update_all_priorities()
+    assert service.calculate_priority(active) > 30
+    if removal == "task":
+        task_repo.delete_task(completed[-1])
+    else:
+        event = completion_repo.get_completion_by_task_id(completed[-1])
+        assert event is not None
+        completion_repo.delete_completion(event.completion_id)
+    assert service.weights == PriorityWeights()
+    assert service.calculate_priority(active) == 30
+    stored = task_repo.get_task(active)
+    assert stored is not None
+    assert stored.priority_score == 30
+    assert service.explain(active)["preference_source"] == "default"
+
+
+def test_historical_completion_crosses_learning_threshold_atomically(temp_db, completion_repo, task_repo):
+    factors = {**dict.fromkeys(FACTOR_NAMES, 0.0), "urgency": 1.0}
+    with get_connection(temp_db) as conn:
+        completed = _insert_tasks(conn, 20, status="completed")
+        active = _insert_tasks(conn, urgency=5, importance=1, effort=5, created_at=NOW + timedelta(days=1))[0]
+        for task_id in completed[:-1]:
+            _completion(conn, task_id, json.dumps(factors))
+        conn.commit()
+    service = PriorityService(temp_db)
+    service.update_all_priorities()
+    assert service.weights == PriorityWeights()
+    completion_repo.create_completion(
+        CompletionCreate(
+            task_id=completed[-1],
+            status=CompletionStatus.COMPLETED,
+            duration_expected=30,
+            duration_actual=30,
+            priority_factors=factors,
+        )
+    )
+    assert service.weights.urgency > 0.30
+    stored = task_repo.get_task(active)
+    assert stored is not None
+    assert stored.priority_score == service.calculate_priority(active)

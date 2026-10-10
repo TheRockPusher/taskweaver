@@ -5,7 +5,7 @@ from collections import deque
 from pathlib import Path
 from uuid import UUID
 
-from .connection import DEFAULT_DB_PATH, get_connection
+from .connection import get_connection, get_database_path
 from .exceptions import DependencyError, TaskNotFoundError
 from .models import Task, TaskDependency, TaskStatus, TaskWithDependencies, TaskWithPriority
 from .priority_service import refresh_priorities
@@ -66,8 +66,8 @@ def _effective_priorities(conn: sqlite3.Connection, tasks: list[TaskWithDependen
 class TaskDependencyRepository:
     """Manage active dependency edges without circular repository construction."""
 
-    def __init__(self, db_path: Path = DEFAULT_DB_PATH) -> None:
-        self.db_path = db_path
+    def __init__(self, db_path: Path | None = None) -> None:
+        self.db_path = db_path if db_path is not None else get_database_path()
 
     def add_dependency(self, task_id: UUID, blocker_id: UUID) -> TaskDependency:
         """Create an active dependency, rejecting missing tasks, duplicates and cycles.
@@ -128,10 +128,6 @@ class TaskDependencyRepository:
         with get_connection(self.db_path) as conn:
             rows = conn.execute(SELECT_BLOCKED_TASKS, (str(blocker_id),)).fetchall()
         return [Task.model_validate(dict(row)) for row in rows]
-
-    def _cycle_check(self, task_id: UUID, blocker_id: UUID) -> bool:
-        with get_connection(self.db_path) as conn:
-            return _would_cycle(conn, task_id, blocker_id)
 
     def calculate_effective_priorities(self, tasks: list[TaskWithDependencies] | None = None) -> dict[UUID, float]:
         """Calculate inherited CD3 over the complete active graph, then select tasks.

@@ -1,5 +1,6 @@
 """CLI boundary regressions exercising real local persistence and transitions."""
 
+import re
 from importlib.metadata import version
 from pathlib import Path
 from types import SimpleNamespace
@@ -217,6 +218,7 @@ def test_compact_list_preserves_readability(
     assert "30m" in result.output
     assert "Sample description" not in result.output
     assert all(len(line) <= 80 for line in result.output.splitlines())
+    assert sample_task in result.output
 
 
 def test_reading_priority_history_is_idempotent(test_db: Path, sample_task: str) -> None:
@@ -338,7 +340,8 @@ def test_insights_automatic_adjustment_requires_real_samples(test_db: Path) -> N
     assert estimate.adjusted_minutes == 60
     assert estimate.sample_count == 3
     assert "60m" in result.output
-    assert "True" in result.output
+    assert "yes" in result.output
+    assert "True" not in result.output
     assert create(test_db, "Adjusted", "--category", "coding").exit_code == 0
     task = TaskRepository(test_db).list_tasks()[0]
     assert (task.duration_min, task.raw_duration_min) == (60, 30)
@@ -409,6 +412,9 @@ def test_missing_task_errors_are_nonzero(test_db: Path, command: str) -> None:
     result = invoke(test_db, *args)
     assert result.exit_code == 1, result.output
     assert "not found" in result.output.lower()
+    assert result.stdout == ""
+    assert "not found" in result.stderr.lower()
+    assert "Traceback" not in result.stderr
 
 
 def test_dependency_cycle_error_and_removal(test_db: Path) -> None:
@@ -431,10 +437,14 @@ def test_delete_confirmation_preserves_then_removes(test_db: Path, sample_task: 
     assert TaskRepository(test_db).get_task(UUID(sample_task)) is None
 
 
-def test_restart_preserves_unless_delete_is_explicit(test_db: Path, sample_task: str) -> None:
+def test_restart_preserves_and_requires_confirmation_to_delete(test_db: Path, sample_task: str) -> None:
     assert invoke(test_db, "restartDB").exit_code == 0
     assert TaskRepository(test_db).get_task(UUID(sample_task)) is not None
-    assert invoke(test_db, "restartDB", "--delete").exit_code == 0
+    result = runner.invoke(app, ["--db", str(test_db), "restartDB", "--delete"], input="n\n")
+    assert result.exit_code != 0
+    assert TaskRepository(test_db).get_task(UUID(sample_task)) is not None
+    result = runner.invoke(app, ["--db", str(test_db), "restartDB", "--delete"], input="y\n")
+    assert result.exit_code == 0, result.output
     assert TaskRepository(test_db).list_tasks() == []
 
 
@@ -553,3 +563,99 @@ def test_user_content_is_rendered_literally(test_db: Path) -> None:
     assert "[red]Literal[/red]" in invoke(test_db, "ls").output
     assert invoke(test_db, "memory", "remember", "markup", "[bold]Fact[/bold]").exit_code == 0
     assert "[bold]Fact[/bold]" in invoke(test_db, "memory", "list").output
+
+
+def test_goal_list_keeps_complete_identifiers_at_terminal_width(test_db: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("taskweaver.cli_planning.console", Console(width=80, color_system=None))
+    goal = PlanningService(test_db).create_goal("Ship a useful tool")
+    result = invoke(test_db, "goals", "list")
+    assert result.exit_code == 0, result.output
+    assert str(goal.goal_id) in result.output
+    assert "Ship a useful tool" in result.output
+
+
+def test_score_components_remain_readable_at_terminal_width(
+    test_db: Path, sample_task: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("taskweaver.cli_planning.console", Console(width=80, color_system=None))
+    result = invoke(test_db, "score", sample_task)
+    assert result.exit_code == 0, result.output
+    assert "dependencies" in result.output
+    assert "Contribution" in result.output
+    assert "…" not in result.output
+    assert not re.search(r"\d[eE][+-]\d+", result.output)
+    assert re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC", result.output)
+
+
+def test_oversized_duration_is_a_clean_error_without_partial_task(test_db: Path) -> None:
+    result = invoke(test_db, "create", "Too large", "--duration", str(2**80), "--value", "1", "--req", "Done")
+    assert result.exit_code != 0
+    assert result.stdout == ""
+    assert "Traceback" not in result.stderr
+    assert TaskRepository(test_db).list_tasks() == []
+
+
+def test_noninteractive_setup_reports_one_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("taskweaver.setup.sys.stdin.isatty", lambda: False)
+    result = runner.invoke(app, ["setup"])
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert len(result.stderr.splitlines()) == 1
+
+
+@pytest.mark.parametrize("width", [80, 120])
+def test_task_details_are_human_readable_and_preserve_values(
+    test_db: Path, sample_task: str, monkeypatch: pytest.MonkeyPatch, width: int
+) -> None:
+    monkeypatch.setattr("taskweaver.cli.console", Console(width=width, color_system=None))
+    assert invoke(test_db, "edit", sample_task, "--duration", "60", "--clear-description").exit_code == 0
+    result = invoke(test_db, "show", sample_task)
+    assert result.exit_code == 0, result.output
+    assert sample_task in result.output
+    assert "Sample task" in result.output
+    assert re.search(r"60m.*30m", result.output)
+    assert "0.833" in result.output
+    assert "—" in result.output
+    assert "None" not in result.output
+    assert not re.search(r"\d\.\d{4,}", result.output)
+    assert re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC", result.output)
+    assert not any(character in result.output for character in "┌├└│")
+    assert all(len(line) <= width for line in result.output.splitlines())
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ("focus",),
+        ("goals", "list"),
+        ("skills", "list"),
+        ("skills", "history", "python"),
+        ("insights",),
+        ("analysis",),
+        ("memory", "list"),
+        ("ls",),
+    ],
+)
+def test_empty_collections_do_not_render_empty_tables(test_db: Path, args: tuple[str, ...]) -> None:
+    result = invoke(test_db, *args)
+    assert result.exit_code == 0, result.output
+    assert result.output.strip()
+    assert not any(character in result.output for character in "┏┡└┃")
+    assert TaskRepository(test_db).list_tasks() == []
+
+
+def test_focus_without_skill_gaps_renders_only_ready_work(test_db: Path, sample_task: str) -> None:
+    result = invoke(test_db, "focus")
+    assert result.exit_code == 0, result.output
+    assert "Sample task" in result.output
+    assert sample_task in result.output
+    assert result.output.count("┏") == 1
+
+
+def test_insights_without_samples_has_no_python_representations(test_db: Path) -> None:
+    result = invoke(test_db, "insights", "--category", "coding")
+    assert result.exit_code == 0, result.output
+    assert "coding" in result.output
+    assert "no" in result.output
+    assert "—" in result.output
+    assert not any(value in result.output for value in ("None", "True", "False"))

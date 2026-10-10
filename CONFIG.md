@@ -41,7 +41,7 @@ memory_enabled = false
 
 Leave `TASKWEAVER_API_KEY` unset or empty for anonymous local requests: no Authorization header is sent and cloud keys are not borrowed. Configure a key if that local endpoint requires authentication. Main LLM and embedding services are separate; a chat endpoint does not imply embedding support.
 
-Setup preserves unrelated preferences/keys and replaces each saved file atomically. POSIX temporary/final files have mode `0600`; newly created parent directories request `0700`. Existing parent directories are not recursively hardened. Config and secrets are separate file replacements, not a cross-file transaction. Secrets are plaintext on disk, not an encrypted vault/keychain. Windows files inherit directory ACLs; POSIX modes are **not** equivalent Windows protection. Restrict ACLs yourself. Protect database, semantic stores, backups, and logs too; never commit `.env` or pass secrets as Docker build arguments.
+Setup preserves unrelated preferences/keys and replaces each saved file atomically. POSIX temporary/final files have mode `0600`; newly created TaskWeaver directories request `0700` (intermediate ancestor directories use the process umask). Existing directories are not recursively hardened. Config and secrets are separate file replacements, not a cross-file transaction. Secrets are plaintext on disk, not an encrypted vault/keychain. Windows files inherit directory ACLs; POSIX modes are **not** equivalent Windows protection. Restrict ACLs yourself. Protect database, semantic stores, backups, and logs too; never commit `.env` or pass secrets as Docker build arguments.
 
 ## Preference reference
 
@@ -86,4 +86,4 @@ sqlite3 /path/to/tasks.db ".backup '/path/to/tasks-before-upgrade.db'"
 
 Alternatively copy a database only after all application connections have closed; an active database may have journal/WAL files and cannot safely be backed up by blindly copying one file. Back up semantic stores separately while their SDK clients are closed, and protect configuration/secrets separately. Restore with the application stopped, retain the original backup, and use a compatible application version. A SQLite backup alone is not a full semantic/provider-history backup.
 
-`restartDB` preserves data while initializing/migrating. **`restartDB --delete` deletes the selected SQLite file**; it is not a secure erasure feature or a semantic-store reset. Deleting edges makes database pages reusable but does not automatically shrink the file.
+`restartDB` preserves data while initializing/migrating. **`restartDB --delete` requires confirmation before deleting the selected SQLite file**; it is not a secure erasure feature or a semantic-store reset. Deleting edges makes database pages reusable but does not automatically shrink the file.

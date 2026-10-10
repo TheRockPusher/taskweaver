@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
+from urllib.parse import parse_qs, urlsplit
 from uuid import UUID
 
 import pytest
@@ -364,3 +365,65 @@ def test_research_import_persists_to_request_database_and_propagates_errors(
     with pytest.raises(GithubException) as raised:
         research.github_import_tool(ctx, ["owner/repo"])
     assert raised.value is error
+
+
+def test_repository_alias_selection_pulls_canonical_mapping(db_path: Path, api: GitHubAPI) -> None:
+    api.add(1)
+    service = GitHubIssueSyncService(db_path, client=api.client)
+    task_id = service.import_issues(["old-owner/repo"]).task_ids[0]
+    api.issues[1].update(state="closed", state_reason="completed")
+    result = service.sync(["old-owner/repo"])
+    assert result.updated == 1
+    assert result.task_ids == [task_id]
+    assert stored(db_path, task_id).status is TaskStatus.COMPLETED
+    assert api.writes == []
+
+
+def test_paginated_import_excludes_prs_on_every_page(
+    db_path: Path, api: GitHubAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api.add(1)
+    api.add(2, pull_request={"url": "https://api.github.com/repos/owner/repo/pulls/2"})
+    api.add(3)
+
+    def paginated(method, url, parameters=None, input=None, **kwargs):  # noqa: A002
+        parsed = urlsplit(url)
+        if method == "GET" and parsed.path.endswith("/issues"):
+            api.calls.append((method, url, input))
+            if parse_qs(parsed.query).get("page") == ["2"]:
+                return {}, [dict(api.issues[3])]
+            return (
+                {"link": '<https://api.github.com/repos/owner/repo/issues?page=2>; rel="next"'},
+                [dict(api.issues[1]), dict(api.issues[2])],
+            )
+        return api.request(method, url, parameters=parameters, input=input, **kwargs)
+
+    requester = api.client.get_repo("owner/repo", lazy=True).requester
+    monkeypatch.setattr(requester, "requestJsonAndCheck", paginated)
+    service = GitHubIssueSyncService(db_path, client=api.client)
+    first = service.import_issues(["owner/repo"])
+    repeated = service.import_issues(["owner/repo"])
+    assert first.imported == 2
+    assert repeated.imported == 0
+    assert repeated.unchanged == 2
+    assert set(first.task_ids) == set(repeated.task_ids)
+    assert {task.title for task in TaskRepository(db_path).list_tasks()} == {"Issue 1", "Issue 3"}
+
+
+def test_content_conflict_does_not_authorize_content_push_or_block_unconflicted_status(
+    db_path: Path, api: GitHubAPI
+) -> None:
+    api.add(1)
+    service = GitHubIssueSyncService(db_path, client=api.client)
+    task_id = service.import_issues(["owner/repo"]).task_ids[0]
+    TaskRepository(db_path).update_task(task_id, TaskUpdate(title="Local title", status=TaskStatus.COMPLETED))
+    api.issues[1]["title"] = "Remote title"
+    result = service.sync(push=True)
+    assert result.pushed == 1
+    assert len(result.conflicts) == 1
+    assert stored(db_path, task_id).title == "Local title"
+    assert api.issues[1]["title"] == "Remote title"
+    assert api.writes == [{"state": "closed", "state_reason": "completed"}]
+    repeated = service.sync(push=True)
+    assert repeated.pushed == 0
+    assert repeated.conflicts == result.conflicts

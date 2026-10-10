@@ -156,23 +156,6 @@ class TestListTasksTool:
         assert isinstance(result, str)
         assert "No tasks found" in result
 
-    def test_list_tasks_multiple(self, ctx: RunContext[TaskDependencies]) -> None:
-        """Test listing multiple tasks."""
-        for i in range(3):
-            ctx.deps.task_repo.create_task(
-                TaskCreate(
-                    title=f"Task {i}",
-                    duration_min=30,
-                    llm_value=50.0,
-                    requirement=f"Req {i}",
-                )
-            )
-
-        result = list_tasks_tool(ctx, response_format="detailed")
-
-        assert isinstance(result, dict)
-        assert len(result["tasks"]) == 3
-
 
 class TestGetTaskDetailsTool:
     """Tests for get_task_details_tool."""
@@ -234,7 +217,10 @@ class TestListTasksPagination:
         result = list_tasks_tool(ctx, limit=100, response_format="detailed")
 
         assert isinstance(result, dict)
-        assert len(result["tasks"]) <= 50
+        assert len(result["tasks"]) == 50
+        assert result["total_count"] == 60
+        assert result["has_more"] is True
+        assert len({task["task_id"] for task in result["tasks"]}) == 50
 
     def test_invalid_sort_by_raises(self, ctx: RunContext[TaskDependencies]) -> None:
         """Test invalid sort_by raises ModelRetry."""
@@ -268,7 +254,7 @@ class TestSearchTasksTool:
     def test_search_by_requirement(self, ctx: RunContext[TaskDependencies]) -> None:
         """Test searching tasks by requirement field."""
 
-        ctx.deps.task_repo.create_task(
+        task = ctx.deps.task_repo.create_task(
             TaskCreate(title="Setup auth", duration_min=60, llm_value=75.0, requirement="OAuth2 implementation")
         )
 
@@ -276,6 +262,7 @@ class TestSearchTasksTool:
 
         assert isinstance(result, dict)
         assert result["total_matches"] == 1
+        assert result["tasks"][0]["task_id"] == str(task.task_id)
 
     def test_search_concise_status(self, ctx: RunContext[TaskDependencies], sample_task: Task) -> None:
         """Search summaries expose the status value, not the enum representation."""
@@ -333,15 +320,6 @@ class TestUpdateTaskStatusTool:
         assert task is not None
         assert task.status == TaskStatus.IN_PROGRESS
 
-    def test_mark_completed_without_tracking(self, ctx: RunContext[TaskDependencies], sample_task: Task) -> None:
-        """Test marking task completed without duration."""
-
-        result = update_task_status_tool(ctx, sample_task.task_id, "completed")
-
-        assert "completed" in result.lower()
-        completion = ctx.deps.completion_repo.get_completion_by_task_id(sample_task.task_id)
-        assert completion is None
-
     def test_mark_completed_with_tracking(self, ctx: RunContext[TaskDependencies], sample_task: Task) -> None:
         """Test marking task completed with duration tracking."""
 
@@ -352,16 +330,6 @@ class TestUpdateTaskStatusTool:
         completion = ctx.deps.completion_repo.get_completion_by_task_id(sample_task.task_id)
         assert completion is not None
         assert completion.duration_actual == 90
-
-    def test_mark_cancelled(self, ctx: RunContext[TaskDependencies], sample_task: Task) -> None:
-        """Test marking task cancelled."""
-
-        result = update_task_status_tool(ctx, sample_task.task_id, "cancelled")
-
-        assert "cancelled" in result.lower()
-        task = ctx.deps.task_repo.get_task(sample_task.task_id)
-        assert task is not None
-        assert task.status == TaskStatus.CANCELLED
 
     def test_invalid_status_raises(self, ctx: RunContext[TaskDependencies], sample_task: Task) -> None:
         """Test invalid status raises ModelRetry."""

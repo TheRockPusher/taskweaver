@@ -2,6 +2,7 @@
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from sqlite3 import Error as SQLiteError
 from typing import Annotated
@@ -20,6 +21,7 @@ from .database.priority_service import PriorityService, PriorityWeights
 from .database.repository import TaskRepository
 
 console = Console()
+error_console = Console(stderr=True)
 app = typer.Typer(help="Goals, skills, and evidence-based planning")
 goals = typer.Typer(help="Manage goals and linked task progress")
 skills = typer.Typer(help="Record evidence-backed skill assessments")
@@ -45,13 +47,24 @@ def command_errors() -> Iterator[None]:
     """Turn expected domain/storage failures into useful nonzero command errors."""
     try:
         yield
-    except (ValueError, RuntimeError, OSError, SQLiteError, TaskNotFoundError, DependencyError) as exc:
-        console.print(f"Error: {exc}", style="red", markup=False)
+    except (typer.Exit, typer.Abort):
+        raise
+    except (ValueError, RuntimeError, OSError, OverflowError, SQLiteError, TaskNotFoundError, DependencyError) as exc:
+        error_console.print(f"Error: {exc}", style="red", markup=False)
         raise typer.Exit(1) from exc
 
 
+def format_timestamp(value: datetime | None) -> str:
+    """Render minute-precision UTC timestamps, with a dash for missing values."""
+    if value is None:
+        return "—"
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
+
+
 def render_priority(service: PriorityService, task_id: UUID, *, history: bool = True) -> None:
-    """Display exact service contributions, inherited score, trend, and changed events."""
+    """Display service contributions, inherited score, trend, and changed events."""
     explanation = service.explain(task_id)
     console.print(f"MCDA: {explanation['score']:.1f}/100; inherited: {explanation['effective_score']:.1f}/100")
     console.print(
@@ -59,26 +72,28 @@ def render_priority(service: PriorityService, task_id: UUID, *, history: bool = 
         f"learning samples: {explanation['learning_samples']}"
     )
     table = Table(title="Priority components (contributions in score points)")
-    for heading in ("Factor", "Raw", "Normalized", "Weight", "Contribution", "Visual"):
-        table.add_column(heading)
+    for heading in ("Factor", "Raw", "Normalized", "Weight", "Contribution"):
+        table.add_column(heading, no_wrap=True, justify="left" if heading == "Factor" else "right")
     for name, component in explanation["components"].items():
         table.add_row(
             name,
-            repr(component["raw"]),
-            repr(component["normalized"]),
-            repr(component["weight"]),
-            repr(component["contribution"]),
-            "█" * round(component["contribution"] / 2),
+            f"{component['raw']:.2f}",
+            f"{component['normalized']:.3f}",
+            f"{component['weight']:.2f}",
+            f"{component['contribution']:.2f}",
         )
     console.print(table)
-    if history:
-        events = service.history(task_id)
+    if history and (events := service.history(task_id)):
         table = Table(title="Changed-score history")
         table.add_column("Recorded at")
         table.add_column("MCDA")
         table.add_column("Visual")
         for event in events:
-            table.add_row(event["recorded_at"], str(event["score"]), "█" * round(event["score"] / 5))
+            table.add_row(
+                format_timestamp(datetime.fromisoformat(event["recorded_at"])),
+                f"{event['score']:.1f}",
+                "█" * round(event["score"] / 5),
+            )
         console.print(table)
 
 
@@ -103,13 +118,19 @@ def focus(ctx: typer.Context, limit: Annotated[int, typer.Option(min=0)] = 10, d
     with command_errors():
         path = resolve_db(ctx, db_path)
         tasks = PriorityService(path).get_top_priorities(limit, match_skills=True)
+        if not tasks:
+            console.print("[dim]No actionable tasks[/dim]")
         table = Table(title="Actionable focus")
         for heading in ("ID", "Title", "Estimate", "MCDA"):
             table.add_column(heading)
         for task in tasks:
-            table.add_row(str(task.task_id), Text(task.title), f"{task.duration_min}m", str(task.priority_score))
-        console.print(table)
+            score = f"{task.priority_score:.1f}" if task.priority_score is not None else "—"
+            table.add_row(str(task.task_id), Text(task.title), f"{task.duration_min}m", score)
+        if tasks:
+            console.print(table)
         gaps = PlanningService(path).recommendations().learning_gaps
+        if not gaps:
+            return
         table = Table(title="Learning gaps (not actionable work)")
         for heading in ("Task", "Assessed", "Required", "Reason"):
             table.add_column(heading)
@@ -118,7 +139,7 @@ def focus(ctx: typer.Context, limit: Annotated[int, typer.Option(min=0)] = 10, d
             task = repo.get_task(gap.task_id)
             table.add_row(
                 Text(task.title if task else str(gap.task_id)),
-                str(gap.known_level),
+                str(gap.known_level) if gap.known_level is not None else "—",
                 str(gap.required_level),
                 gap.reason,
             )
@@ -174,14 +195,18 @@ def list_goals(ctx: typer.Context, db_path: DB = None) -> None:
     """List goals with progress, excluding cancelled work from the denominator."""
     with command_errors():
         service = PlanningService(resolve_db(ctx, db_path))
+        goals = service.list_goals()
+        if not goals:
+            console.print("[dim]No goals found[/dim]")
+            return
         table = Table(title="Goals")
-        for heading in ("ID", "Title", "Completed/total", "Progress", "Cancelled"):
-            table.add_column(heading)
-        for goal in service.list_goals():
+        table.add_column("Goal", min_width=36, overflow="fold")
+        for heading in ("Done/total", "Progress", "Cancelled"):
+            table.add_column(heading, justify="right")
+        for goal in goals:
             progress = service.goal_progress(goal.goal_id)
             table.add_row(
-                str(goal.goal_id),
-                Text(goal.title),
+                Text(f"{goal.title}\n{goal.goal_id}"),
                 f"{progress.completed}/{progress.total}",
                 f"{progress.fraction:.0%}",
                 str(progress.cancelled),
@@ -243,7 +268,7 @@ def link_goal(
         if (goal_id is None) == (not clear):
             raise ValueError("Specify either --goal-id or --clear")
         task = PlanningService(resolve_db(ctx, db_path)).link_task(task_id, goal_id)
-        console.print(f"Task {task.task_id}: goal {task.goal_id}")
+        console.print(f"Task {task.task_id}: goal {task.goal_id or '—'}")
 
 
 @skills.command(name="set")
@@ -264,9 +289,13 @@ def set_skill(
 def list_skills(ctx: typer.Context, db_path: DB = None) -> None:
     """Show latest evidence-backed assessments."""
     with command_errors():
-        for skill in PlanningService(resolve_db(ctx, db_path)).list_skills():
+        skills = PlanningService(resolve_db(ctx, db_path)).list_skills()
+        if not skills:
+            console.print("[dim]No skill assessments found[/dim]")
+            return
+        for skill in skills:
             console.print(
-                f"{skill.domain}: level {int(skill.level)}; {skill.assessed_at.isoformat()}; {skill.evidence}",
+                f"{skill.domain}: level {int(skill.level)}; {format_timestamp(skill.assessed_at)}; {skill.evidence}",
                 markup=False,
             )
 
@@ -275,8 +304,14 @@ def list_skills(ctx: typer.Context, db_path: DB = None) -> None:
 def skill_history(ctx: typer.Context, domain: str, db_path: DB = None) -> None:
     """Show chronological evidence and corrections for one domain."""
     with command_errors():
-        for skill in PlanningService(resolve_db(ctx, db_path)).skill_history(domain):
-            console.print(f"{skill.assessed_at.isoformat()}: level {int(skill.level)}; {skill.evidence}", markup=False)
+        history = PlanningService(resolve_db(ctx, db_path)).skill_history(domain)
+        if not history:
+            console.print("[dim]No skill assessments found[/dim]")
+            return
+        for skill in history:
+            console.print(
+                f"{format_timestamp(skill.assessed_at)}: level {int(skill.level)}; {skill.evidence}", markup=False
+            )
 
 
 @app.command()
@@ -291,6 +326,9 @@ def insights(
         service = PlanningService(resolve_db(ctx, db_path))
         observed = {insight.category: insight for insight in service.insights()}
         categories = [category] if category is not None else list(observed)
+        if not categories:
+            console.print("[dim]No completion evidence yet[/dim]")
+            return
         table = Table(title="Category duration evidence (MAD is ratio dispersion)")
         for heading in ("Category", "Raw → adjusted", "Multiplier", "Samples", "Median", "MAD", "Automatic"):
             table.add_column(heading)
@@ -300,11 +338,13 @@ def insights(
             table.add_row(
                 Text(name),
                 f"{baseline}m → {estimate.adjusted_minutes}m",
-                str(estimate.multiplier),
+                f"{estimate.multiplier:.2f}",
                 str(estimate.sample_count),
-                str(confidence.median_ratio),
-                str(confidence.median_absolute_deviation),
-                str(confidence.automatic_adjustment),
+                f"{confidence.median_ratio:.2f}" if confidence.median_ratio is not None else "—",
+                f"{confidence.median_absolute_deviation:.2f}"
+                if confidence.median_absolute_deviation is not None
+                else "—",
+                "yes" if confidence.automatic_adjustment else "no",
             )
             if name in observed:
                 insight = observed[name]
@@ -327,6 +367,9 @@ def analysis(
         console.print(
             " → ".join(f"{task.task_id} ({task.duration_min}m)" for task in result.critical_path) or "(empty)"
         )
+        if not result.quick_wins:
+            console.print("[dim]No ready quick wins[/dim]")
+            return
         table = Table(title=f"Ready quick wins (≤{max_minutes}m; CD3, not MCDA)")
         for heading in ("ID", "Title", "Duration", "Value/min"):
             table.add_column(heading)
@@ -337,10 +380,10 @@ def analysis(
 
 @weights.command(name="show")
 def show_weights(ctx: typer.Context, db_path: DB = None) -> None:
-    """Display current exact MCDA weights."""
+    """Display current MCDA weights to six decimal places."""
     with command_errors():
         for name, weight in PriorityService(resolve_db(ctx, db_path)).weights.model_dump().items():
-            console.print(f"{name}: {weight}")
+            console.print(f"{name}: {weight:.6f}")
 
 
 @weights.command(name="set")

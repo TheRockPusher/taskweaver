@@ -38,7 +38,9 @@ tw --db ./work.db complete TASK_UUID --actual 45 --conclusion "Ready for review"
 tw --db ./work.db insights --category coding --baseline 30
 ```
 
-Root `--db` sets the command default; command-local `--db` overrides it. `edit` preserves omitted fields; `--clear-description`, `--clear-goal`, `--clear-domain`, and `--clear-required-skill-level` explicitly remove nullable values. Other commands include `rm`, `lso`, `blocker`, `rmdep`, `cancel`, `score`, `recalc-priorities`, `weights show/set`, and goals/skills history and management. Cancellation without actual time is not duration evidence.
+Root `--db` sets the command default; command-local `--db` overrides it. `edit` preserves omitted fields; `--clear-description`, `--clear-goal`, `--clear-domain`, and `--clear-required-skill-level` explicitly remove nullable values. Other commands include `rm`, `lso`, `blocker`, `rmdep`, `cancel`, `score`, `recalc-priorities`, `weights show/set`, goal management, and `skills history`. Cancellation without actual time is not duration evidence.
+
+CLI timestamps are displayed in UTC to minute precision; estimates distinguish adjusted working time from the original raw baseline. Priority tables round displayed components for readability without changing stored scores.
 
 ### Planning, priority, and learning
 
@@ -62,7 +64,7 @@ Five views share the same SQLite/services as the CLI:
 | `4` | Chat | Optional AI and local slash commands |
 | `5` | Insights | Goals, skill evidence, learning gaps, duration confidence, quick wins |
 
-`Ctrl+Tab` cycles views; `j/k` move, `Enter` opens detail, `Space` starts/pauses, `n/e` create/edit, `c/x` complete/cancel, `d` edits dependencies, `f` toggles focus, `g` creates a goal, `s` records a skill assessment, `r` refreshes, and `q`/`Ctrl+C` quit. Chat uses `Ctrl+Enter` or `F2` to send. Text editing and modal dialogs take precedence over workspace shortcuts. Selection is retained by task identity across refreshes.
+`Ctrl+Tab` cycles views; `j/k` move, `Enter` opens detail, `Space` starts/pauses, `n/e` create/edit, `c/x` complete/cancel, `d` edits dependencies, `f` toggles focus, `g` creates a goal, `s` records a skill assessment, `r` refreshes, and `q`/`Ctrl+C` quit. Chat uses `Ctrl+Enter` or `F2` to send. Text editing and modal dialogs take precedence over workspace shortcuts. Selection is retained by task identity across refreshes. Database reads, saves, and local slash commands run off the UI loop, so the workspace stays responsive. The Board stacks its status columns 2×2 below 100 terminal columns.
 
 MCDA colors are red at ≥70, yellow at ≥40, and green below 40; numeric values remain visible, including when `NO_COLOR` disables colors. Completion dialogs require actual minutes rather than silently using estimates. Cancelling with unknown actual time leaves the actual field blank and records no completion-learning sample; a conclusion requires an actual duration.
 
@@ -76,6 +78,8 @@ MCDA colors are red at ≥70, yellow at ≥40, and green below 40; numeric value
 - `/focus`, `/help [command]`, `/memories [CATEGORY]` are local.
 - `/github [OWNER/REPO ...]` imports issues; never pushes.
 - `/remember [--category CATEGORY] [--expires ISO_TIMESTAMP] KEY=VALUE` and `/forget KEY` explicitly manage facts.
+
+Structured arguments to `/forget`, `/review`, `/github`, and `/remember` accept shell-style quoting; `/plan` and `/breakdown` take their prose verbatim.
 
 Unknown commands and malformed arguments fail locally. Command-specific instructions apply only to their invocation; ordinary conversation history is retained. Planning, breakdown, review, and ordinary conversation require a configured model. Provider failures are reported, not represented as successful work. Numerical tools use bounded arithmetic, not model guesses; see the [calculator reference](.agents/plans/add-calculator-tool-for-agents.md).
 
@@ -92,13 +96,13 @@ tw github sync OWNER/REPO --push
 
 Durable repository/issue mappings make repeated pulls idempotent. Pulls reconcile title, description, and status against the last common snapshot, retaining divergent edits as reported conflicts (nonzero CLI exit). Local planning fields remain local. Explicit `--push` writes only unconflicted status changes—not titles, descriptions, comments, or new issues. Public reads can be anonymous; authenticated operations use `GH_TOKEN` or `GITHUB_TOKEN`. Inspect conflicts and resolve the underlying field before retrying. No authenticated remote-write validation is claimed here.
 
-With `github_repos` configured, the TUI imports open issues and pulls mapped issues on startup and periodically (default 3,600 seconds; minimum configurable interval 30 seconds). Automatic sync is **read-only**, skips overlapping work, and runs in an owned cancellable process so exit does not wait on remote backoff. It never substitutes for explicit push authorization.
+With `github_repos` configured, the TUI imports open issues and pulls mapped issues on startup and periodically (default 3,600 seconds; minimum configurable interval 30 seconds). Automatic sync is **read-only**, skips overlapping work, and runs in an owned cancellable process so exit does not wait on remote backoff; an explicit `/github` import in the Chat view uses the same cancellable process. It never substitutes for explicit push authorization.
 
 ## Architecture and data safety
 
 Typer CLI and Textual TUI → shared planning/priority/memory/GitHub services → repositories → SQLite. PydanticAI orchestrates task and research agents only on demand; delegated runs share the request's event loop and model, and model transports close after each turn. TOML preferences and environment credentials select request-time providers; Mem0/Qdrant and Langfuse are opt-in boundaries, not startup requirements. Enabled semantic memory in the TUI uses an owned cancellable process to keep provider waits off the UI loop.
 
-See [CONFIG.md](CONFIG.md) for native OS paths, anonymous local endpoints, credential permissions, optional memory/observability, schema migration, and backups. Schema 6 upgrades older databases including v4/v5 while preserving data; newer unsupported schemas are refused. Make an explicit backup before upgrade. `restartDB` initializes/migrates; **`restartDB --delete` destroys the selected database**.
+See [CONFIG.md](CONFIG.md) for native OS paths, anonymous local endpoints, credential permissions, optional memory/observability, schema migration, and backups. Schema 6 upgrades older databases including v4/v5 while preserving data; newer unsupported schemas are refused. Make an explicit backup before upgrade. `restartDB` initializes/migrates; **`restartDB --delete` destroys the selected database after confirmation**.
 
 ### Docker
 

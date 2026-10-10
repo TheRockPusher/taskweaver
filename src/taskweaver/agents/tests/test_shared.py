@@ -7,7 +7,7 @@ import pytest
 from pydantic_ai import Agent
 from pydantic_ai.exceptions import UserError
 
-from taskweaver.agents.shared import create_agent, get_model, load_prompt
+from taskweaver.agents.shared import create_agent, get_model
 from taskweaver.config import get_config, get_paths
 
 
@@ -31,11 +31,6 @@ def provider_config(monkeypatch, tmp_path):
     yield config_file
     get_config.cache_clear()
     get_paths.cache_clear()
-
-
-def test_missing_prompt_is_actionable():
-    with pytest.raises(FileNotFoundError):
-        load_prompt("missing-prompt.md")
 
 
 @pytest.mark.asyncio

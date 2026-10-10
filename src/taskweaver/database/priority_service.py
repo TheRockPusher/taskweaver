@@ -11,7 +11,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .connection import DEFAULT_DB_PATH, get_connection
+from .connection import get_connection, get_database_path
 from .exceptions import DependencyError, TaskNotFoundError
 from .models import Task, TaskStatus, TaskWithDependencies
 
@@ -149,10 +149,7 @@ def _valid_snapshot(value: str | None) -> dict[str, float] | None:
     if not isinstance(factors, dict) or set(factors) != set(FACTOR_NAMES):
         return None
     if any(
-        isinstance(value, bool)
-        or not isinstance(value, (float, int))
-        or not math.isfinite(value)
-        or not 0 <= value <= 1
+        isinstance(value, bool) or not isinstance(value, (float, int)) or not 0 <= value <= 1
         for value in factors.values()
     ):
         return None
@@ -171,6 +168,8 @@ def _learn_preferences(conn: sqlite3.Connection) -> None:
         if (factors := _valid_snapshot(row["priority_factors"])) is not None
     ]
     if len(samples) < LEARNING_MINIMUM:
+        if preference:
+            conn.execute("DELETE FROM priority_preferences WHERE singleton = 1")
         return
     # Recompute from current evidence, even at the same count; blend into defaults without cumulative drift.
     baseline = PriorityWeights().model_dump()
@@ -217,7 +216,7 @@ def _persist(conn: sqlite3.Connection, snapshot: _Snapshot, keys: list[str]) -> 
 
 
 def refresh_priorities(conn: sqlite3.Connection) -> int:
-    """Refresh changed active scores and learning atomically, without opening or committing connections."""
+    """Refresh changed active scores and learning atomically, restoring defaults below twenty samples."""
     _learn_preferences(conn)
     snapshot = _Snapshot(conn, _load_weights(conn))
     return _persist(conn, snapshot, snapshot.selected(None))
@@ -226,8 +225,8 @@ def refresh_priorities(conn: sqlite3.Connection) -> int:
 class PriorityService:
     """Calculate MCDA scores without reads causing history or preference side effects."""
 
-    def __init__(self, db_path: Path = DEFAULT_DB_PATH, weights: PriorityWeights | None = None) -> None:
-        self.db_path = db_path
+    def __init__(self, db_path: Path | None = None, weights: PriorityWeights | None = None) -> None:
+        self.db_path = db_path if db_path is not None else get_database_path()
         if weights is not None:
             self.adjust_weights(weights)
 

@@ -11,7 +11,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from .cli_planning import DB, command_errors, resolve_db
+from .cli_planning import DB, command_errors, error_console, format_timestamp, resolve_db
 from .config import get_config
 
 if TYPE_CHECKING:
@@ -46,7 +46,8 @@ def memory_options(
     user: Annotated[str | None, typer.Option(help="Override configured user identity")] = None,
 ) -> None:
     """Select the configured user or an explicit identity for this command group."""
-    ctx.obj = {"user": user if user is not None else get_config().user_id}
+    with command_errors():
+        ctx.obj = {"user": user if user is not None else get_config().user_id}
 
 
 @contextmanager
@@ -77,6 +78,9 @@ def _expiry(value: str | None) -> datetime | None:
 
 
 def _print_facts(facts: list["MemoryFact"]) -> None:
+    if not facts:
+        console.print("[dim]No current memory facts[/dim]")
+        return
     table = Table(title="Explicit memory facts")
     for name in ("Key", "Value", "Category", "Version", "Expires"):
         table.add_column(name)
@@ -86,7 +90,7 @@ def _print_facts(facts: list["MemoryFact"]) -> None:
             Text(fact.value),
             fact.category,
             str(fact.version),
-            fact.expires_at.isoformat() if fact.expires_at else "Never",
+            format_timestamp(fact.expires_at) if fact.expires_at else "Never",
         )
     console.print(table)
 
@@ -157,10 +161,14 @@ def expire_memories(ctx: typer.Context, db_path: DB = None) -> None:
 def list_semantic(ctx: typer.Context, db_path: DB = None) -> None:
     """List provider memory IDs for deliberate correction/removal (requires opt-in)."""
     with command_errors(), memory_service(ctx, db_path, semantic=True) as service:
+        records = service.list_semantic()
+        if not records:
+            console.print("[dim]No semantic memories[/dim]")
+            return
         table = Table(title="Semantic memory IDs")
         table.add_column("ID")
         table.add_column("Value")
-        for record in service.list_semantic():
+        for record in records:
             table.add_row(Text(record.id), Text(record.value))
         console.print(table)
 
@@ -199,7 +207,7 @@ def github_errors() -> Iterator[None]:
     try:
         yield
     except (GithubException, RequestException, HTTPError) as exc:
-        console.print(f"GitHub error: {exc}", style="red", markup=False)
+        error_console.print(f"GitHub error: {exc}", style="red", markup=False)
         raise typer.Exit(1) from exc
 
 

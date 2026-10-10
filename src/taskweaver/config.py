@@ -73,7 +73,7 @@ class XDGPaths:
 
     @staticmethod
     def _directory(path: Path) -> Path:
-        path.mkdir(parents=True, exist_ok=True)
+        path.mkdir(parents=True, exist_ok=True, mode=0o700)
         return path
 
     @property
@@ -155,11 +155,13 @@ def _load_env_file() -> None:
     for key, old_value in _loaded_env.items():
         if key not in values and os.environ.get(key) == old_value:
             os.environ.pop(key, None)
+    loaded: dict[str, str] = {}
     for key, value in values.items():
         if key not in os.environ or os.environ[key] == _loaded_env.get(key):
             os.environ[key] = value
+            loaded[key] = value
     _loaded_env.clear()
-    _loaded_env.update(values)
+    _loaded_env.update(loaded)
 
 
 class Config(BaseModel):
@@ -212,9 +214,14 @@ def get_config() -> Config:
     data: dict = {}
     for file in files:
         if file.is_file():
-            with file.open("rb") as stream:
-                values = tomllib.load(stream)
-            if values.get("database_file"):
+            try:
+                with file.open("rb") as stream:
+                    values = tomllib.load(stream)
+            except tomllib.TOMLDecodeError as exc:
+                raise ValueError(f"Invalid configuration in {file}: {exc}") from exc
+            if "database_file" in values:
+                if not isinstance(values["database_file"], str) or not values["database_file"].strip():
+                    raise ValueError(f"Invalid configuration in {file}: database_file must be a nonempty path string")
                 database = Path(values["database_file"]).expanduser()
                 values["database_file"] = database if database.is_absolute() else (file.parent / database).resolve()
             data.update(values)

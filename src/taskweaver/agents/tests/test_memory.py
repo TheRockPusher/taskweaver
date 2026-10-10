@@ -463,3 +463,44 @@ def test_explicit_backend_removal_can_resume_after_failure(memory_path: Path) ->
     backend.unavailable = False
     assert service.forget_semantic(fact.backend_id)
     assert backend.records == []
+
+
+@pytest.mark.parametrize("mutation", ["forget", "update"])
+def test_search_never_returns_fact_changed_during_provider_request(memory_path: Path, mutation: str) -> None:
+    class ChangingStore(SemanticStore):
+        def search(self, query: str, *, user_id: str, limit: int) -> dict[str, list[dict[str, object]]]:
+            response = super().search(query, user_id=user_id, limit=limit)
+            local_service = MemoryService(memory_path)
+            if mutation == "forget":
+                local_service.forget("drink")
+            else:
+                local_service.update("drink", "coffee")
+            return response
+
+    service = MemoryService(memory_path, semantic_backend=ChangingStore())
+    service.remember("drink", "tea")
+    assert [fact.value for fact in service.search("drink")] == ([] if mutation == "forget" else ["coffee"])
+
+
+@pytest.mark.parametrize("metadata", [{"key": "trip", "version": 1, "user_id": "default"}, {}])
+def test_local_expiry_remains_authoritative_when_backend_omits_it(
+    memory_path: Path, metadata: dict[str, object]
+) -> None:
+    backend = SemanticStore()
+    service = MemoryService(memory_path, semantic_backend=backend)
+    service.remember("trip", "old itinerary", expires_at=datetime(2000, 1, 1, tzinfo=UTC))
+    backend.records[0]["metadata"] = metadata
+    assert service.list_semantic() == []
+
+
+def test_invalid_correction_expiry_does_not_tombstone_semantic_fact(memory_path: Path) -> None:
+    backend = SemanticStore()
+    backend.add("original", user_id="default", metadata={}, infer=False)
+    service = MemoryService(memory_path, semantic_backend=backend)
+    with pytest.raises(ValueError, match="UTC date range"):
+        service.correct_semantic(
+            "1", "replacement", "corrected", expires_at=datetime.fromisoformat("0001-01-01T00:00:00+01:00")
+        )
+    assert [record.value for record in service.list_semantic()] == ["original"]
+    assert backend.deleted == []
+    assert service.list_facts() == []

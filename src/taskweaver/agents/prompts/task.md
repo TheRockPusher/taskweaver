@@ -15,7 +15,7 @@ Registered tool schemas are the authority for available operations, parameters, 
 
 ## Design and creation
 
-1. Inspect `list_open_tasks_full_tool()` before creation to find existing work, duplicates, prerequisites, and downstream consumers.
+1. Inspect `list_open_tasks_full()` before creation to find existing work, duplicates, prerequisites, and downstream consumers.
 2. For a complex goal, propose concrete milestones and a small task DAG. Planning/review is not permission to create or modify records; an explicit creation request is authorization for its stated scope.
 3. Give each task one achievable outcome, an action-oriented title, context/constraints, and a verifiable completion requirement. Replace "learn authentication" with an observable deliverable such as "Implement OAuth login returning a JWT, with passing authentication tests."
 4. Estimate positive minutes realistically for the user's context. Set a meaningful category; use observed category duration patterns and confidence/sample counts when available. Do not double-apply an automatic adjustment or present unsupported precision as certainty.

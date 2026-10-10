@@ -3,6 +3,7 @@
 import sqlite3
 from datetime import UTC, datetime
 from enum import IntEnum
+from fractions import Fraction
 from heapq import heapify, heappop, heappush
 from math import ceil
 from pathlib import Path
@@ -12,9 +13,9 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, Field
 
 from .completion_repository import CompletionRepository
-from .connection import DEFAULT_DB_PATH, get_connection
+from .connection import get_connection, get_database_path
 from .exceptions import DependencyError, TaskNotFoundError
-from .models import Completion, CompletionStatus, Task, TaskUpdate, TaskWithDependencies
+from .models import SQLITE_MAX_INTEGER, Completion, CompletionStatus, Task, TaskUpdate, TaskWithDependencies
 from .priority_service import _load_weights, _Snapshot
 
 MINIMUM_DURATION_SAMPLES = 3
@@ -102,11 +103,11 @@ class EstimateConfidence(BaseModel):
 
 
 class DurationEstimate(BaseModel):
-    """A category multiplier applied once to the caller's raw baseline."""
+    """A category multiplier applied once to the caller's raw baseline, within SQLite's integer range."""
 
     category: str
-    baseline_minutes: int
-    adjusted_minutes: int
+    baseline_minutes: int = Field(ge=1, le=SQLITE_MAX_INTEGER)
+    adjusted_minutes: int = Field(ge=1, le=SQLITE_MAX_INTEGER)
     multiplier: float
     sample_count: int
     confidence: EstimateConfidence
@@ -131,6 +132,8 @@ def estimate_duration(conn: sqlite3.Connection, category: str, baseline_minutes:
 
     Returns:
         Rounded-up adjusted minutes and descriptive count/median/dispersion evidence.
+        Ratios remain exact until rounding so whole-minute results are not inflated
+        by floating-point error, and unadjusted large baselines retain every minute.
     """
     if baseline_minutes < 1:
         raise ValueError("Baseline duration must be positive")
@@ -140,20 +143,20 @@ def estimate_duration(conn: sqlite3.Connection, category: str, baseline_minutes:
         "AND duration_actual > 0 AND raw_duration_min > 0",
         (category,),
     ).fetchall()
-    ratios = [row[0] / row[1] for row in rows]
-    center = float(median(ratios)) if ratios else None
+    ratios = [Fraction(row[0], row[1]) for row in rows]
+    center = median(ratios) if ratios else None
     dispersion = float(median(abs(ratio - center) for ratio in ratios)) if center is not None else None
     automatic = len(ratios) >= MINIMUM_DURATION_SAMPLES
-    multiplier = center if automatic and center is not None else 1.0
+    multiplier = center if automatic and center is not None else Fraction(1)
     return DurationEstimate(
         category=category,
         baseline_minutes=baseline_minutes,
         adjusted_minutes=max(1, ceil(baseline_minutes * multiplier)),
-        multiplier=multiplier,
+        multiplier=float(multiplier),
         sample_count=len(ratios),
         confidence=EstimateConfidence(
             sample_count=len(ratios),
-            median_ratio=center,
+            median_ratio=float(center) if center is not None else None,
             median_absolute_deviation=dispersion,
             automatic_adjustment=automatic,
         ),
@@ -176,8 +179,8 @@ def skill_levels(conn: sqlite3.Connection) -> dict[str, int]:
 class PlanningService:
     """Persistent goals and assessed skills, plus completion-based duration learning."""
 
-    def __init__(self, db_path: Path = DEFAULT_DB_PATH) -> None:
-        self.db_path = db_path
+    def __init__(self, db_path: Path | None = None) -> None:
+        self.db_path = db_path if db_path is not None else get_database_path()
 
     def create_goal(self, title: str, description: str | None = None) -> Goal:
         """Create a goal without implicitly creating or attaching tasks."""

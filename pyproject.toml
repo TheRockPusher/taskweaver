@@ -89,7 +89,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "src"]
+testpaths = ["src/taskweaver"]
 asyncio_mode = "auto"
 addopts = [
     "--import-mode=importlib",

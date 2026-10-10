@@ -75,6 +75,8 @@ def test_offline_setup_refreshes_cached_database_without_env(monkeypatch, wizard
     assert get_config().database_file == database
     assert get_paths().database_file == database != previous
     assert not get_paths().env_file.exists()
+    if os.name != "nt":
+        assert stat.S_IMODE(get_paths().config_dir.stat().st_mode) == 0o700
 
 
 @pytest.mark.parametrize(
@@ -215,3 +217,14 @@ def test_local_memory_without_embedding_service_does_not_persist(monkeypatch, wi
     )
     assert setup.run_first_time_setup() is False
     assert setup.check_configuration() is False
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX modes are not Windows ACLs")
+@pytest.mark.usefixtures("wizard")
+def test_new_configuration_directory_is_private_with_permissive_umask():
+    previous = os.umask(0o022)
+    try:
+        directory = get_paths().config_dir
+    finally:
+        os.umask(previous)
+    assert stat.S_IMODE(directory.stat().st_mode) == 0o700

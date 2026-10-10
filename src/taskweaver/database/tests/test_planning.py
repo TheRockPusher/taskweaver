@@ -371,3 +371,44 @@ def test_ready_work_inherits_urgent_downstream_score_until_goal_closes(
         independent.task_id,
         blocker.task_id,
     ]
+
+
+@pytest.mark.parametrize(("baseline", "actual", "expected"), [(100, 110, 110), (100, 101, 101), (60, 80, 80)])
+def test_exact_ratios_do_not_add_phantom_minutes(planning, task_repo, baseline, actual, expected):
+    for _ in range(3):
+        task = make_task(task_repo, "exact", duration_min=baseline)
+        planning.complete_task(task.task_id, actual)
+    estimate = planning.estimate("exact", baseline)
+    assert estimate.adjusted_minutes == expected
+    task = make_task(task_repo, "exact", duration_min=baseline)
+    assert task.duration_min == expected
+    assert task.raw_duration_min == baseline
+
+
+def test_large_unadjusted_baseline_preserves_minutes(planning, task_repo):
+    baseline = 2**53 + 1
+    assert planning.estimate("large", baseline).adjusted_minutes == baseline
+    task = make_task(task_repo, "large", duration_min=baseline)
+    assert task.duration_min == baseline
+
+
+def test_mixed_legacy_and_aware_timestamps_rank_ready_work(planning, task_repo, temp_db):
+    older = make_task(task_repo, duration_min=30)
+    newer = make_task(task_repo, duration_min=30)
+    with get_connection(temp_db) as conn, conn:
+        conn.execute("UPDATE tasks SET created_at='2025-01-01 12:00:00' WHERE task_id=?", (str(older.task_id),))
+        conn.execute("UPDATE tasks SET created_at='2025-01-02T12:00:00+00:00' WHERE task_id=?", (str(newer.task_id),))
+    analysis = planning.work_analysis()
+    assert [task.task_id for task in analysis.critical_path] == [older.task_id]
+    assert [task.task_id for task in analysis.quick_wins] == [older.task_id, newer.task_id]
+    assert [task.task_id for task in planning.recommendations().ready] == [older.task_id, newer.task_id]
+
+
+def test_adjustment_overflow_does_not_create_partial_task(planning, task_repo):
+    for _ in range(3):
+        task = make_task(task_repo, "overflow", duration_min=1)
+        planning.complete_task(task.task_id, 2**63 - 1)
+    with pytest.raises(ValidationError, match="adjusted_minutes"):
+        make_task(task_repo, "overflow", duration_min=2)
+    assert len(task_repo.list_tasks()) == 3
+    assert planning.estimate("overflow", 1).adjusted_minutes == 2**63 - 1

@@ -4,6 +4,7 @@ import json
 import shlex
 from dataclasses import dataclass
 from datetime import datetime
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from taskweaver.config import Config
@@ -12,6 +13,9 @@ from taskweaver.database.priority_service import PriorityService
 
 from .dependencies import TaskDependencies
 from .memory import CATEGORIES, MemoryService
+
+if TYPE_CHECKING:
+    from .github_issues import SyncResult
 
 
 class CommandError(ValueError):
@@ -80,6 +84,28 @@ def command_help(name: str | None = None) -> str:
     return "Slash commands:\n\n" + "\n".join(f"- `{spec.usage}` — {spec.description}" for spec in COMMANDS.values())
 
 
+def _structured_argument(name: str, argument: str) -> str:
+    """Decode shell quoting for local command operands, not free-form prose."""
+    try:
+        tokens = shlex.split(argument)
+    except ValueError as exc:
+        raise CommandError(f"Invalid quoting: {exc}") from exc
+    if name in {"review", "help", "memories"} and len(tokens) > 1:
+        raise CommandError(f"Usage: {COMMANDS[name].usage}")
+    if name == "github":
+        for repo in tokens:
+            owner, separator, repository = repo.partition("/")
+            if (
+                not owner
+                or not separator
+                or not repository
+                or "/" in repository
+                or any(character.isspace() for character in repo)
+            ):
+                raise CommandError("GitHub repositories must use OWNER/REPO. Usage: /github [OWNER/REPO ...]")
+    return " ".join(tokens).strip()
+
+
 def parse_command(text: str) -> SlashCommand | None:
     """Parse slash input; reject unknown, incomplete and malformed commands locally."""
     text = text.strip()
@@ -92,6 +118,8 @@ def parse_command(text: str) -> SlashCommand | None:
         raise CommandError(f"Unknown command /{name}. Use /help to see available commands.")
     if argument in {"--help", "-h"}:
         return SlashCommand("help", name)
+    if name not in {"plan", "breakdown", "remember"}:
+        argument = _structured_argument(name, argument)
     if COMMANDS[name].requires_argument and not argument:
         raise CommandError(f"Missing argument. Usage: {COMMANDS[name].usage}")
     if name == "review":
@@ -105,11 +133,6 @@ def parse_command(text: str) -> SlashCommand | None:
         command_help(argument)
     if name == "memories" and argument and argument not in CATEGORIES:
         raise CommandError("Category must be preference, skill, goal or context.")
-    if name == "github" and argument:
-        for repo in argument.split():
-            owner, separator, repository = repo.partition("/")
-            if not owner or not separator or not repository or "/" in repository:
-                raise CommandError("GitHub repositories must use OWNER/REPO. Usage: /github [OWNER/REPO ...]")
     return SlashCommand(name, argument)
 
 
@@ -152,7 +175,8 @@ def _focus(deps: TaskDependencies, planning: PlanningService) -> CommandResult:
     )
     if not recommendations.ready:
         lines.append("- No ready work. Resolve active blockers or skill gaps first.")
-    lines.append("Learning gaps:")
+    # Blank line ends the Markdown list; otherwise the heading renders as list continuation.
+    lines.extend(["", "Learning gaps:"])
     for gap in recommendations.learning_gaps:
         task = deps.task_repo.get_task(gap.task_id)
         if task is not None:
@@ -181,6 +205,10 @@ def _github(argument: str, deps: TaskDependencies, config: Config) -> CommandRes
         ) from exc
     except ValueError as exc:
         raise CommandError(str(exc)) from exc
+    return _github_result(result)
+
+
+def _github_result(result: "SyncResult") -> CommandResult:
     message = (
         f"GitHub import: {result.imported} imported, {result.updated} updated, "
         f"{result.unchanged} unchanged. No changes pushed."
@@ -188,6 +216,22 @@ def _github(argument: str, deps: TaskDependencies, config: Config) -> CommandRes
     if result.conflicts:
         message += "\nConflicts:\n" + "\n".join(result.conflicts)
     return CommandResult(message=message)
+
+
+async def github_command_async(argument: str, deps: TaskDependencies, config: Config) -> CommandResult:
+    """Keep explicit imports cancellable without also syncing closed mapped issues."""
+    from github import GithubException  # noqa: PLC0415
+
+    from .github_sync import GitHubSyncError, run_github_sync  # noqa: PLC0415
+
+    repos = argument.split() if argument else config.github_repos
+    if not repos:
+        raise CommandError("No GitHub repositories configured. Use /github OWNER/REPO or configure github_repos.")
+    try:
+        result = await run_github_sync(deps.task_repo.db_path, repos, import_only=True)
+    except (GithubException, GitHubSyncError, OSError, ValueError) as exc:
+        raise CommandError(str(exc)) from exc
+    return _github_result(result)
 
 
 def _review(argument: str, deps: TaskDependencies, planning: PlanningService) -> CommandResult:

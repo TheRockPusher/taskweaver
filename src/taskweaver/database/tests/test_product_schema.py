@@ -1,6 +1,7 @@
 """Behavioral coverage for durable product data and atomic graph mutations."""
 
 import sqlite3
+import subprocess
 import sys
 from contextlib import closing
 from datetime import UTC, datetime
@@ -20,6 +21,8 @@ from taskweaver.database.connection import get_connection, init_database
 from taskweaver.database.dependency_repository import TaskDependencyRepository
 from taskweaver.database.exceptions import DependencyError, TaskNotFoundError
 from taskweaver.database.models import CompletionCreate, CompletionStatus, Task, TaskCreate, TaskStatus, TaskUpdate
+from taskweaver.database.planning import PlanningService
+from taskweaver.database.priority_service import PriorityService, PriorityWeights
 from taskweaver.database.repository import TaskRepository
 from taskweaver.database.schema import INSERT_TASK, SCHEMA_VERSION
 
@@ -407,7 +410,6 @@ def test_sqlite_usage_does_not_initialize_semantic_backends(tmp_path: Path, monk
 
     monkeypatch.setitem(sys.modules, "mem0", SimpleNamespace(Memory=unavailable))
     monkeypatch.setitem(sys.modules, "qdrant_client", SimpleNamespace(QdrantClient=unavailable))
-    monkeypatch.setattr(connection, "DEFAULT_QDRANT_PATH", tmp_path / "vectors")
     repo = TaskRepository(tmp_path / "sqlite" / "tasks.db")
     task_id = _task(repo)
     assert repo.get_task(task_id) is not None
@@ -483,3 +485,93 @@ def test_mem0_closes_all_resources_even_when_clients_fail(has_history: bool, fai
     if history is not None:
         with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
             history.execute("SELECT 1")
+
+
+@pytest.mark.parametrize("invalid_config", ["[invalid", "database_file = 42"])
+def test_database_import_ignores_invalid_config_with_explicit_path(tmp_path, monkeypatch, invalid_config):
+    (tmp_path / "config.toml").write_text(invalid_config)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "user-config"))
+    database = tmp_path / "explicit.db"
+    subprocess.run(  # noqa: S603 - fixed Python executable/code; only a temporary database path is passed
+        [
+            sys.executable,
+            "-c",
+            "import sys; from pathlib import Path; "
+            "from taskweaver.database.repository import TaskRepository; "
+            "from taskweaver.database.models import TaskCreate; "
+            "TaskRepository(Path(sys.argv[1])).create_task("
+            "TaskCreate(title='Offline import',duration_min=30,llm_value=50,requirement='Done'))",
+            str(database),
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    with closing(sqlite3.connect(database)) as conn:
+        assert conn.execute("SELECT title, duration_min, raw_duration_min FROM tasks").fetchall() == [
+            ("Offline import", 30, 30)
+        ]
+
+
+def test_v5_additive_upgrade_preserves_product_history(tmp_path):
+    database = tmp_path / "v5.db"
+    repo = TaskRepository(database)
+    planning = PlanningService(database)
+    goal = planning.create_goal("Preserved outcome")
+    assessment = planning.set_skill("python", 4, "Delivered tested tools")
+    closed = repo.create_task(
+        TaskCreate(title="Finished", duration_min=30, llm_value=70, requirement="Done", goal_id=goal.goal_id)
+    )
+    event = CompletionRepository(database).complete_task(closed.task_id, 45)
+    active = _task(repo)
+    weights = PriorityWeights(urgency=1, importance=0, effort=0, dependencies=0, age=0)
+    PriorityService(database).adjust_weights(weights)
+    tables = ("tasks", "completion", "goals", "skill_assessments", "priority_preferences", "priority_history")
+    with get_connection(database) as conn, conn:
+        # Schema 6 only adds GitHub mappings to the version-5 product layout.
+        conn.execute("DROP TABLE github_issue_mappings")
+        conn.execute("DELETE FROM schema_version")
+        conn.execute("INSERT INTO schema_version VALUES (5, ?)", (_STAMP,))
+        before = {table: [tuple(row) for row in conn.execute(f"SELECT * FROM {table}")] for table in tables}  # noqa: S608
+    init_database(database)
+    with get_connection(database) as conn:
+        after = {table: [tuple(row) for row in conn.execute(f"SELECT * FROM {table}")] for table in tables}  # noqa: S608
+        assert after == before
+        assert conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 6
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+        assert conn.execute("SELECT COUNT(*) FROM github_issue_mappings").fetchone()[0] == 0
+    assert planning.list_skills() == [assessment]
+    assert CompletionRepository(database).get_completion(event.completion_id) == event
+    assert PriorityService(database).weights == weights
+    planning.delete_goal(goal.goal_id)
+    assert _stored(repo, closed.task_id).goal_id is None
+    assert _stored(repo, active).status == TaskStatus.PENDING
+
+
+@pytest.mark.parametrize("field", ["duration_min", "raw_duration_min"])
+def test_task_duration_rejects_sqlite_overflow(field):
+    with pytest.raises(ValidationError, match=field):
+        TaskCreate.model_validate(
+            {"title": "Too large", "duration_min": 30, "llm_value": 50, "requirement": "Done", field: 2**63}
+        )
+    if field == "duration_min":
+        with pytest.raises(ValidationError, match=field):
+            TaskUpdate(duration_min=2**63)
+
+
+@pytest.mark.parametrize("field", ["duration_expected", "duration_actual", "raw_duration_min"])
+def test_completion_duration_rejects_sqlite_overflow(field):
+    with pytest.raises(ValidationError, match=field):
+        CompletionCreate.model_validate(
+            {"task_id": uuid4(), "status": "completed", "duration_expected": 30, "duration_actual": 30, field: 2**63}
+        )
+
+
+def test_maximum_sqlite_duration_round_trips(task_repo, completion_repo):
+    task = task_repo.create_task(
+        TaskCreate(title="Boundary", duration_min=2**63 - 1, llm_value=100, requirement="Done")
+    )
+    assert _stored(task_repo, task.task_id).duration_min == 2**63 - 1
+    event = completion_repo.complete_task(task.task_id, 2**63 - 1)
+    assert completion_repo.get_completion(event.completion_id) == event

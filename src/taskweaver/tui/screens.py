@@ -1,5 +1,6 @@
 """Scrollable local task workflows; validation stays visible in the form."""
 
+import asyncio
 import sqlite3
 from typing import ClassVar
 from uuid import UUID
@@ -22,6 +23,24 @@ class FormScreen(ModalScreen[object]):
 
     BINDINGS: ClassVar[list[BindingType]] = [("escape", "dismiss", "Close")]
 
+    def __init__(self) -> None:
+        super().__init__()
+        self._values: dict[str, str] = {}
+        self._selections: dict[str, object] = {}
+        self._saving = False
+        self.dialog_title = "TaskWeaver"
+
+    def check_action(self, action: str, _parameters: tuple[object, ...]) -> bool:
+        """Prevent leaving while an off-loop save is still committing."""
+        return not (self._saving and action == "dismiss")
+
+    def on_mount(self) -> None:
+        """Title the dialog and start editing its first input."""
+        self.query_one(".dialog").border_title = f"{self.dialog_title} · Esc to close"
+        inputs = list(self.query(Input))
+        if inputs:
+            inputs[0].focus()
+
     def fields(self) -> ComposeResult:
         """Yield the inputs specific to this form."""
         raise NotImplementedError
@@ -42,19 +61,30 @@ class FormScreen(ModalScreen[object]):
 
     def value(self, name: str) -> str:
         """Read a trimmed input value by its widget identifier."""
-        return self.query_one(f"#{name}", Input).value.strip()
+        return self._values[name]
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Dismiss only after saving succeeds; retain invalid inputs for correction."""
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Capture input on-loop, persist off-loop, and keep failed drafts editable."""
+        if self._saving:
+            return
         if event.button.id == "back":
             self.dismiss()
         elif event.button.id == "save":
+            self._values = {widget.id: widget.value.strip() for widget in self.query(Input) if widget.id}
+            self._selections = {widget.id: widget.value for widget in self.query(Select) if widget.id}
+            self._saving = True
+            for button in self.query(Button):
+                button.disabled = True
             try:
-                result = self.save()
+                result = await asyncio.to_thread(self.save)
             except (ValueError, TaskNotFoundError, DependencyError, sqlite3.Error, OSError) as error:
                 self.query_one("#form-error", Static).update(f"Cannot save: {error}. Correct the fields and retry.")
             else:
                 self.dismiss(result)
+            finally:
+                self._saving = False
+                for button in self.query(Button):
+                    button.disabled = False
 
 
 class TaskFormScreen(FormScreen):
@@ -101,12 +131,17 @@ class TaskFormScreen(FormScreen):
             yield Label(labels[name])
             yield Input(str(value) if value is not None else "", id=f"task-{name}")
         yield Label("Goal (optional)")
-        yield Select(
-            [(goal.title, str(goal.goal_id)) for goal in self.planning.list_goals()],
-            value=str(self.task_data.goal_id) if self.task_data and self.task_data.goal_id else Select.BLANK,
-            prompt="No goal",
-            id="task-goal_id",
-        )
+        yield Select([], prompt="Loading goals…", id="task-goal_id", disabled=True)
+
+    async def on_mount(self) -> None:
+        """Load goal choices without blocking rendering or input."""
+        super().on_mount()
+        goals = await asyncio.to_thread(self.planning.list_goals)
+        selector = self.query_one("#task-goal_id", Select)
+        selector.set_options([(goal.title, str(goal.goal_id)) for goal in goals])
+        selector.prompt = "No goal"
+        selector.value = str(self.task_data.goal_id) if self.task_data and self.task_data.goal_id else Select.BLANK
+        selector.disabled = False
 
     def save(self) -> Task:
         """Validate all task fields and persist explicit optional-field clears."""
@@ -118,7 +153,7 @@ class TaskFormScreen(FormScreen):
         data["llm_value"] = float(self.value("task-llm_value"))
         level = self.value("task-required_skill_level")
         data["required_skill_level"] = int(level) if level else None
-        goal = self.query_one("#task-goal_id", Select).value
+        goal = self._selections["task-goal_id"]
         data["goal_id"] = UUID(str(goal)) if goal is not Select.BLANK else None
         if self.task_data:
             return self.repo.update_task(self.task_data.task_id, TaskUpdate.model_validate(data))
@@ -133,11 +168,17 @@ class CompletionScreen(FormScreen):
         self.planning = planning
         self.task_data = task
         self.status = CompletionStatus.CANCELLED if cancelled else CompletionStatus.COMPLETED
+        self.dialog_title = "Cancel task" if cancelled else "Complete task"
 
     def fields(self) -> ComposeResult:
         """Collect actual effort and an optional learning conclusion."""
-        yield Label(f"{self.status.value.title()}: {self.task_data.title}")
-        yield Label("Actual minutes spent (positive; blank is allowed only for unknown cancelled effort)")
+        action = "Cancel" if self.status == CompletionStatus.CANCELLED else "Complete"
+        yield Label(f"{action}: {self.task_data.title}", markup=False)
+        yield Label(
+            "Actual minutes (positive integer; leave blank if unknown)"
+            if self.status == CompletionStatus.CANCELLED
+            else "Actual minutes spent (required, positive integer)"
+        )
         yield Input(id="actual-minutes")
         yield Label("Conclusion / learning (optional)")
         yield Input(id="conclusion")
@@ -152,6 +193,8 @@ class CompletionScreen(FormScreen):
             return TaskRepository(self.planning.db_path).update_task(
                 self.task_data.task_id, TaskUpdate(status=TaskStatus.CANCELLED)
             )
+        if not actual:
+            raise ValueError("Enter the actual minutes spent before completing the task")
         return self.planning.complete_task(self.task_data.task_id, int(actual), conclusion, self.status)
 
 
@@ -166,30 +209,44 @@ class DependencyScreen(FormScreen):
 
     def fields(self) -> ComposeResult:
         """List eligible blockers and make the edge direction explicit."""
-        yield Label(f"Dependencies for: {self.task_data.title}")
-        blockers = self.dependencies.get_blockers(self.task_data.task_id)
-        yield Static("Current blockers: " + (", ".join(task.title for task in blockers) or "none"), markup=False)
+        yield Label(f"Dependencies for: {self.task_data.title}", markup=False)
+        yield Static("Loading blockers…", id="current-blockers", markup=False)
         yield Label("Arrow direction: selected blocker → this task")
-        yield Select(
-            [
-                (f"{task.title} [{str(task.task_id)[:8]}]", str(task.task_id))
-                for task in self.repo.list_tasks()
-                if task.task_id != self.task_data.task_id and task.status.value in ("pending", "in_progress")
-            ],
-            id="dependency-blocker",
-            prompt="Choose blocker",
-        )
+        yield Select([], id="dependency-blocker", prompt="Choose blocker", disabled=True)
         yield Select(
             [("Add edge", "add"), ("Remove edge", "remove")], value="add", allow_blank=False, id="dependency-operation"
         )
 
+    async def on_mount(self) -> None:
+        """Load dependency choices off-loop and focus the blocker selector."""
+        self.query_one(".dialog").border_title = "TaskWeaver · Esc to close"
+        blockers = await asyncio.to_thread(self.dependencies.get_blockers, self.task_data.task_id)
+        tasks = await asyncio.to_thread(self.repo.list_tasks)
+        self.query_one("#current-blockers", Static).update(
+            "Current blockers: " + (", ".join(task.title for task in blockers) or "none")
+        )
+        selector = self.query_one("#dependency-blocker", Select)
+        selector.set_options(
+            [
+                (f"{task.title} [{str(task.task_id)[:8]}]", str(task.task_id))
+                for task in tasks
+                if task.task_id != self.task_data.task_id
+                and (
+                    task.status in (TaskStatus.PENDING, TaskStatus.IN_PROGRESS)
+                    or task.task_id in {blocker.task_id for blocker in blockers}
+                )
+            ]
+        )
+        selector.disabled = False
+        selector.focus()
+
     def save(self) -> UUID:
         """Apply the selected edge operation through dependency validation."""
-        selected = self.query_one("#dependency-blocker", Select).value
+        selected = self._selections["dependency-blocker"]
         if selected is Select.BLANK:
             raise ValueError("Choose a blocker")
         blocker = UUID(str(selected))
-        operation = self.query_one("#dependency-operation", Select).value
+        operation = self._selections["dependency-operation"]
         if operation == "add":
             self.dependencies.add_dependency(self.task_data.task_id, blocker)
         else:
@@ -241,6 +298,10 @@ class TaskDetailScreen(ModalScreen[None]):
             with VerticalScroll(classes="form-fields"):
                 yield Markdown(self.details, id="task-details")
             yield Button("Close", id="close-button")
+
+    def on_mount(self) -> None:
+        """Title the read-only explanation panel."""
+        self.query_one(".dialog").border_title = "Task details · Esc to close"
 
     def on_button_pressed(self, _event: Button.Pressed) -> None:
         """Close the read-only detail view without modifying task state."""

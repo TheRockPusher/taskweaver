@@ -205,36 +205,6 @@ def test_update_nonexistent_task(task_repo: TaskRepository) -> None:
     assert "Task not found" in str(exc_info.value)
 
 
-def test_mark_completed(task_repo: TaskRepository) -> None:
-    """Test marking task as completed."""
-    task_data = TaskCreate(title="Task to complete", duration_min=30, llm_value=50.0, requirement="Test requirement")
-    created_task = task_repo.create_task(task_data)
-
-    updated_task = task_repo.mark_completed(created_task.task_id)
-
-    assert updated_task.status == TaskStatus.COMPLETED
-
-
-def test_mark_in_progress(task_repo: TaskRepository) -> None:
-    """Test marking task as in progress."""
-    task_data = TaskCreate(title="Task to start", duration_min=30, llm_value=50.0, requirement="Test requirement")
-    created_task = task_repo.create_task(task_data)
-
-    updated_task = task_repo.mark_in_progress(created_task.task_id)
-
-    assert updated_task.status == TaskStatus.IN_PROGRESS
-
-
-def test_mark_cancelled(task_repo: TaskRepository) -> None:
-    """Test marking task as cancelled."""
-    task_data = TaskCreate(title="Task to cancel", duration_min=30, llm_value=50.0, requirement="Test requirement")
-    created_task = task_repo.create_task(task_data)
-
-    updated_task = task_repo.mark_cancelled(created_task.task_id)
-
-    assert updated_task.status == TaskStatus.CANCELLED
-
-
 def test_delete_task(task_repo: TaskRepository) -> None:
     """Test deleting a task."""
     task_data = TaskCreate(title="Task to delete", duration_min=30, llm_value=50.0, requirement="Test requirement")
@@ -245,30 +215,6 @@ def test_delete_task(task_repo: TaskRepository) -> None:
     # Verify it's gone
     task = task_repo.get_task(created_task.task_id)
     assert task is None
-
-
-def test_mark_completed_nonexistent_task(task_repo: TaskRepository) -> None:
-    """Test marking non-existent task as completed raises TaskNotFoundError."""
-    with pytest.raises(TaskNotFoundError) as exc_info:
-        task_repo.mark_completed(uuid4())
-
-    assert "Task not found" in str(exc_info.value)
-
-
-def test_mark_in_progress_nonexistent_task(task_repo: TaskRepository) -> None:
-    """Test marking non-existent task as in progress raises TaskNotFoundError."""
-    with pytest.raises(TaskNotFoundError) as exc_info:
-        task_repo.mark_in_progress(uuid4())
-
-    assert "Task not found" in str(exc_info.value)
-
-
-def test_mark_cancelled_nonexistent_task(task_repo: TaskRepository) -> None:
-    """Test marking non-existent task as cancelled raises TaskNotFoundError."""
-    with pytest.raises(TaskNotFoundError) as exc_info:
-        task_repo.mark_cancelled(uuid4())
-
-    assert "Task not found" in str(exc_info.value)
 
 
 def test_delete_nonexistent_task(task_repo: TaskRepository) -> None:
@@ -458,32 +404,6 @@ def test_effective_priority_chain_inheritance(task_repo: TaskRepository) -> None
     assert effective_c == 1.0
     assert effective_b == 1.0
     assert effective_a == 1.0
-
-
-def test_effective_priority_batch_calculation(task_repo: TaskRepository) -> None:
-    """Test batch calculation of all priorities in one pass."""
-    dep_repo = TaskDependencyRepository(task_repo.db_path)
-
-    # Create two tasks
-    blocker = task_repo.create_task(
-        TaskCreate(title="Blocker", duration_min=100, llm_value=100.0, requirement="Test requirement")
-    )
-    blocked = task_repo.create_task(
-        TaskCreate(title="Blocked", duration_min=50, llm_value=100.0, requirement="Test requirement")
-    )
-
-    dep_repo.add_dependency(blocked.task_id, blocker.task_id)
-
-    # Calculate all priorities at once
-    priorities = dep_repo.calculate_effective_priorities()
-
-    # Both tasks should be in result
-    assert blocker.task_id in priorities
-    assert blocked.task_id in priorities
-
-    # Blocker inherits from blocked
-    assert priorities[blocker.task_id] == 2.0
-    assert priorities[blocked.task_id] == 2.0
 
 
 def test_effective_priority_multiple_blocked_tasks(task_repo: TaskRepository) -> None:

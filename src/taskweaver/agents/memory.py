@@ -79,6 +79,17 @@ class MemoryService:
             raise ValueError("Memory key must not be empty")
         return normalized
 
+    @staticmethod
+    def _expiry(expires_at: datetime | None) -> datetime | None:
+        if expires_at is None:
+            return None
+        if expires_at.tzinfo is None:
+            raise ValueError("Memory expiry must include a timezone")
+        try:
+            return expires_at.astimezone(UTC)
+        except OverflowError as exc:
+            raise ValueError("Memory expiry is outside the supported UTC date range") from exc
+
     def _backend_call(self, call: Callable[[SemanticBackend], object], *, required: bool = False) -> object:
         if self.backend is None:
             if required:
@@ -134,10 +145,7 @@ class MemoryService:
             raise ValueError("Unsupported memory category")
         if not value.strip():
             raise ValueError("Memory value must not be empty")
-        if expires_at is not None:
-            if expires_at.tzinfo is None:
-                raise ValueError("Memory expiry must include a timezone")
-            expires_at = expires_at.astimezone(UTC)
+        expires_at = self._expiry(expires_at)
         now = datetime.now(UTC).isoformat()
         with get_connection(self.db_path) as conn, conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -275,6 +283,7 @@ class MemoryService:
             facts = {
                 row["key"]: row for row in conn.execute("SELECT * FROM memory_facts WHERE user_id=?", (self.user_id,))
             }
+        facts_by_id = {row["backend_id"]: row for row in facts.values() if row["backend_id"]}
         result = []
         for record in self._records(response):
             identifier = str(record.get("id", ""))
@@ -287,6 +296,12 @@ class MemoryService:
                 continue
             if for_management:
                 result.append(SemanticMemory(identifier, str(record.get("memory", "")), metadata))
+                continue
+            local = facts_by_id.get(identifier)
+            if local and (
+                local["deleted"]
+                or (local["expires_at"] and datetime.fromisoformat(local["expires_at"]) <= datetime.now(UTC))
+            ):
                 continue
             expiry = metadata.get("expires_at")
             if expiry is not None:
@@ -352,8 +367,7 @@ class MemoryService:
             raise ValueError("Unsupported memory category")
         if not value.strip():
             raise ValueError("Memory value must not be empty")
-        if expires_at is not None and expires_at.tzinfo is None:
-            raise ValueError("Memory expiry must include a timezone")
+        expires_at = self._expiry(expires_at)
         if not self._tombstone_semantic(identifier):
             raise ValueError("Semantic memory is not visible to this user")
         corrected = self.remember(key, value, category, expires_at)
@@ -364,12 +378,13 @@ class MemoryService:
         """Retrieve current explicit facts lexically and by optional semantic IDs."""
         if limit <= 0:
             return []
-        facts = self.list_facts()
-        terms = query.casefold().split()
-        lexical = [fact for fact in facts if all(term in f"{fact.key} {fact.value}".casefold() for term in terms)]
+        # Read authoritative local values after potentially blocking provider work.
         records = self._visible_semantic(
             self._backend_call(lambda backend: backend.search(query, user_id=self.user_id, limit=limit))
         )
+        facts = self.list_facts()
+        terms = query.casefold().split()
+        lexical = [fact for fact in facts if all(term in f"{fact.key} {fact.value}".casefold() for term in terms)]
         ids = {record.id for record in records}
         return (lexical + [fact for fact in facts if fact.backend_id in ids and fact not in lexical])[:limit]
 

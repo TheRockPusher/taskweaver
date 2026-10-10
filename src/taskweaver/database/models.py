@@ -4,7 +4,9 @@ from datetime import UTC, datetime
 from enum import Enum
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+SQLITE_MAX_INTEGER = 2**63 - 1
 
 
 class TaskStatus(str, Enum):
@@ -28,9 +30,9 @@ class TaskCreate(BaseModel):
 
     title: str = Field(min_length=1, max_length=500)
     description: str | None = None
-    duration_min: int = Field(ge=1)
+    duration_min: int = Field(ge=1, le=SQLITE_MAX_INTEGER)
     raw_duration_min: int | None = Field(
-        default=None, ge=1, description="Original estimate before automatic adjustment"
+        default=None, ge=1, le=SQLITE_MAX_INTEGER, description="Original estimate before automatic adjustment"
     )
     llm_value: float = Field(ge=0, le=100, description="LLM-assigned value score (0-100)")
     requirement: str = Field(min_length=1, max_length=500)
@@ -49,6 +51,8 @@ class Task(TaskCreate):
     """Persisted task with enum status, CD3, and independently refreshed MCDA scores.
 
     Status remains a TaskStatus in memory; JSON serialization emits its string value.
+    Persisted timestamps are UTC-aware; legacy SQLite timestamps without offsets
+    are interpreted as UTC, matching the age-scoring contract.
     """
 
     task_id: UUID = Field(default_factory=uuid4)
@@ -58,10 +62,21 @@ class Task(TaskCreate):
     raw_duration_min: int = Field(
         default_factory=lambda data: data["duration_min"],
         ge=1,
+        le=SQLITE_MAX_INTEGER,
         description="Immutable original estimate; duration_min is the editable working estimate",
     )
 
     model_config = ConfigDict(validate_default=True)
+
+    @field_validator("created_at", "updated_at", "priority_updated_at")
+    @classmethod
+    def normalize_timestamp(cls, value: datetime | None) -> datetime | None:
+        """Keep legacy and new task timestamps comparable across every consumer."""
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
 
     @property
     def priority(self) -> float:
@@ -75,7 +90,7 @@ class TaskUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=500)
     description: str | None = None
     status: TaskStatus | None = None
-    duration_min: int | None = Field(default=None, ge=1)
+    duration_min: int | None = Field(default=None, ge=1, le=SQLITE_MAX_INTEGER)
     llm_value: float | None = Field(default=None, ge=0, le=100, description="LLM-assigned value score (0-100)")
     requirement: str | None = Field(default=None, min_length=1, max_length=500)
     urgency: int | None = Field(default=None, ge=1, le=5)
@@ -173,11 +188,15 @@ class Completion(BaseModel):
     task_id: UUID
     status: CompletionStatus
     closed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    duration_expected: int = Field(ge=1, description="Snapshot of task duration_min at completion time")
-    duration_actual: int = Field(ge=1, description="Actual time spent on task (user-reported)")
+    duration_expected: int = Field(
+        ge=1, le=SQLITE_MAX_INTEGER, description="Snapshot of task duration_min at completion time"
+    )
+    duration_actual: int = Field(ge=1, le=SQLITE_MAX_INTEGER, description="Actual time spent on task (user-reported)")
     conclusion: str | None = Field(default=None, description="What was learned/delivered")
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    raw_duration_min: int | None = Field(default=None, ge=1, description="Original unadjusted duration estimate")
+    raw_duration_min: int | None = Field(
+        default=None, ge=1, le=SQLITE_MAX_INTEGER, description="Original unadjusted duration estimate"
+    )
     category: str | None = None
     priority_factors: dict[str, float] | None = None
 
@@ -186,7 +205,7 @@ class Completion(BaseModel):
         """Calculate estimation variance in minutes.
 
         Returns:
-            Difference between actual and expected duration (positive = over-estimate).
+            Difference between actual and expected duration (positive = task took longer than estimated).
         """
         return self.duration_actual - self.duration_expected
 
@@ -206,9 +225,11 @@ class CompletionCreate(BaseModel):
     task_id: UUID
     status: CompletionStatus
     closed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    duration_expected: int = Field(ge=1, description="Snapshot of task duration_min at completion time")
-    duration_actual: int = Field(ge=1, description="Actual time spent on task")
+    duration_expected: int = Field(
+        ge=1, le=SQLITE_MAX_INTEGER, description="Snapshot of task duration_min at completion time"
+    )
+    duration_actual: int = Field(ge=1, le=SQLITE_MAX_INTEGER, description="Actual time spent on task")
     conclusion: str | None = Field(default=None, description="What was learned/delivered")
-    raw_duration_min: int | None = Field(default=None, ge=1)
+    raw_duration_min: int | None = Field(default=None, ge=1, le=SQLITE_MAX_INTEGER)
     category: str | None = None
     priority_factors: dict[str, float] | None = None

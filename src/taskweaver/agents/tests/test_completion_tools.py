@@ -79,24 +79,6 @@ def blocking_tasks(mock_ctx: RunContext[TaskDependencies]) -> tuple[Task, Task]:
     return blocker, downstream
 
 
-def test_mark_completed_without_tracking(mock_ctx: RunContext[TaskDependencies]) -> None:
-    """Test marking task completed without duration tracking."""
-    # Create a task
-    task = mock_ctx.deps.task_repo.create_task(
-        TaskCreate(title="Test task", duration_min=60, llm_value=80.0, requirement="Complete test")
-    )
-
-    # Mark completed without tracking
-    result = mark_task_completed_tool(mock_ctx, task.task_id)
-
-    assert "✅ Task 'Test task' marked as completed" in result
-    assert "📊 Completion tracked" not in result
-
-    # Verify no completion record created
-    completion = mock_ctx.deps.completion_repo.get_completion_by_task_id(task.task_id)
-    assert completion is None
-
-
 def test_mark_completed_with_tracking(mock_ctx: RunContext[TaskDependencies]) -> None:
     """Test marking task completed with duration tracking."""
     # Create a task
@@ -105,7 +87,7 @@ def test_mark_completed_with_tracking(mock_ctx: RunContext[TaskDependencies]) ->
     )
 
     # Mark completed with tracking
-    result = mark_task_completed_tool(mock_ctx, task.task_id, duration_actual=90)
+    result = mark_task_completed_tool(mock_ctx, task.task_id, duration_actual=90, conclusion="Delivered")
 
     assert "✅ Completed 'Test task'" in result
     assert "60min estimated" in result
@@ -118,31 +100,9 @@ def test_mark_completed_with_tracking(mock_ctx: RunContext[TaskDependencies]) ->
     assert completion.status == CompletionStatus.COMPLETED
     assert completion.duration_expected == 60
     assert completion.duration_actual == 90
+    assert completion.conclusion == "Delivered"
     assert completion.variance_minutes == 30
     assert completion.variance_percent == 50.0
-
-
-def test_mark_completed_with_conclusion(mock_ctx: RunContext[TaskDependencies]) -> None:
-    """Test marking task completed with duration and conclusion."""
-    # Create a task
-    task = mock_ctx.deps.task_repo.create_task(
-        TaskCreate(title="Test task", duration_min=120, llm_value=85.0, requirement="Complete test")
-    )
-
-    # Mark completed with tracking and conclusion
-    result = mark_task_completed_tool(
-        mock_ctx, task.task_id, duration_actual=150, conclusion="Took longer due to complexity"
-    )
-
-    assert "✅ Completed 'Test task'" in result
-    assert "120min estimated" in result
-    assert "150min actual" in result
-    assert "+25.0% variance" in result
-
-    # Verify completion record with conclusion
-    completion = mock_ctx.deps.completion_repo.get_completion_by_task_id(task.task_id)
-    assert completion is not None
-    assert completion.conclusion == "Took longer due to complexity"
 
 
 def test_mark_completed_under_estimate(mock_ctx: RunContext[TaskDependencies]) -> None:
@@ -167,24 +127,6 @@ def test_mark_completed_under_estimate(mock_ctx: RunContext[TaskDependencies]) -
     assert completion.variance_percent == -50.0
 
 
-def test_mark_cancelled_without_tracking(mock_ctx: RunContext[TaskDependencies]) -> None:
-    """Test marking task cancelled without duration tracking."""
-    # Create a task
-    task = mock_ctx.deps.task_repo.create_task(
-        TaskCreate(title="Cancelled task", duration_min=60, llm_value=50.0, requirement="Test requirement")
-    )
-
-    # Mark cancelled without tracking
-    result = mark_task_cancelled_tool(mock_ctx, task.task_id)
-
-    assert "❌ Task 'Cancelled task' marked as cancelled" in result
-    assert "📊 Cancellation tracked" not in result
-
-    # Verify no completion record created
-    completion = mock_ctx.deps.completion_repo.get_completion_by_task_id(task.task_id)
-    assert completion is None
-
-
 def test_mark_cancelled_with_tracking(mock_ctx: RunContext[TaskDependencies]) -> None:
     """Test marking task cancelled with duration tracking."""
     # Create a task
@@ -193,7 +135,7 @@ def test_mark_cancelled_with_tracking(mock_ctx: RunContext[TaskDependencies]) ->
     )
 
     # Mark cancelled with tracking
-    result = mark_task_cancelled_tool(mock_ctx, task.task_id, duration_actual=30)
+    result = mark_task_cancelled_tool(mock_ctx, task.task_id, duration_actual=30, conclusion="Requirements changed")
 
     assert "❌ Cancelled 'Cancelled task'" in result
     assert "spent 30min" in result
@@ -204,24 +146,6 @@ def test_mark_cancelled_with_tracking(mock_ctx: RunContext[TaskDependencies]) ->
     assert completion.status == CompletionStatus.CANCELLED
     assert completion.duration_expected == 60
     assert completion.duration_actual == 30
-
-
-def test_mark_cancelled_with_reason(mock_ctx: RunContext[TaskDependencies]) -> None:
-    """Test marking task cancelled with reason."""
-    # Create a task
-    task = mock_ctx.deps.task_repo.create_task(
-        TaskCreate(title="Cancelled task", duration_min=120, llm_value=70.0, requirement="Test requirement")
-    )
-
-    # Mark cancelled with tracking and reason
-    result = mark_task_cancelled_tool(mock_ctx, task.task_id, duration_actual=45, conclusion="Requirements changed")
-
-    assert "❌ Cancelled 'Cancelled task'" in result
-    assert "spent 45min" in result
-
-    # Verify completion record with conclusion
-    completion = mock_ctx.deps.completion_repo.get_completion_by_task_id(task.task_id)
-    assert completion is not None
     assert completion.conclusion == "Requirements changed"
 
 

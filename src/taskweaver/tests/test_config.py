@@ -119,3 +119,24 @@ def test_environment_precedence_and_refresh(tmp_path, monkeypatch):
     get_config.cache_clear()
     get_config()
     assert config_module.os.environ[variable] == "explicit-process"
+
+
+def test_process_value_matching_file_is_not_taken_over_on_refresh(tmp_path, monkeypatch):
+    directory = tmp_path / "config/taskweaver"
+    directory.mkdir(parents=True)
+    env = directory / ".env"
+    env.write_text('TASKWEAVER_API_KEY="same"\n')
+    monkeypatch.setenv("TASKWEAVER_API_KEY", "same")
+    get_config()
+    env.write_text('TASKWEAVER_API_KEY="changed"\n')
+    get_config.cache_clear()
+    get_config()
+    assert config_module.os.environ["TASKWEAVER_API_KEY"] == "same"
+
+
+@pytest.mark.parametrize("content", ["llm_model = [\n", "database_file = 42\n", "database_file = false\n"])
+def test_invalid_configuration_reports_source_file(tmp_path, content):
+    configuration = tmp_path / "config.toml"
+    configuration.write_text(content)
+    with pytest.raises(ValueError, match=r"config\.toml"):
+        get_config()

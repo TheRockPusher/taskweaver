@@ -8,7 +8,7 @@ from uuid import UUID
 
 from loguru import logger
 
-from .connection import DEFAULT_DB_PATH, get_connection
+from .connection import get_connection, get_database_path
 from .exceptions import CompletionNotFoundError, TaskNotFoundError
 from .models import Completion, CompletionCreate, CompletionStatus, Task, TaskStatus
 from .priority_service import completion_priority_factors, refresh_priorities
@@ -29,13 +29,13 @@ class CompletionRepository:
     Each completion is an immutable snapshot of a task's completion event.
     """
 
-    def __init__(self, db_path: Path = DEFAULT_DB_PATH) -> None:
+    def __init__(self, db_path: Path | None = None) -> None:
         """Initialize repository.
 
         Args:
             db_path: Path to SQLite database file.
         """
-        self.db_path = db_path
+        self.db_path = db_path if db_path is not None else get_database_path()
         logger.debug(f"CompletionRepository initialized with database: {db_path}")
 
     @staticmethod
@@ -68,8 +68,9 @@ class CompletionRepository:
         """Record a historical event without changing task status.
 
         Raw duration and category default to the task's immutable baseline and
-        current category. Explicit snapshots support historical imports. For atomic
-        task closure and dependency cleanup, use complete_task.
+        current category. Explicit snapshots support historical imports. Learning
+        and active scores refresh in the same transaction. For atomic task closure
+        and dependency cleanup, use complete_task.
         """
         with get_connection(self.db_path) as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -86,6 +87,7 @@ class CompletionRepository:
                 data["priority_factors"] = completion_priority_factors(conn, task.task_id)
             completion = Completion.model_validate(data)
             self._insert(conn, completion)
+            refresh_priorities(conn)
             conn.commit()
         return completion
 
@@ -213,7 +215,7 @@ class CompletionRepository:
         return [self._from_row(row) for row in rows]
 
     def delete_completion(self, completion_id: UUID) -> None:
-        """Delete a completion record.
+        """Delete a completion record and atomically refresh learning and active scores.
 
         Args:
             completion_id: Completion UUID.
@@ -222,13 +224,9 @@ class CompletionRepository:
             CompletionNotFoundError: If completion does not exist.
         """
         logger.debug(f"Deleting completion: {completion_id}")
-        with get_connection(self.db_path) as conn:
-            cursor = conn.execute(DELETE_COMPLETION, (str(completion_id),))
-            conn.commit()
-            deleted = cursor.rowcount > 0
-
-        if deleted:
-            logger.info(f"Deleted completion {completion_id}")
-        else:
-            logger.error(f"Cannot delete completion {completion_id}: not found")
-            raise CompletionNotFoundError(completion_id)
+        with get_connection(self.db_path) as conn, conn:
+            conn.execute("BEGIN IMMEDIATE")
+            if not conn.execute(DELETE_COMPLETION, (str(completion_id),)).rowcount:
+                raise CompletionNotFoundError(completion_id)
+            refresh_priorities(conn)
+        logger.info(f"Deleted completion {completion_id}")

@@ -23,7 +23,7 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from pydantic_ai.models.function import AgentInfo, FunctionModel
-from textual.widgets import TextArea
+from textual.widgets import TabbedContent, TextArea
 from textual.worker import WorkerCancelled
 
 from taskweaver.agents import orchestrator, shared
@@ -451,7 +451,9 @@ async def test_real_tui_quit_cancels_chat_without_late_callbacks(tmp_path, monke
         server_thread.start()
         app = ObservedApp()
         try:
-            async with app.run_test(size=(100, 35)):
+            async with app.run_test(size=(100, 35)) as pilot:
+                app.query_one("#views", TabbedContent).active = "chat-tab"
+                await pilot.pause()
                 app.query_one("#input-field", TextArea).text = "Pending provider request" if inflight else "/help"
                 app.action_submit_text()
                 if inflight:
@@ -460,7 +462,7 @@ async def test_real_tui_quit_cancels_chat_without_late_callbacks(tmp_path, monke
                     await asyncio.wait_for(app.local_answer.wait(), timeout=5)
                     await asyncio.sleep(0)
                 assert app.chat_started
-                workers = list(app.workers)
+                workers = [worker for worker in app.workers if worker.group == "chat"]
                 app.closing = True
                 await app.action_quit()
                 assert len(workers) == 1
@@ -639,3 +641,38 @@ def test_delegation_keeps_http_transports_owned_across_conversations(tmp_path, m
     else:
         assert [handler.messages for handler in conversations] == [["Research findings"], ["Research findings"]]
         assert TaskRepository(path).list_tasks() == []
+
+
+async def test_async_local_command_keeps_chat_loop_responsive(tmp_path, monkeypatch) -> None:
+    release = Event()
+    heartbeat = asyncio.Event()
+    order = []
+    original = orchestrator.process_command
+
+    def held_command(*args):
+        # Only the event loop can release this; a blocked loop fails the order assertion after the timeout.
+        release.wait(timeout=5)
+        return original(*args)
+
+    class AsyncConversation(Conversation):
+        async def get_user_input(self, prompt: str = "") -> str | None:  # noqa: ARG002
+            text = next(self.inputs, None)
+            if text is None:
+                await heartbeat.wait()
+            return text
+
+        def display_agent_message(self, message: str) -> None:
+            order.append("response")
+            super().display_agent_message(message)
+
+    async def tick():
+        await asyncio.sleep(0.05)
+        order.append("heartbeat")
+        heartbeat.set()
+        release.set()
+
+    monkeypatch.setattr(orchestrator, "process_command", held_command)
+    handler = AsyncConversation(["/focus", None])
+    await asyncio.gather(orchestrator.run_chat_async(handler, tmp_path / "chat.db"), tick())
+    assert order == ["heartbeat", "response"]
+    assert "Ready work:" in handler.messages[0]

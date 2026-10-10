@@ -177,3 +177,33 @@ def test_github_command_persists_real_import_without_model_or_push(dependencies,
     tasks = dependencies.task_repo.list_tasks()
     assert len(tasks) == 1
     assert tasks[0].title == "Fix startup"
+
+
+def test_quoted_fact_key_can_be_forgotten(dependencies: TaskDependencies) -> None:
+    execute('/remember "work style=Morning focus"', dependencies)
+    execute('/forget "work style"', dependencies)
+    assert dependencies.memory is not None
+    assert dependencies.memory.list_facts() == []
+
+
+@pytest.mark.parametrize(
+    "text", ['/forget ""', '/forget "unclosed', '/github "owner/repo', '/help "help', '/github ""']
+)
+def test_malformed_structured_arguments_are_local_errors(text: str) -> None:
+    with pytest.raises(CommandError):
+        parse_command(text)
+
+
+def test_quoted_review_uuid_is_accepted(dependencies: TaskDependencies) -> None:
+    task = dependencies.task_repo.create_task(
+        TaskCreate(title="Review", duration_min=10, llm_value=50, requirement="Do")
+    )
+    assert execute(f'/review "{task.task_id}"', dependencies).mode == "review"
+
+
+def test_unrepresentable_expiry_does_not_replace_fact(dependencies: TaskDependencies) -> None:
+    execute("/remember drink=tea", dependencies)
+    with pytest.raises(CommandError):
+        execute("/remember --expires 0001-01-01T00:00:00+01:00 drink=coffee", dependencies)
+    assert dependencies.memory is not None
+    assert dependencies.memory.list_facts()[0].value == "tea"

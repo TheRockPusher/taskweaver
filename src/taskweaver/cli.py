@@ -14,7 +14,7 @@ from rich.table import Table
 from rich.text import Text
 
 from .cli_integrations import github, memory
-from .cli_planning import DB, app, command_errors, render_priority, resolve_db
+from .cli_planning import DB, app, command_errors, error_console, format_timestamp, render_priority, resolve_db
 from .config import get_config, get_paths
 from .database.connection import init_database
 from .database.dependency_repository import TaskDependencyRepository
@@ -61,8 +61,9 @@ def root(
         return
     from .setup import check_configuration, run_first_time_setup  # noqa: PLC0415
 
-    if not check_configuration() and not run_first_time_setup():
-        raise typer.Exit(1)
+    with command_errors():
+        if not check_configuration() and not run_first_time_setup():
+            raise typer.Exit(1)
     from .tui import run_tui  # noqa: PLC0415
 
     with command_errors():
@@ -95,6 +96,9 @@ def _print_tasks(tasks: Sequence[Task], sort: TaskSort = TaskSort.SCORE) -> None
         table.add_row(*row)
     console.print(table)
     console.print(f"\n[dim]Total: {len(tasks)} task(s)[/dim]")
+    console.print("\n[dim]Task IDs[/dim]")
+    for task in tasks:
+        console.print(f"{task.task_id}  {task.title}", markup=False)
 
 
 @app.command(name="create")
@@ -248,18 +252,37 @@ def delete(
 
 @app.command(name="show")
 def show(ctx: typer.Context, task_id: UUID, explain_priority: bool = False, db_path: DB = None) -> None:
-    """Show all task fields, optionally exact priority components and history."""
+    """Show task details, optionally priority components and history."""
     with command_errors():
         path = resolve_db(ctx, db_path)
         task = TaskRepository(path).get_task(task_id)
         if task is None:
             raise ValueError(f"Task not found: {task_id}")
-        table = Table(show_header=False, title=f"Task: {task.task_id}", show_lines=True)
-        table.add_column("Field", style="bold cyan")
-        table.add_column("Value")
-        for field, value in task.model_dump(mode="json").items():
-            table.add_row(field.replace("_", " ").title(), Text(str(value)))
-        table.add_row("CD3 (value/minute)", str(task.priority))
+        table = Table.grid(padding=(0, 2))
+        table.add_column("Field", style="bold cyan", no_wrap=True)
+        table.add_column("Value", overflow="fold")
+        fields = (
+            ("ID", str(task.task_id)),
+            ("Title", task.title),
+            ("Status", task.status.value.replace("_", " ")),
+            ("Requirement", task.requirement),
+            ("Description", task.description or "—"),
+            ("Estimate", f"{task.duration_min}m adjusted / {task.raw_duration_min}m raw"),
+            ("Value", f"{task.llm_value:.1f}/100"),
+            ("Urgency", f"{task.urgency}/5"),
+            ("Importance", f"{task.importance}/5"),
+            ("Effort", f"{task.effort}/5"),
+            ("Category", task.category),
+            ("Goal", str(task.goal_id) if task.goal_id is not None else "—"),
+            ("Skill domain", task.skill_domain or "—"),
+            ("Skill level", f"{task.required_skill_level}/5" if task.required_skill_level is not None else "—"),
+            ("MCDA", f"{task.priority_score:.1f}/100" if task.priority_score is not None else "—"),
+            ("CD3 (value/min)", f"{task.priority:.3f}"),
+            ("Created", format_timestamp(task.created_at)),
+            ("Updated", format_timestamp(task.updated_at)),
+        )
+        for label, value in fields:
+            table.add_row(label, Text(value))
         console.print(table)
         if explain_priority:
             render_priority(PriorityService(path), task_id)
@@ -304,10 +327,12 @@ def tui(
 def restart(
     ctx: typer.Context, db_path: DB = None, delete: Annotated[bool, typer.Option("--delete", "-d")] = False
 ) -> None:
-    """Reinitialize schema, preserving data unless --delete is explicit."""
+    """Reinitialize schema; --delete destroys data only after confirmation."""
     with command_errors():
         path = resolve_db(ctx, db_path)
         if delete and path.exists():
+            if not typer.confirm(f"Permanently delete all tasks in {path}?"):
+                raise typer.Abort()
             console.print(f"Deleting existing database: {path}")
             path.unlink()
             console.print("Database deleted")
@@ -338,10 +363,15 @@ def blockers(ctx: typer.Context, task_id: UUID, db_path: DB = None) -> None:
         path = resolve_db(ctx, db_path)
         if TaskRepository(path).get_task(task_id) is None:
             raise ValueError(f"Task not found: {task_id}")
-        table = Table(title=f"Task: {task_id} blockers")
+        console.print(f"Task: {task_id}", markup=False)
+        task_blockers = TaskDependencyRepository(path).get_blockers(task_id)
+        if not task_blockers:
+            console.print("[dim]No blockers[/dim]")
+            return
+        table = Table(title="Blockers")
         table.add_column("Blocker ID")
         table.add_column("Blocker Title")
-        for blocker in TaskDependencyRepository(path).get_blockers(task_id):
+        for blocker in task_blockers:
             table.add_row(str(blocker.task_id), Text(blocker.title))
         console.print(table)
 
@@ -351,9 +381,10 @@ def setup_command() -> None:
     """Rerun the interactive wizard, preserving unrelated configuration."""
     from .setup import run_first_time_setup  # noqa: PLC0415
 
-    if not run_first_time_setup(force=True):
-        console.print("Setup requires an interactive terminal", style="red")
-        raise typer.Exit(1)
+    with command_errors():
+        if not run_first_time_setup(force=True):
+            error_console.print("Setup not completed; use an interactive terminal and follow the wizard", style="red")
+            raise typer.Exit(1)
 
 
 @app.command(name="info")
@@ -369,7 +400,7 @@ def info_command(ctx: typer.Context) -> None:
             ("API keys", paths.env_file),
             ("Logs", paths.log_file),
             ("LLM model", config.llm_model),
-            ("Semantic memory enabled", config.memory_enabled),
+            ("Semantic memory enabled", "yes" if config.memory_enabled else "no"),
             ("User", config.user_id),
         ):
             console.print(f"{name}: {value}", markup=False)
@@ -382,7 +413,8 @@ def info_command(ctx: typer.Context) -> None:
 
 def main() -> None:
     """Packaged CLI entry point."""
-    app()
+    with command_errors():
+        app()
 
 
 if __name__ == "__main__":

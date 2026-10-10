@@ -17,7 +17,7 @@ from ..database.dependency_repository import TaskDependencyRepository
 from ..database.planning import PlanningService
 from ..database.repository import TaskRepository
 from .chat_handler import AsyncChatHandler, ChatHandler, ChatOutput
-from .commands import CommandError, CommandResult, parse_command, process_command
+from .commands import CommandError, CommandResult, github_command_async, parse_command, process_command
 from .dependencies import TaskDependencies
 from .memory import BACKEND_OPERATION_ERRORS, MemoryService, SemanticBackend
 from .research import research_agent
@@ -119,6 +119,8 @@ async def _run_ai_turn(
     command: CommandResult | None,
     session: _ChatSession,
     history: list[ModelMessage],
+    *,
+    async_commands: bool = False,
 ) -> AgentRunResult[str] | None:
     """Run one scoped request, closing its fresh provider on every exit."""
     dependencies = session.dependencies
@@ -135,7 +137,10 @@ async def _run_ai_turn(
     try:
         memory = dependencies.memory or MemoryService(dependencies.task_repo.db_path, dependencies.user_id)
         if semantic_worker is None:
-            memories = memory.retrieval_context(text, limit=get_config().mem0_max_memories)
+            if async_commands:
+                memories = await asyncio.to_thread(memory.retrieval_context, text, limit=get_config().mem0_max_memories)
+            else:
+                memories = memory.retrieval_context(text, limit=get_config().mem0_max_memories)
         else:
             memories = await semantic_worker.run(
                 lambda: memory.retrieval_context(text, limit=get_config().mem0_max_memories)
@@ -164,15 +169,28 @@ async def _run_ai_turn(
             )
 
 
-def _dispatch_command(
+async def _dispatch_command(
     text: str,
     dependencies: TaskDependencies,
     handler: ChatOutput,
+    *,
+    async_commands: bool = False,
+    semantic_worker: SemanticWorker | None = None,
 ) -> tuple[bool, CommandResult | None]:
     """Handle local replies and failures before allowing an AI-backed command."""
     try:
         command = parse_command(text)
-        result = process_command(command, dependencies, get_config()) if command else None
+        result = None
+        if command is not None:
+            config = get_config()
+            if async_commands and command.name == "github":
+                result = await github_command_async(command.argument, dependencies, config)
+            elif semantic_worker is not None and command.name in {"remember", "forget"}:
+                result = await semantic_worker.run(partial(process_command, command, dependencies, config))
+            elif async_commands:
+                result = await asyncio.to_thread(process_command, command, dependencies, config)
+            else:
+                result = process_command(command, dependencies, config)
     except CommandError as exc:
         handler.display_error(str(exc))
         return True, None
@@ -193,6 +211,9 @@ def run_chat(handler: ChatHandler, db_path: Path, worker: CancellationState | No
     async def read_input() -> str | None:
         return handler.get_user_input()
 
+    # The TUI has its own intro; these terminal banners belong to `tw chat` only.
+    handler.display_system_message(f"Current database path: {db_path}")
+    handler.display_system_message("TaskWeaver Chat — /help for commands; exit or quit to end")
     # Runner.run installs a SIGINT handler that cannot interrupt blocking terminal
     # input. Drive its public loop directly to preserve CliChatHandler's Ctrl+C.
     with asyncio.Runner() as runner:
@@ -257,8 +278,6 @@ async def _run_chat(
     Failed AI turns leave successful history intact and allow the next turn.
     Async chat cancels owned semantic SDK work by terminating its subprocess.
     """
-    handler.display_system_message(f"Current database path: {db_path}")
-    handler.display_system_message("TaskWeaver Chat — /help for commands; exit or quit to end")
     config = get_config()
     backend = None
     semantic_worker = None
@@ -289,16 +308,12 @@ async def _run_chat(
                 continue
             if stripped_input.casefold() in {"exit", "quit", "bye"}:
                 break
-            command_name = stripped_input.split(maxsplit=1)[0].casefold()
-            if semantic_worker is not None and command_name in {"/remember", "/forget"}:
-                handled, result = await semantic_worker.run(
-                    partial(_dispatch_command, stripped_input, dependencies, handler)
-                )
-            else:
-                handled, result = _dispatch_command(stripped_input, dependencies, handler)
+            handled, result = await _dispatch_command(
+                stripped_input, dependencies, handler, async_commands=async_memory, semantic_worker=semantic_worker
+            )
             if handled:
                 continue
-            response = await _run_ai_turn(stripped_input, result, session, message_history)
+            response = await _run_ai_turn(stripped_input, result, session, message_history, async_commands=async_memory)
             if response is None:
                 continue
             if worker is not None and worker.is_cancelled:

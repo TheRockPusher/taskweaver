@@ -15,6 +15,8 @@ from github import GithubException
 from pydantic import ValidationError
 
 from taskweaver.agents import github_sync
+from taskweaver.agents.chat_handler import TuiChatHandler
+from taskweaver.agents.orchestrator import run_chat_async
 from taskweaver.config import Config
 from taskweaver.database.completion_repository import CompletionRepository
 from taskweaver.database.connection import get_connection
@@ -31,6 +33,7 @@ class LocalGitHub:
         self.calls = []
         self.status = None
         self.hold = False
+        self.hold_import = False
         self.entered = threading.Event()
         self.disconnected = threading.Event()
         self.shutdown = threading.Event()
@@ -43,7 +46,7 @@ class LocalGitHub:
             def do_GET(self):
                 api.calls.append(("GET", self.path))
                 path = urlparse(self.path)
-                if api.hold and "/issues/" in path.path:
+                if api.hold and ("/issues/" in path.path or (api.hold_import and path.path.endswith("/issues"))):
                     api.entered.set()
                     while not api.shutdown.is_set():
                         readable, _, _ = select.select([self.connection], [], [], 0.05)
@@ -316,8 +319,68 @@ async def test_empty_repositories_do_not_spawn_or_touch_database(monkeypatch, tm
     assert not path.exists()
 
 
-def test_sync_interval_defaults_and_minimum():
-    assert Config().github_sync_interval_seconds == 3600
+def test_sync_interval_minimum():
     assert Config(github_sync_interval_seconds=30).github_sync_interval_seconds == 30
     with pytest.raises(ValidationError):
         Config(github_sync_interval_seconds=29)
+
+
+async def test_explicit_github_command_cancellation_reaps_owned_import(local_api, monkeypatch, tmp_path):
+    processes = route_child(monkeypatch, local_api)
+    local_api.hold = True
+    local_api.hold_import = True
+    messages = []
+    errors = []
+    systems = []
+
+    class RecordingUI:
+        def post_agent_message(self, message: str) -> None:
+            messages.append(message)
+
+        def post_error_message(self, message: str) -> None:
+            errors.append(message)
+
+        def post_system_message(self, message: str) -> None:
+            systems.append(message)
+
+    handler = TuiChatHandler(RecordingUI())
+    monkeypatch.setattr("taskweaver.agents.orchestrator.get_config", lambda: Config(memory_enabled=False))
+    handler.input_queue.put_nowait("/github owner/repo")
+    operation = asyncio.create_task(run_chat_async(handler, tmp_path / "tasks.db"))
+    try:
+        # Waiting for the HTTP request also proves the chat loop remains usable
+        # while this explicit command is held inside the real GitHub SDK.
+        await wait_event(local_api.entered)
+        operation.cancel()
+        await asyncio.sleep(0)
+        operation.cancel()
+        async with asyncio.timeout(2):
+            with pytest.raises(asyncio.CancelledError):
+                await operation
+        await wait_event(local_api.disconnected)
+        assert processes[-1].returncode is not None
+        assert messages == []
+        assert errors == []
+        assert all(method == "GET" for method, _ in local_api.calls)
+    finally:
+        operation.cancel()
+        await asyncio.gather(operation, return_exceptions=True)
+
+
+async def test_explicit_import_does_not_pull_closed_mapped_issues(local_api, monkeypatch, tmp_path):
+    route_child(monkeypatch, local_api)
+    local_api.add()
+    path = tmp_path / "tasks.db"
+    first = await github_sync.run_github_sync(path, ["owner/repo"], import_only=True)
+    local_api.issues[1].update(state="closed", state_reason="completed")
+    # Initial issue parsing may fetch lazy attributes. Only the subsequent
+    # empty import must avoid fetching the already-mapped closed issue.
+    local_api.calls.clear()
+    repeated = await github_sync.run_github_sync(path, ["owner/repo"], import_only=True)
+    assert first.imported == 1
+    assert repeated.imported == 0
+    assert repeated.unchanged == 0
+    task = TaskRepository(path).get_task(first.task_ids[0])
+    assert task is not None
+    assert task.status is TaskStatus.PENDING
+    assert not any("/issues/" in urlparse(path).path for _, path in local_api.calls)

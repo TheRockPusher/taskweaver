@@ -70,20 +70,3 @@ def completion_repo(temp_db: Path) -> CompletionRepository:
 
     """
     return CompletionRepository(db_path=temp_db)
-
-
-@pytest.fixture
-def sample_task_data() -> dict:
-    """Provide sample task creation data with all required fields.
-
-    Returns:
-        Dictionary with all fields needed for TaskCreate.
-
-    """
-    return {
-        "title": "Sample task",
-        "description": "Sample description",
-        "duration_min": 30,
-        "llm_value": 5.0,
-        "requirement": "Sample requirement",
-    }

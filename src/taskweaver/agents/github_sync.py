@@ -87,7 +87,7 @@ async def _finish_owned_task[T](task: asyncio.Task[T]) -> bool:
     return interrupted
 
 
-async def run_github_sync(db_path: Path, repos: Sequence[str]) -> SyncResult:
+async def run_github_sync(db_path: Path, repos: Sequence[str], *, import_only: bool = False) -> SyncResult:
     """Import new open issues, then pull all mapped issues without any GitHub writes.
 
     Empty repository selections do not launch a process, open SQLite, or use the
@@ -96,11 +96,13 @@ async def run_github_sync(db_path: Path, repos: Sequence[str]) -> SyncResult:
     GitHub failures retain HTTP status but never remote response bodies or tokens.
     Counts reflect both passes; unchanged counts the final mapped pull, so a task
     imported or updated in the first pass can also be unchanged in the second.
+    With import_only=True, perform only the open-issue import pass, preserving
+    explicit /github behavior and its import/update/unchanged counts.
     """
     names = list(repos)
     if not names:
         return SyncResult()
-    request = json.dumps({"db_path": str(db_path), "repos": names}).encode()
+    request = json.dumps({"db_path": str(db_path), "repos": names, "import_only": import_only}).encode()
     spawn = asyncio.create_task(
         asyncio.create_subprocess_exec(
             sys.executable,
@@ -134,13 +136,12 @@ def _serve() -> None:
             request = json.loads(source.read())
             with GitHubIssueSyncService(Path(request["db_path"])) as service:
                 imported = service.import_issues(request["repos"], state="open")
-                synced = service.sync(request["repos"], push=False)
+                synced = SyncResult() if request.get("import_only") else service.sync(request["repos"], push=False)
             result = SyncResult(
                 imported=imported.imported,
                 updated=imported.updated + synced.updated,
                 pushed=0,
-                # This counts the final mapped pull, including newly imported tasks.
-                unchanged=synced.unchanged,
+                unchanged=imported.unchanged if request.get("import_only") else synced.unchanged,
                 conflicts=list(dict.fromkeys([*imported.conflicts, *synced.conflicts])),
                 task_ids=list(dict.fromkeys([*imported.task_ids, *synced.task_ids])),
             )

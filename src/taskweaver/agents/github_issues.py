@@ -138,6 +138,13 @@ class GitHubIssueSyncService:
             ).fetchall()
         result = SyncResult()
         repositories = {}
+        if names is not None and mappings:
+            # Imports persist GitHub's canonical full_name, which can differ
+            # from a requested repository after a transfer or rename.
+            for name in names:
+                repository = self.client.get_repo(name)
+                repositories[repository.full_name.casefold()] = repository
+            names = list(repositories)
         for mapping in mappings:
             name = mapping["repo"]
             if names is not None and name not in names:

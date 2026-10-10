@@ -181,7 +181,9 @@ async def test_semantic_chat_callbacks_preserve_mounted_ui_context(tmp_path, mon
     app = TaskWeaverApp(path)
     try:
         async with app.run_test(size=(80, 24)) as pilot:
-            await pilot.press("4")
+            app.query_one("#views", TabbedContent).active = "chat-tab"
+            await pilot.pause()
+            assert app.query_one("#views", TabbedContent).active == "chat-tab"
             app.query_one("#input-field", TextArea).load_text("/remember interface=terminal")
             await pilot.press("f2")
             async with asyncio.timeout(15):

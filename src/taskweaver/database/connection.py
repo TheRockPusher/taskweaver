@@ -28,8 +28,6 @@ if TYPE_CHECKING:
     from mem0 import Memory
     from qdrant_client import QdrantClient
 
-DEFAULT_DB_PATH = get_paths().database_file
-DEFAULT_QDRANT_PATH = get_paths().qdrant_dir
 
 # Version 5 introduced the current task-table layout; later additive migrations
 # must not rebuild those tables or disturb their foreign keys and history.
@@ -78,6 +76,11 @@ _MEMORY_EXTERNAL_AUTH_PROVIDERS = frozenset(
 _MEMORY_MODEL_PREFIXES = (
     frozenset(_MEMORY_KEY_NAMES) | _MEMORY_EXTERNAL_AUTH_PROVIDERS | {"google", "google-genai", "local"}
 )
+
+
+def get_database_path() -> Path:
+    """Resolve the selected database only when an operation requests it."""
+    return get_paths().database_file
 
 
 def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
@@ -155,7 +158,7 @@ def _migrate_completions(conn: sqlite3.Connection) -> None:
     conn.execute("DROP TABLE completion_legacy")
 
 
-def init_database(db_path: Path = DEFAULT_DB_PATH) -> None:
+def init_database(db_path: Path | None = None) -> None:
     """Create or migrate SQLite atomically, preserving valid legacy records.
 
     Args:
@@ -164,6 +167,7 @@ def init_database(db_path: Path = DEFAULT_DB_PATH) -> None:
     Raises:
         ValueError: If the database is newer than supported or has an unknown legacy shape.
     """
+    db_path = db_path if db_path is not None else get_database_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with closing(sqlite3.connect(db_path)) as conn:
         conn.execute("PRAGMA foreign_keys = ON")
@@ -185,7 +189,7 @@ def init_database(db_path: Path = DEFAULT_DB_PATH) -> None:
 
 
 @contextmanager
-def get_connection(db_path: Path = DEFAULT_DB_PATH) -> Generator[sqlite3.Connection]:
+def get_connection(db_path: Path | None = None) -> Generator[sqlite3.Connection]:
     """Open SQLite with foreign keys enabled, initializing or migrating as needed.
 
     Args:
@@ -194,6 +198,7 @@ def get_connection(db_path: Path = DEFAULT_DB_PATH) -> Generator[sqlite3.Connect
     Yields:
         Connection with named-row access; callers own transaction boundaries.
     """
+    db_path = db_path if db_path is not None else get_database_path()
     if not db_path.exists():
         init_database(db_path)
     with closing(sqlite3.connect(db_path)) as conn:
@@ -209,7 +214,7 @@ def get_connection(db_path: Path = DEFAULT_DB_PATH) -> Generator[sqlite3.Connect
 
 
 @contextmanager
-def get_qdrant_client(qdrant_path: Path = DEFAULT_QDRANT_PATH) -> Generator[QdrantClient]:
+def get_qdrant_client(qdrant_path: Path | None = None) -> Generator[QdrantClient]:
     """Open a semantic backend only when requested, closing it on every exit.
 
     Args:
@@ -221,6 +226,7 @@ def get_qdrant_client(qdrant_path: Path = DEFAULT_QDRANT_PATH) -> Generator[Qdra
     # Keep the optional semantic backend unavailable until explicitly requested.
     from qdrant_client import QdrantClient  # noqa: PLC0415
 
+    qdrant_path = qdrant_path if qdrant_path is not None else get_paths().qdrant_dir
     qdrant_path.mkdir(parents=True, exist_ok=True)
     client = QdrantClient(path=str(qdrant_path))
     try:

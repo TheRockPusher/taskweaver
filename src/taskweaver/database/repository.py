@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
-from .connection import DEFAULT_DB_PATH, get_connection
+from .connection import get_connection, get_database_path
 from .exceptions import TaskNotFoundError
 from .models import Task, TaskCreate, TaskStatus, TaskUpdate, TaskWithDependencies
 from .planning import estimate_duration
@@ -73,8 +73,8 @@ def _update_task(conn: sqlite3.Connection, task_id: UUID, task_data: TaskUpdate)
 class TaskRepository:
     """Persist tasks and their derived rankings in the same SQLite transaction."""
 
-    def __init__(self, db_path: Path = DEFAULT_DB_PATH) -> None:
-        self.db_path = db_path
+    def __init__(self, db_path: Path | None = None) -> None:
+        self.db_path = db_path if db_path is not None else get_database_path()
 
     def create_task(self, task_data: TaskCreate, *, connection: sqlite3.Connection | None = None) -> Task:
         """Create a task, adjusting its original duration estimate exactly once.

@@ -28,6 +28,10 @@ from taskweaver.agents.calculator import evaluate_expression
         ("1e2 + 0x10", "116.0000"),
         ("9007199254740993 + 1", "9007199254740994"),
         ("  2 + 2  ", "4"),
+        ("(92*0.35) + (78*0.30) + (88*0.35)", "86.4000"),
+        ("-5 + 3", "-2"),
+        ("10 / 3", "3.3333"),
+        ("1000000 * 1000", "1000000000"),
     ],
 )
 def test_arithmetic_results(expression: str, expected: str) -> None:
