@@ -1,6 +1,6 @@
 """CLI commands for TaskWeaver."""
 
-from datetime import datetime
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated
 from uuid import UUID
@@ -9,6 +9,7 @@ import typer
 from loguru import logger
 from rich.console import Console
 from rich.table import Table
+from rich.text import Text
 
 from .agents.chat_handler import CliChatHandler
 from .agents.orchestrator import run_chat
@@ -28,6 +29,37 @@ app = typer.Typer(
 )
 console = Console()
 DEFAULT_DB = get_paths().database_file
+
+
+def _print_tasks(tasks: Sequence[Task]) -> None:
+    """Render compact task summaries; detailed fields remain available via show."""
+    if not tasks:
+        console.print("[yellow]No tasks found[/yellow]")
+        return
+
+    show_dependencies = isinstance(tasks[0], TaskWithDependencies)
+    table = Table(title="📋 Tasks", show_lines=True, header_style="bold blue")
+    table.add_column("Title", min_width=12, ratio=1, overflow="fold")
+    table.add_column("Status", no_wrap=True)
+    table.add_column("Estimate", justify="right", no_wrap=True)
+    table.add_column("MCDA", justify="right", no_wrap=True)
+    if show_dependencies:
+        table.add_column("Blocks", justify="right", no_wrap=True)
+        table.add_column("Blockers", justify="right", no_wrap=True)
+
+    for task in tasks:
+        row: list[str | Text] = [
+            Text(task.title),
+            task.status.value,
+            f"{task.duration_min}m",
+            f"{task.priority_score:.1f}" if task.priority_score is not None else "—",
+        ]
+        if isinstance(task, TaskWithDependencies):
+            row.extend([str(task.tasks_blocked_count), str(task.active_blocker_count)])
+        table.add_row(*row)
+
+    console.print(table)
+    console.print(f"\n[dim]Total: {len(tasks)} task(s)[/dim]")
 
 
 @app.command(name="create", help="Create a new task")
@@ -59,62 +91,16 @@ def list_tasks(
     ] = None,
     db_path: Annotated[Path, typer.Option("--db", help="Database file path")] = DEFAULT_DB,
 ) -> None:
-    """List tasks with optional status filter. Use -s to filter by status."""
-    columns = list(Task.model_fields.keys())
-    table = Table(title="📋 Tasks", show_lines=True)
-    for col in columns:
-        table.add_column(col, header_style="bold blue")
-
-    task_list = TaskRepository(db_path).list_tasks(status=status)
-
-    if not task_list:
-        console.print("[yellow]No tasks found[/yellow]")
-        return
-
-    for task in task_list:
-        row_values = []
-        for field in columns:
-            value = getattr(task, field)
-            # Format datetime fields as yyyy-mm-dd
-            if field in ("created_at", "updated_at") and isinstance(value, datetime):
-                row_values.append(value.strftime("%Y-%m-%d"))
-            else:
-                row_values.append(str(value))
-        table.add_row(*row_values)
-
-    console.print(table)
-    console.print(f"\n[dim]Total: {len(task_list)} task(s)[/dim]")
+    """List compact task summaries with an optional status filter."""
+    _print_tasks(TaskRepository(db_path).list_tasks(status=status))
 
 
 @app.command(name="lso", help="List all open tasks")
 def list_open(
     db_path: Annotated[Path, typer.Option("--db", help="Database file path")] = DEFAULT_DB,
 ) -> None:
-    """List open tasks with dependency counts."""
-    columns = list(TaskWithDependencies.model_fields.keys())
-    table = Table(title="📋 Tasks", show_lines=True)
-    for col in columns:
-        table.add_column(col, header_style="bold blue")
-
-    task_list: list[TaskWithDependencies] = TaskRepository(db_path).list_tasks_with_deps()
-
-    if not task_list:
-        console.print("[yellow]No tasks found[/yellow]")
-        return
-
-    for task in task_list:
-        row_values = []
-        for field in columns:
-            value = getattr(task, field)
-            # Format datetime fields as yyyy-mm-dd
-            if field in ("created_at", "updated_at") and isinstance(value, datetime):
-                row_values.append(value.strftime("%Y-%m-%d"))
-            else:
-                row_values.append(str(value))
-        table.add_row(*row_values)
-
-    console.print(table)
-    console.print(f"\n[dim]Total: {len(task_list)} task(s)[/dim]")
+    """List compact open task summaries with dependency counts."""
+    _print_tasks(TaskRepository(db_path).list_tasks_with_deps())
 
 
 @app.command(name="edit", help="Update an existing task")
@@ -184,8 +170,12 @@ def show(
 
     for field in Task.model_fields:
         value = getattr(task, field)
-        # Format None values
-        display_value = "[dim]None[/dim]" if value is None else str(value)
+        if value is None:
+            display_value = "[dim]None[/dim]"
+        elif field == "status":
+            display_value = task.status.value
+        else:
+            display_value = str(value)
         table.add_row(field.replace("_", " ").title(), display_value)
 
     console.print(table)

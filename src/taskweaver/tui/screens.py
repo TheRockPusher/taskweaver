@@ -92,7 +92,7 @@ class TaskDetailScreen(ModalScreen):
 
             # Core fields
             yield Static("[b]Status:[/b]", classes="field-label")
-            yield Static(self.task_data.status, classes="field-value")
+            yield Static(self.task_data.status.value, classes="field-value")
 
             yield Static("[b]Duration:[/b]", classes="field-label")
             yield Static(f"{self.task_data.duration_min} minutes", classes="field-value")

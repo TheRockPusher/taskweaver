@@ -240,7 +240,7 @@ class TaskWeaverApp(App):
                 str(task.duration_min),
                 f"{task.priority:.3f}",
                 f"{task.effective_priority:.3f}",
-                task.status,
+                task.status.value,
                 str(task.active_blocker_count),
             )
             # Store full task object for later lookup
@@ -286,7 +286,7 @@ class TaskWeaverApp(App):
                 task.requirement[:MAX_TITLE_LENGTH],
                 f"{task.priority:.3f}",
                 f"{task.effective_priority:.3f}",
-                task.status,
+                task.status.value,
             )
             # Store full task object for later lookup
             self.unblocked_tasks_map[row_key] = task

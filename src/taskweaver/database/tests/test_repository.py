@@ -5,9 +5,21 @@ from uuid import uuid4
 
 import pytest
 
+from taskweaver.database.completion_repository import CompletionRepository
+from taskweaver.database.connection import get_connection
 from taskweaver.database.dependency_repository import TaskDependencyRepository
 from taskweaver.database.exceptions import TaskNotFoundError
-from taskweaver.database.models import TaskCreate, TaskStatus, TaskUpdate, TaskWithDependencies, TaskWithPriority
+from taskweaver.database.models import (
+    Completion,
+    CompletionCreate,
+    CompletionStatus,
+    Task,
+    TaskCreate,
+    TaskStatus,
+    TaskUpdate,
+    TaskWithDependencies,
+    TaskWithPriority,
+)
 from taskweaver.database.repository import TaskRepository
 
 
@@ -38,6 +50,84 @@ def test_get_task_by_id(task_repo: TaskRepository) -> None:
     assert retrieved_task is not None
     assert retrieved_task.task_id == created_task.task_id
     assert retrieved_task.title == created_task.title
+
+
+def test_task_status_lifecycle_round_trip(task_repo: TaskRepository) -> None:
+    """Status types survive validation, repository mutations, and JSON round trips."""
+    task = task_repo.create_task(
+        TaskCreate(title="Status lifecycle", duration_min=30, llm_value=50.0, requirement="Deliver")
+    )
+    assert task.status is TaskStatus.PENDING
+    assert task.model_dump(mode="json")["status"] == "pending"
+    assert Task.model_validate_json(task.model_dump_json()).status is TaskStatus.PENDING
+
+    update = TaskUpdate.model_validate({"status": "in_progress"})
+    assert update.status is TaskStatus.IN_PROGRESS
+    assert update.model_dump(mode="json", exclude_unset=True) == {"status": "in_progress"}
+    assert TaskUpdate.model_validate_json(update.model_dump_json()).status is TaskStatus.IN_PROGRESS
+    updated = task_repo.update_task(task.task_id, update)
+    assert updated.status is TaskStatus.IN_PROGRESS
+    retrieved = task_repo.get_task(task.task_id)
+    assert retrieved is not None
+    assert retrieved.status is TaskStatus.IN_PROGRESS
+    assert retrieved.model_dump(mode="json")["status"] == "in_progress"
+    assert task_repo.list_tasks(TaskStatus.IN_PROGRESS)[0].status is TaskStatus.IN_PROGRESS
+    assert task_repo.list_tasks_by_priority(TaskStatus.IN_PROGRESS)[0].status is TaskStatus.IN_PROGRESS
+
+    completed = task_repo.mark_completed(task.task_id)
+    assert completed.status is TaskStatus.COMPLETED
+    retrieved = task_repo.get_task(task.task_id)
+    assert retrieved is not None
+    assert retrieved.status is TaskStatus.COMPLETED
+    assert Task.model_validate_json(retrieved.model_dump_json()).status is TaskStatus.COMPLETED
+    with get_connection(task_repo.db_path) as conn:
+        row = conn.execute("SELECT status FROM tasks WHERE task_id = ?", (str(task.task_id),)).fetchone()
+    assert row["status"] == "completed"
+
+
+@pytest.mark.parametrize("status", list(CompletionStatus))
+def test_completion_status_round_trip(
+    task_repo: TaskRepository, completion_repo: CompletionRepository, status: CompletionStatus
+) -> None:
+    """Historical inserts and atomic closures preserve enum state and string storage."""
+    historical_task = task_repo.create_task(
+        TaskCreate(title="Historical task", duration_min=30, llm_value=50.0, requirement="Deliver")
+    )
+    data = CompletionCreate.model_validate(
+        {
+            "task_id": historical_task.task_id,
+            "status": status.value,
+            "duration_expected": 30,
+            "duration_actual": 40,
+        }
+    )
+    historical = completion_repo.create_completion(data)
+    assert historical.status is status
+    retrieved = completion_repo.get_completion(historical.completion_id)
+    assert retrieved is not None
+    assert retrieved.status is status
+    assert retrieved.model_dump(mode="json")["status"] == status.value
+    assert Completion.model_validate_json(retrieved.model_dump_json()).status is status
+    unchanged = task_repo.get_task(historical_task.task_id)
+    assert unchanged is not None
+    assert unchanged.status is TaskStatus.PENDING
+
+    task = task_repo.create_task(
+        TaskCreate(title="Tracked task", duration_min=30, llm_value=50.0, requirement="Deliver")
+    )
+    completion = completion_repo.complete_task(task.task_id, 40, status=status)
+    assert completion.status is status
+    assert completion.model_dump(mode="json")["status"] == status.value
+    retrieved = completion_repo.get_completion_by_task_id(task.task_id)
+    assert retrieved is not None
+    assert retrieved.status is status
+    assert completion_repo.complete_task(task.task_id, 40, status=status) == completion
+    closed = task_repo.get_task(task.task_id)
+    assert closed is not None
+    assert closed.status is TaskStatus(status.value)
+    with get_connection(task_repo.db_path) as conn:
+        row = conn.execute("SELECT status FROM completion WHERE task_id = ?", (str(task.task_id),)).fetchone()
+    assert row["status"] == status.value
 
 
 def test_get_nonexistent_task(task_repo: TaskRepository) -> None:

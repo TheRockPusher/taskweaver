@@ -15,17 +15,16 @@ from uuid import UUID
 from pydantic import ValidationError
 from pydantic_ai import RunContext
 from pydantic_ai.exceptions import ModelRetry
-from simpleeval import InvalidExpression, simple_eval
 
 from taskweaver.database.exceptions import DependencyError, TaskNotFoundError
 from taskweaver.database.models import (
-    CompletionCreate,
     CompletionStatus,
     TaskDependency,
     TaskWithPriority,
 )
 
 from ..database.models import Task, TaskCreate, TaskStatus, TaskUpdate
+from .calculator import evaluate_expression
 from .dependencies import TaskDependencies
 
 # Display constants
@@ -53,7 +52,7 @@ def _format_task_concise(task: Task, index: int = 0) -> str:
     idx_str = f"{index}. " if index > 0 else ""
     return (
         f"{idx_str}{task.title[:MAX_TITLE_LENGTH]} "
-        f"(Status: {task.status}, Priority: {task.priority:.2f}, "
+        f"(Status: {task.status.value}, Priority: {task.priority:.2f}, "
         f"Duration: {task.duration_min}min)"
     )
 
@@ -353,7 +352,7 @@ def mark_task_completed_tool(
         Confirmation message with task title and variance information if tracked.
 
     Raises:
-        ModelRetry: If task doesn't exist. LLM can retry with correct task ID.
+        ModelRetry: If task doesn't exist or completion evidence conflicts/is invalid.
 
     Example:
         >>> mark_task_completed_tool(ctx, UUID("..."))
@@ -363,18 +362,12 @@ def mark_task_completed_tool(
         "✅ Completed 'Build login feature' (60min estimated, 90min actual, +50.0% variance)"
     """
     try:
-        task = ctx.deps.task_repo.mark_completed(task_id)
-
-        # If duration provided, record completion for pattern learning
         if duration_actual is not None:
-            completion = ctx.deps.completion_repo.create_completion(
-                CompletionCreate(
-                    task_id=task_id,
-                    status=CompletionStatus.COMPLETED,
-                    duration_expected=task.duration_min,  # Immutable snapshot
-                    duration_actual=duration_actual,
-                    conclusion=conclusion,
-                )
+            task = get_task_details_tool(ctx, task_id)
+            completion = ctx.deps.completion_repo.complete_task(
+                task_id,
+                actual_minutes=duration_actual,
+                conclusion=conclusion,
             )
 
             variance_sign = "+" if completion.variance_minutes > 0 else ""
@@ -383,9 +376,10 @@ def mark_task_completed_tool(
                 f"({completion.duration_expected}min estimated, {completion.duration_actual}min actual, "
                 f"{variance_sign}{completion.variance_percent:.1f}% variance)"
             )
+        task = ctx.deps.task_repo.mark_completed(task_id)
 
         return f"✅ Task '{task.title}' marked as completed"
-    except TaskNotFoundError as e:
+    except (TaskNotFoundError, ValueError) as e:
         raise ModelRetry(str(e)) from e
 
 
@@ -437,7 +431,7 @@ def mark_task_cancelled_tool(
         Confirmation message with task title and cancellation details if tracked.
 
     Raises:
-        ModelRetry: If task doesn't exist. LLM can retry with correct task ID.
+        ModelRetry: If task doesn't exist or completion evidence conflicts/is invalid.
 
     Example:
         >>> mark_task_cancelled_tool(ctx, UUID("..."))
@@ -447,24 +441,20 @@ def mark_task_cancelled_tool(
         "❌ Cancelled 'Build login feature' (spent 30min)"
     """
     try:
-        task = ctx.deps.task_repo.mark_cancelled(task_id)
-
-        # If duration provided, record cancellation for pattern learning
         if duration_actual is not None:
-            ctx.deps.completion_repo.create_completion(
-                CompletionCreate(
-                    task_id=task_id,
-                    status=CompletionStatus.CANCELLED,
-                    duration_expected=task.duration_min,  # Immutable snapshot
-                    duration_actual=duration_actual,
-                    conclusion=conclusion,
-                )
+            task = get_task_details_tool(ctx, task_id)
+            ctx.deps.completion_repo.complete_task(
+                task_id,
+                actual_minutes=duration_actual,
+                conclusion=conclusion,
+                status=CompletionStatus.CANCELLED,
             )
 
             return f"❌ Cancelled '{task.title}' (spent {duration_actual}min)"
+        task = ctx.deps.task_repo.mark_cancelled(task_id)
 
         return f"❌ Task '{task.title}' marked as cancelled"
-    except TaskNotFoundError as e:
+    except (TaskNotFoundError, ValueError) as e:
         raise ModelRetry(str(e)) from e
 
 
@@ -496,7 +486,7 @@ def update_task_status_tool(
         Confirmation message with status details.
 
     Raises:
-        ModelRetry: If task not found or new_status invalid.
+        ModelRetry: If task not found, new_status invalid, or completion evidence conflicts/is invalid.
 
     Example:
         >>> update_task_status_tool(ctx, task_id, "in_progress")
@@ -512,43 +502,16 @@ def update_task_status_tool(
         new_status_enum = TaskStatus(new_status)
 
         if new_status_enum == TaskStatus.COMPLETED:
-            task = ctx.deps.task_repo.mark_completed(task_id)
-            if duration_actual is not None:
-                completion = ctx.deps.completion_repo.create_completion(
-                    CompletionCreate(
-                        task_id=task_id,
-                        status=CompletionStatus.COMPLETED,
-                        duration_expected=task.duration_min,
-                        duration_actual=duration_actual,
-                        conclusion=conclusion,
-                    )
-                )
-                sign = "+" if completion.variance_minutes > 0 else ""
-                return (
-                    f"✅ Completed '{task.title}' "
-                    f"({completion.duration_expected}min estimated, "
-                    f"{completion.duration_actual}min actual, "
-                    f"{sign}{completion.variance_percent:.1f}% variance)"
-                )
-            return f"✅ Task '{task.title}' marked as completed"
+            return mark_task_completed_tool(ctx, task_id, duration_actual, conclusion)
 
         if new_status_enum == TaskStatus.IN_PROGRESS:
             task = ctx.deps.task_repo.mark_in_progress(task_id)
             return f"🚀 Task '{task.title}' marked as in progress"
 
         if new_status_enum == TaskStatus.CANCELLED:
-            task = ctx.deps.task_repo.mark_cancelled(task_id)
             if duration_actual is not None:
-                ctx.deps.completion_repo.create_completion(
-                    CompletionCreate(
-                        task_id=task_id,
-                        status=CompletionStatus.CANCELLED,
-                        duration_expected=task.duration_min,
-                        duration_actual=duration_actual,
-                        conclusion=conclusion,
-                    )
-                )
-                return f"❌ Cancelled '{task.title}' (spent {duration_actual}min)"
+                return mark_task_cancelled_tool(ctx, task_id, duration_actual, conclusion)
+            task = ctx.deps.task_repo.mark_cancelled(task_id)
             return f"❌ Task '{task.title}' cancelled"
 
         # Unreachable - all valid statuses handled above
@@ -713,83 +676,21 @@ def calculator_tool(
     ctx: RunContext[TaskDependencies],  # noqa: ARG001
     expression: str,
 ) -> str:
-    """Evaluate mathematical expressions safely for task calculations.
-
-    Enables the agent to perform calculations for:
-    - Priority score computations (e.g., "85.0 / 120" → 0.7083)
-    - Variance percentage calculations (e.g., "(90 - 60) / 60 * 100" → 50.0%)
-    - Duration conversions (e.g., "2.5 * 60" for hours to minutes → 150)
-    - Multi-dimensional value scoring (e.g., "(85 * 0.35) + (65 * 0.30) + (95 * 0.35)" → 86.4)
-
-    Supports: +, -, *, /, ** (power), % (modulo), parentheses for order of operations
-    Security: Uses AST-based evaluation (simpleeval) - no arbitrary code execution possible
-
-    Use this tool when you need to:
-    - Verify priority calculations before recommendations
-    - Calculate inherited effective priority for blocking tasks
-    - Compute variance percentages for completion analysis
-    - Convert between time units or value scales
-    - Perform any mathematical computation needed for task reasoning
+    """Evaluate bounded numeric arithmetic for priorities and duration analysis.
 
     Args:
-        ctx: Runtime context containing TaskDependencies.
-        expression: Mathematical expression to evaluate (e.g., "85.0 / 120", "(2 + 2) * 3").
-                   Must be a valid mathematical expression using numbers and operators.
-                   No variables, functions, or code execution allowed.
+        ctx: Task repositories (unused for this stateless operation).
+        expression: Numbers, arithmetic operators, and parentheses.
 
     Returns:
-        Formatted result string: "{expression} = {result}"
-        - Floats formatted to 4 decimal places (e.g., "85.0 / 120 = 0.7083")
-        - Integers displayed without decimals (e.g., "2 + 2 = 4")
+        Expression and numeric result; floats use four decimal places.
 
     Raises:
-        ModelRetry: If expression is invalid, empty, contains division by zero, or uses
-                   unsupported operations. LLM receives error message and can retry.
-
-    Example:
-        >>> calculator_tool(ctx, "85.0 / 120")
-        "85.0 / 120 = 0.7083"
-
-        >>> calculator_tool(ctx, "2 + 2")
-        "2 + 2 = 4"
-
-        >>> calculator_tool(ctx, "(92*0.35) + (78*0.30) + (88*0.35)")
-        "(92*0.35) + (78*0.30) + (88*0.35) = 86.4000"
-
-        >>> calculator_tool(ctx, "2 ** 8")
-        "2 ** 8 = 256"
+        ModelRetry: If the expression is invalid, unsafe, or divides by zero.
     """
-    # Validate input
-    if not expression or not expression.strip():
-        raise ModelRetry("Expression cannot be empty. Provide a mathematical expression like '2 + 2'.") from None
-
     try:
-        # Safe evaluation using AST-based simpleeval (no code execution possible)
-        result = simple_eval(expression.strip())
-
-        # Format result based on type
-        if isinstance(result, float):
-            # Format floats with 4 decimal places for consistency
-            formatted_result = f"{result:.4f}"
-        elif isinstance(result, int):
-            # Integers displayed without decimals
-            formatted_result = str(result)
-        else:
-            # Unexpected type (shouldn't happen with pure math expressions)
-            formatted_result = str(result)
-
-        return f"{expression} = {formatted_result}"
-
-    except ZeroDivisionError as e:
-        raise ModelRetry(f"Division by zero in expression: '{expression}'. Check the denominator.") from e
-    except InvalidExpression as e:
-        # Catches NameNotDefined, FunctionNotDefined, and other simpleeval-specific errors
-        raise ModelRetry(
-            f"Invalid mathematical expression: '{expression}'. "
-            f"Error: {e}. Use only numbers and operators (+, -, *, /, **, %)."
-        ) from e
-    except (SyntaxError, TypeError, ValueError, NameError) as e:
-        raise ModelRetry(
-            f"Invalid mathematical expression: '{expression}'. "
-            f"Error: {e}. Use only numbers and operators (+, -, *, /, **, %)."
-        ) from e
+        return evaluate_expression(expression)
+    except ZeroDivisionError as error:
+        raise ModelRetry("Division by zero. Check the denominator.") from error
+    except ValueError as error:
+        raise ModelRetry(f"Invalid mathematical expression: {error}") from error

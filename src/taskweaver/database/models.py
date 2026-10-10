@@ -23,27 +23,45 @@ class CompletionStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
-class Task(BaseModel):
-    """Task model - mirrors database schema exactly.
+class TaskCreate(BaseModel):
+    """Fields supplied when creating a task."""
 
-    - Entity-specific primary key (task_id)
-    - Models mirror database exactly (no field mapping)
+    title: str = Field(min_length=1, max_length=500)
+    description: str | None = None
+    duration_min: int = Field(ge=1)
+    raw_duration_min: int | None = Field(
+        default=None, ge=1, description="Original estimate before automatic adjustment"
+    )
+    llm_value: float = Field(ge=0, le=100, description="LLM-assigned value score (0-100)")
+    requirement: str = Field(min_length=1, max_length=500)
+    urgency: int = Field(default=3, ge=1, le=5)
+    importance: int = Field(default=3, ge=1, le=5)
+    effort: int = Field(default=3, ge=1, le=5)
+    category: str = Field(default="general", min_length=1)
+    goal_id: UUID | None = None
+    skill_domain: str | None = None
+    required_skill_level: int | None = Field(default=None, ge=1, le=5)
+    priority_score: float | None = Field(default=None, ge=0, le=100)
+    priority_updated_at: datetime | None = None
 
+
+class Task(TaskCreate):
+    """Persisted task with enum status, CD3, and independently refreshed MCDA scores.
+
+    Status remains a TaskStatus in memory; JSON serialization emits its string value.
     """
 
     task_id: UUID = Field(default_factory=uuid4)
-    title: str = Field(min_length=1, max_length=500)
-    description: str | None = None
     status: TaskStatus = TaskStatus.PENDING
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    duration_min: int = Field(ge=1)
-    llm_value: float = Field(ge=0, le=100, description="LLM-assigned value score (0-100)")
-    requirement: str = Field(min_length=1, max_length=500)
-
-    model_config = ConfigDict(
-        use_enum_values=True,  # Store enum values, not names
+    raw_duration_min: int = Field(
+        default_factory=lambda data: data["duration_min"],
+        ge=1,
+        description="Immutable original estimate; duration_min is the editable working estimate",
     )
+
+    model_config = ConfigDict(validate_default=True)
 
     @property
     def priority(self) -> float:
@@ -67,18 +85,8 @@ class Task(BaseModel):
         return self.llm_value / self.duration_min
 
 
-class TaskCreate(BaseModel):
-    """Model for creating new tasks."""
-
-    title: str = Field(min_length=1, max_length=500)
-    description: str | None = None
-    duration_min: int = Field(ge=1)
-    llm_value: float = Field(ge=0, le=100, description="LLM-assigned value score (0-100)")
-    requirement: str = Field(min_length=1, max_length=500)
-
-
 class TaskUpdate(BaseModel):
-    """Model for updating tasks - all fields optional."""
+    """Update supplied working fields; explicit None clears nullable fields, never the original duration baseline."""
 
     title: str | None = Field(default=None, min_length=1, max_length=500)
     description: str | None = None
@@ -86,10 +94,15 @@ class TaskUpdate(BaseModel):
     duration_min: int | None = Field(default=None, ge=1)
     llm_value: float | None = Field(default=None, ge=0, le=100, description="LLM-assigned value score (0-100)")
     requirement: str | None = Field(default=None, min_length=1, max_length=500)
-
-    model_config = ConfigDict(
-        use_enum_values=True,  # Store enum values, not names
-    )
+    urgency: int | None = Field(default=None, ge=1, le=5)
+    importance: int | None = Field(default=None, ge=1, le=5)
+    effort: int | None = Field(default=None, ge=1, le=5)
+    category: str | None = Field(default=None, min_length=1)
+    goal_id: UUID | None = None
+    skill_domain: str | None = None
+    required_skill_level: int | None = Field(default=None, ge=1, le=5)
+    priority_score: float | None = Field(default=None, ge=0, le=100)
+    priority_updated_at: datetime | None = None
 
 
 class TaskDependency(BaseModel):
@@ -165,6 +178,8 @@ class Completion(BaseModel):
     Records completion events for tasks with immutable snapshots of duration estimates.
     Supports pattern learning by preserving historical state at completion time.
 
+    Status remains a CompletionStatus in memory; JSON serialization emits its string value.
+
     - Entity-specific primary key (completion_id)
     - Models mirror database exactly (no field mapping)
     - One completion per task (enforced by UNIQUE constraint on task_id)
@@ -178,10 +193,9 @@ class Completion(BaseModel):
     duration_actual: int = Field(ge=1, description="Actual time spent on task (user-reported)")
     conclusion: str | None = Field(default=None, description="What was learned/delivered")
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-
-    model_config = ConfigDict(
-        use_enum_values=True,  # Store enum values, not names
-    )
+    raw_duration_min: int | None = Field(default=None, ge=1, description="Original unadjusted duration estimate")
+    category: str | None = None
+    priority_factors: dict[str, float] | None = None
 
     @property
     def variance_minutes(self) -> int:
@@ -211,3 +225,6 @@ class CompletionCreate(BaseModel):
     duration_expected: int = Field(ge=1, description="Snapshot of task duration_min at completion time")
     duration_actual: int = Field(ge=1, description="Actual time spent on task")
     conclusion: str | None = Field(default=None, description="What was learned/delivered")
+    raw_duration_min: int | None = Field(default=None, ge=1)
+    category: str | None = None
+    priority_factors: dict[str, float] | None = None

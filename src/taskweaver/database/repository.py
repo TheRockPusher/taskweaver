@@ -1,14 +1,15 @@
-"""Task repository for CRUD operations."""
+"""Task persistence with atomic status cleanup and fresh MCDA rankings."""
 
+import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
-from loguru import logger
-
 from .connection import DEFAULT_DB_PATH, get_connection
 from .exceptions import TaskNotFoundError
 from .models import Task, TaskCreate, TaskStatus, TaskUpdate, TaskWithDependencies
+from .planning import estimate_duration
+from .priority_service import refresh_priorities
 from .schema import (
     DELETE_TASK,
     INSERT_TASK,
@@ -18,302 +19,164 @@ from .schema import (
     UPDATE_TASK,
 )
 
+_NULLABLE_FIELDS = frozenset(
+    {
+        "description",
+        "goal_id",
+        "skill_domain",
+        "required_skill_level",
+        "priority_score",
+        "priority_updated_at",
+    }
+)
+_TERMINAL_STATUSES = (TaskStatus.COMPLETED, TaskStatus.CANCELLED)
+
+
+def _require_task(conn: sqlite3.Connection, task_id: UUID) -> Task:
+    row = conn.execute(SELECT_TASK_BY_ID, (str(task_id),)).fetchone()
+    if row is None:
+        raise TaskNotFoundError(task_id)
+    return Task.model_validate(dict(row))
+
+
+def _validate_goal(conn: sqlite3.Connection, goal_id: UUID | None) -> None:
+    if goal_id is not None and not conn.execute("SELECT 1 FROM goals WHERE goal_id = ?", (str(goal_id),)).fetchone():
+        msg = f"Goal not found: {goal_id}"
+        raise ValueError(msg)
+
 
 class TaskRepository:
-    """Repository for task CRUD operations.
-
-    Designed for AI agent tool usage with clear, single-purpose methods.
-    """
+    """Persist tasks and their derived rankings in the same SQLite transaction."""
 
     def __init__(self, db_path: Path = DEFAULT_DB_PATH) -> None:
-        """Initialize repository.
-
-        Args:
-            db_path: Path to SQLite database file.
-
-        """
         self.db_path = db_path
-        logger.debug(f"TaskRepository initialized with database: {db_path}")
 
     def create_task(self, task_data: TaskCreate) -> Task:
-        """Create a new task.
+        """Create a task, adjusting its original duration estimate exactly once.
 
         Args:
-            task_data: Task creation data.
+            task_data: Validated task fields and optional original duration baseline.
 
         Returns:
-            Created task with generated ID and timestamps.
-
+            Persisted task with current MCDA score and learned duration estimate.
         """
-        logger.debug(f"Creating task: title='{task_data.title}'")
-        task = Task(
-            title=task_data.title,
-            description=task_data.description,
-            duration_min=task_data.duration_min,
-            llm_value=task_data.llm_value,
-            requirement=task_data.requirement,
-        )
-
-        with get_connection(self.db_path) as conn:
-            conn.execute(
-                INSERT_TASK,
-                (
-                    str(task.task_id),
-                    task.title,
-                    task.description,
-                    task.status.value,
-                    task.created_at.isoformat(),
-                    task.updated_at.isoformat(),
-                    task.duration_min,
-                    task.llm_value,
-                    task.requirement,
-                ),
-            )
-            conn.commit()
-            logger.info(f"Created task {task.task_id}: '{task.title}' [status={task.status.value}]")
-
-        return task
+        task = Task.model_validate(task_data.model_dump(exclude_none=True))
+        with get_connection(self.db_path) as conn, conn:
+            conn.execute("BEGIN IMMEDIATE")
+            _validate_goal(conn, task.goal_id)
+            task.duration_min = estimate_duration(conn, task.category, task.raw_duration_min).adjusted_minutes
+            conn.execute(INSERT_TASK, task.model_dump(mode="json"))
+            refresh_priorities(conn)
+            return _require_task(conn, task.task_id)
 
     def get_task(self, task_id: UUID) -> Task | None:
-        """Get task by ID.
-
-        Args:
-            task_id: Task UUID.
-
-        Returns:
-            Task if found, None otherwise.
-
-        """
-        logger.debug(f"Retrieving task: {task_id}")
+        """Retrieve a task, returning None when it does not exist."""
         with get_connection(self.db_path) as conn:
-            cursor = conn.execute(SELECT_TASK_BY_ID, (str(task_id),))
-            row = cursor.fetchone()
-
-        if row is None:
-            logger.debug(f"Task not found: {task_id}")
-            return None
-
-        logger.debug(f"Task found: {task_id} - '{row['title']}'")
-        return Task(
-            task_id=UUID(row["task_id"]),
-            title=row["title"],
-            description=row["description"],
-            status=TaskStatus(row["status"]),
-            created_at=datetime.fromisoformat(row["created_at"]),
-            updated_at=datetime.fromisoformat(row["updated_at"]),
-            duration_min=row["duration_min"],
-            llm_value=row["llm_value"],
-            requirement=row["requirement"],
-        )
+            row = conn.execute(SELECT_TASK_BY_ID, (str(task_id),)).fetchone()
+        return Task.model_validate(dict(row)) if row is not None else None
 
     def list_tasks(self, status: TaskStatus | None = None) -> list[Task]:
-        """List tasks, optionally filtered by status.
-
-        Args:
-            status: Optional status filter. If None, returns all tasks.
-
-        Returns:
-            List of tasks ordered by created_at desc.
-
-        """
-        filter_msg = f"status={status.value}" if status else "no filter"
-        logger.debug(f"Listing tasks ({filter_msg})")
-
+        """List tasks newest first, optionally filtering by status."""
         with get_connection(self.db_path) as conn:
-            if status is None:
-                cursor = conn.execute(SELECT_ALL_TASKS)
-            else:
-                # Filter by status
-                query = "SELECT * FROM tasks WHERE status = ? ORDER BY created_at DESC"
-                cursor = conn.execute(query, (status.value,))
-
-            rows = cursor.fetchall()
-
-        task_count = len(rows)
-        logger.info(f"Retrieved {task_count} task(s) ({filter_msg})")
-
-        return [
-            Task(
-                task_id=UUID(row["task_id"]),
-                title=row["title"],
-                description=row["description"],
-                status=TaskStatus(row["status"]),
-                created_at=datetime.fromisoformat(row["created_at"]),
-                updated_at=datetime.fromisoformat(row["updated_at"]),
-                duration_min=row["duration_min"],
-                llm_value=row["llm_value"],
-                requirement=row["requirement"],
+            rows = (
+                conn.execute(SELECT_ALL_TASKS).fetchall()
+                if status is None
+                else conn.execute(
+                    "SELECT * FROM tasks WHERE status = ? ORDER BY created_at DESC", (status.value,)
+                ).fetchall()
             )
-            for row in rows
-        ]
+        return [Task.model_validate(dict(row)) for row in rows]
 
     def list_tasks_with_deps(self) -> list[TaskWithDependencies]:
-        """List all tasks with a count of blockers and blocked.
-
-        Returns:
-            list[TaskWithDependencies]: _description_
-        """
-        logger.debug("Listing dependency tasks")
-
+        """List active tasks with active blocker and downstream counts."""
         with get_connection(self.db_path) as conn:
-            cursor = conn.execute(SELECT_ALL_TASKS_DEPENDENCY)
-
-            rows = cursor.fetchall()
-
-        task_count = len(rows)
-        logger.info(f"Retrieved {task_count} task(s)")
-
-        return [
-            TaskWithDependencies(
-                task_id=UUID(row["task_id"]),
-                title=row["title"],
-                description=row["description"],
-                status=TaskStatus(row["status"]),
-                created_at=datetime.fromisoformat(row["created_at"]),
-                updated_at=datetime.fromisoformat(row["updated_at"]),
-                duration_min=row["duration_min"],
-                llm_value=row["llm_value"],
-                requirement=row["requirement"],
-                tasks_blocked_count=row["tasks_blocked_count"],
-                active_blocker_count=row["active_blocker_count"],
-            )
-            for row in rows
-        ]
+            rows = conn.execute(SELECT_ALL_TASKS_DEPENDENCY).fetchall()
+        return [TaskWithDependencies.model_validate(dict(row)) for row in rows]
 
     def update_task(self, task_id: UUID, task_data: TaskUpdate) -> Task:
-        """Update a task.
+        """Apply supplied fields, clearing nullable fields when explicitly set to None.
+
+        The original raw_duration_min remains immutable. Editing duration_min changes
+        the working estimate without reapplying learning. Completing or cancelling a
+        blocker permanently deletes its outgoing edges in this same transaction.
+        MCDA fields are derived again for active tasks, including explicit overrides.
 
         Args:
-            task_id: Task UUID.
-            task_data: Fields to update.
+            task_id: Task to update.
+            task_data: Fields explicitly supplied by the caller.
 
         Returns:
-            Updated task.
+            Persisted task with refreshed rankings.
 
         Raises:
-            TaskNotFoundError: If task does not exist.
-
+            TaskNotFoundError: If the task does not exist.
         """
-        logger.debug(f"Updating task: {task_id}")
-        # Get existing task
-        task = self.get_task(task_id)
-        if task is None:
-            logger.error(f"Cannot update task {task_id}: not found")
-            raise TaskNotFoundError(task_id)
+        changes = {
+            key: value
+            for key, value in task_data.model_dump(exclude_unset=True).items()
+            if value is not None or key in _NULLABLE_FIELDS
+        }
+        with get_connection(self.db_path) as conn, conn:
+            conn.execute("BEGIN IMMEDIATE")
+            task = _require_task(conn, task_id)
+            task = Task.model_validate(task.model_dump() | changes | {"updated_at": datetime.now(UTC)})
+            _validate_goal(conn, task.goal_id)
+            conn.execute(UPDATE_TASK, task.model_dump(mode="json"))
+            if task.status in _TERMINAL_STATUSES:
+                conn.execute("DELETE FROM task_dependencies WHERE blocker_id = ?", (str(task_id),))
+            refresh_priorities(conn)
+            return _require_task(conn, task_id)
 
-        # Track changes for logging
-        changes = []
-        # Update fields
-        if task_data.title is not None:
-            changes.append(f"title: '{task.title}' -> '{task_data.title}'")
-            task.title = task_data.title
-        if task_data.description is not None:
-            changes.append("description updated")
-            task.description = task_data.description
-        if task_data.status is not None:
-            old_status = task.status
-            new_status = task_data.status
-            changes.append(f"status: {old_status} -> {new_status}")
-            task.status = task_data.status
-        if task_data.duration_min is not None:
-            changes.append(f"duration_min: {task.duration_min} -> {task_data.duration_min}")
-            task.duration_min = task_data.duration_min
-        if task_data.llm_value is not None:
-            changes.append(f"llm_value: {task.llm_value} -> {task_data.llm_value}")
-            task.llm_value = task_data.llm_value
-        if task_data.requirement is not None:
-            changes.append(f"requirement: '{task.requirement}' -> '{task_data.requirement}'")
-            task.requirement = task_data.requirement
+    def update_task_scores(
+        self, task_id: UUID, urgency: int | None = None, importance: int | None = None, effort: int | None = None
+    ) -> Task:
+        """Update supplied 1..5 scores and refresh every affected active ranking."""
+        return self.update_task(task_id, TaskUpdate(urgency=urgency, importance=importance, effort=effort))
 
-        task.updated_at = datetime.now(UTC)
+    def list_tasks_by_priority(self, status: TaskStatus | None = None, limit: int | None = None) -> list[Task]:
+        """List current intrinsic MCDA scores descending with deterministic ties.
 
+        Args:
+            status: Optional task status filter.
+            limit: Maximum number of results, or None for all matching tasks.
+
+        Returns:
+            Ranked tasks, with tasks lacking a score last.
+
+        Raises:
+            ValueError: If limit is negative.
+        """
+        if limit is not None and limit < 0:
+            msg = "limit must be nonnegative"
+            raise ValueError(msg)
+        status_value = status.value if status is not None else None
         with get_connection(self.db_path) as conn:
-            # Extract status value (handle both TaskStatus enum and string)
-            status_value = task.status
-            conn.execute(
-                UPDATE_TASK,
-                (
-                    task.title,
-                    task.description,
-                    status_value,
-                    task.updated_at.isoformat(),
-                    task.duration_min,
-                    task.llm_value,
-                    task.requirement,
-                    str(task_id),
-                ),
-            )
-            conn.commit()
-            logger.info(f"Updated task {task_id}: {', '.join(changes)}")
-
-        return task
+            rows = conn.execute(
+                """SELECT * FROM tasks WHERE (? IS NULL OR status = ?)
+                ORDER BY priority_score DESC, created_at DESC, task_id LIMIT ?""",
+                (status_value, status_value, -1 if limit is None else limit),
+            ).fetchall()
+        return [Task.model_validate(dict(row)) for row in rows]
 
     def mark_completed(self, task_id: UUID) -> Task:
-        """Mark a task as completed.
-
-        Args:
-            task_id: Task UUID.
-
-        Returns:
-            Updated task.
-
-        Raises:
-            TaskNotFoundError: If task does not exist.
-
-        """
-        logger.debug(f"Marking task as completed: {task_id}")
+        """Complete a task and immediately release tasks it blocks."""
         return self.update_task(task_id, TaskUpdate(status=TaskStatus.COMPLETED))
 
     def mark_in_progress(self, task_id: UUID) -> Task:
-        """Mark a task as in progress.
-
-        Args:
-            task_id: Task UUID.
-
-        Returns:
-            Updated task.
-
-        Raises:
-            TaskNotFoundError: If task does not exist.
-
-        """
-        logger.debug(f"Marking task as in progress: {task_id}")
+        """Set a task's status to in progress."""
         return self.update_task(task_id, TaskUpdate(status=TaskStatus.IN_PROGRESS))
 
     def mark_cancelled(self, task_id: UUID) -> Task:
-        """Mark a task as cancelled.
-
-        Args:
-            task_id: Task UUID.
-
-        Returns:
-            Updated task.
-
-        Raises:
-            TaskNotFoundError: If task does not exist.
-
-        """
-        logger.debug(f"Marking task as cancelled: {task_id}")
+        """Cancel a task and immediately release tasks it blocks."""
         return self.update_task(task_id, TaskUpdate(status=TaskStatus.CANCELLED))
 
     def delete_task(self, task_id: UUID) -> None:
-        """Delete a task.
-
-        Args:
-            task_id: Task UUID.
+        """Delete a task, cascading its edges, completions, and priority history.
 
         Raises:
-            TaskNotFoundError: If task does not exist.
-
+            TaskNotFoundError: If the task does not exist.
         """
-        logger.debug(f"Deleting task: {task_id}")
-        with get_connection(self.db_path) as conn:
-            cursor = conn.execute(DELETE_TASK, (str(task_id),))
-            conn.commit()
-            deleted = cursor.rowcount > 0
-
-        if deleted:
-            logger.info(f"Deleted task {task_id}")
-        else:
-            logger.error(f"Cannot delete task {task_id}: not found")
-            raise TaskNotFoundError(task_id)
+        with get_connection(self.db_path) as conn, conn:
+            if not conn.execute(DELETE_TASK, (str(task_id),)).rowcount:
+                raise TaskNotFoundError(task_id)
+            refresh_priorities(conn)

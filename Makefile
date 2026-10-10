@@ -1,11 +1,4 @@
-PACKAGE_VERSION := $(shell grep -m1 '^version' pyproject.toml | sed -E 's/version *= *"(.*)"/\1/')
-
-# Capture additional arguments as FILE variable
-FILE ?= $(filter-out $@,$(MAKECMDGOALS))
-
-# Prevent make from treating arguments as targets
-%:
-	@:
+FILE ?=
 
 .PHONY: install
 install: ## Install the virtual environment

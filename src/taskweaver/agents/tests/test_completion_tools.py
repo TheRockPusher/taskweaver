@@ -1,5 +1,6 @@
 """Tests for completion tracking in agent tools."""
 
+import sqlite3
 from pathlib import Path
 from uuid import uuid4
 
@@ -8,9 +9,9 @@ from pydantic_ai import RunContext
 from pydantic_ai.exceptions import ModelRetry
 
 from taskweaver.database.completion_repository import CompletionRepository
-from taskweaver.database.connection import init_database
+from taskweaver.database.connection import get_connection, init_database
 from taskweaver.database.dependency_repository import TaskDependencyRepository
-from taskweaver.database.models import CompletionStatus, TaskCreate, TaskUpdate
+from taskweaver.database.models import CompletionStatus, Task, TaskCreate, TaskStatus, TaskUpdate
 from taskweaver.database.repository import TaskRepository
 
 from ..dependencies import TaskDependencies
@@ -55,6 +56,27 @@ def mock_ctx(deps: TaskDependencies) -> RunContext[TaskDependencies]:
             self.deps = dependencies
 
     return MockContext(deps)  # type: ignore[return-value]
+
+
+@pytest.fixture
+def blocking_tasks(mock_ctx: RunContext[TaskDependencies]) -> tuple[Task, Task]:
+    """Create a blocker with distinct working and raw duration snapshots."""
+    blocker = mock_ctx.deps.task_repo.create_task(
+        TaskCreate(
+            title="Blocking task",
+            duration_min=30,
+            raw_duration_min=30,
+            llm_value=80.0,
+            requirement="Deliver prerequisite",
+            category="engineering",
+        )
+    )
+    blocker = mock_ctx.deps.task_repo.update_task(blocker.task_id, TaskUpdate(duration_min=60))
+    downstream = mock_ctx.deps.task_repo.create_task(
+        TaskCreate(title="Downstream task", duration_min=30, llm_value=80.0, requirement="Use prerequisite")
+    )
+    mock_ctx.deps.dep_repo.add_dependency(downstream.task_id, blocker.task_id)
+    return blocker, downstream
 
 
 def test_mark_completed_without_tracking(mock_ctx: RunContext[TaskDependencies]) -> None:
@@ -243,3 +265,87 @@ def test_completion_immutable_snapshot(mock_ctx: RunContext[TaskDependencies]) -
     assert updated_task is not None
     assert updated_task.duration_min == 120
     assert completion_after.duration_expected == 60
+
+
+@pytest.mark.parametrize("status", [CompletionStatus.COMPLETED, CompletionStatus.CANCELLED])
+def test_tracked_closure_snapshots_blocker_before_cleanup(
+    mock_ctx: RunContext[TaskDependencies], blocking_tasks: tuple[Task, Task], status: CompletionStatus
+) -> None:
+    """Real completion tools must preserve factors before removing blocker edges."""
+    blocker, downstream = blocking_tasks
+    tool = mark_task_completed_tool if status == CompletionStatus.COMPLETED else mark_task_cancelled_tool
+
+    tool(mock_ctx, blocker.task_id, duration_actual=90, conclusion="Delivered prerequisite")
+
+    completion = mock_ctx.deps.completion_repo.get_completion_by_task_id(blocker.task_id)
+    assert completion is not None
+    assert completion.status == status
+    assert completion.duration_expected == 60
+    assert completion.raw_duration_min == 30
+    assert completion.category == "engineering"
+    assert completion.duration_actual == 90
+    assert completion.conclusion == "Delivered prerequisite"
+    assert completion.priority_factors is not None
+    assert completion.priority_factors["dependencies"] > 0
+    closed = mock_ctx.deps.task_repo.get_task(blocker.task_id)
+    assert closed is not None
+    assert closed.status.value == status.value
+    assert mock_ctx.deps.dep_repo.get_blockers(downstream.task_id) == []
+
+
+@pytest.mark.parametrize("status", [CompletionStatus.COMPLETED, CompletionStatus.CANCELLED])
+def test_tracked_closure_failure_rolls_back_record_status_and_edges(
+    mock_ctx: RunContext[TaskDependencies], blocking_tasks: tuple[Task, Task], status: CompletionStatus
+) -> None:
+    """A failure during real dependency cleanup cannot partially close a task."""
+    blocker, downstream = blocking_tasks
+    tool = mark_task_completed_tool if status == CompletionStatus.COMPLETED else mark_task_cancelled_tool
+    with get_connection(mock_ctx.deps.task_repo.db_path) as conn, conn:
+        conn.execute(
+            """CREATE TRIGGER reject_cleanup BEFORE DELETE ON task_dependencies
+               BEGIN SELECT RAISE(ABORT, 'cleanup refused'); END"""
+        )
+
+    with pytest.raises(sqlite3.IntegrityError, match="cleanup refused"):
+        tool(mock_ctx, blocker.task_id, duration_actual=90)
+
+    unchanged = mock_ctx.deps.task_repo.get_task(blocker.task_id)
+    assert unchanged is not None
+    assert unchanged.status == TaskStatus.PENDING
+    assert mock_ctx.deps.completion_repo.get_completion_by_task_id(blocker.task_id) is None
+    assert [task.task_id for task in mock_ctx.deps.dep_repo.get_blockers(downstream.task_id)] == [blocker.task_id]
+
+
+@pytest.mark.parametrize("status", [CompletionStatus.COMPLETED, CompletionStatus.CANCELLED])
+def test_invalid_actual_duration_does_not_close_task(
+    mock_ctx: RunContext[TaskDependencies], blocking_tasks: tuple[Task, Task], status: CompletionStatus
+) -> None:
+    """Input validation errors become retries without destroying task state."""
+    blocker, downstream = blocking_tasks
+    tool = mark_task_completed_tool if status == CompletionStatus.COMPLETED else mark_task_cancelled_tool
+
+    with pytest.raises(ModelRetry):
+        tool(mock_ctx, blocker.task_id, duration_actual=0)
+
+    unchanged = mock_ctx.deps.task_repo.get_task(blocker.task_id)
+    assert unchanged is not None
+    assert unchanged.status == TaskStatus.PENDING
+    assert mock_ctx.deps.completion_repo.get_completion_by_task_id(blocker.task_id) is None
+    assert [task.task_id for task in mock_ctx.deps.dep_repo.get_blockers(downstream.task_id)] == [blocker.task_id]
+
+
+@pytest.mark.parametrize("status", [CompletionStatus.COMPLETED, CompletionStatus.CANCELLED])
+def test_untracked_closure_does_not_invent_actual_duration(
+    mock_ctx: RunContext[TaskDependencies], blocking_tasks: tuple[Task, Task], status: CompletionStatus
+) -> None:
+    """A conclusion alone does not fabricate completion evidence."""
+    blocker, downstream = blocking_tasks
+    tool = mark_task_completed_tool if status == CompletionStatus.COMPLETED else mark_task_cancelled_tool
+
+    tool(mock_ctx, blocker.task_id, conclusion="No measured time available")
+
+    closed = mock_ctx.deps.task_repo.get_task(blocker.task_id)
+    assert closed is not None
+    assert closed.status.value == status.value
+    assert mock_ctx.deps.completion_repo.get_completion_by_task_id(blocker.task_id) is None
+    assert mock_ctx.deps.dep_repo.get_blockers(downstream.task_id) == []

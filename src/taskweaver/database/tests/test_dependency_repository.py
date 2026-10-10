@@ -116,7 +116,7 @@ def test_get_blockers_multiple(dep_repo: TaskDependencyRepository, tasks: dict[s
 def test_get_blockers_only_active(
     dep_repo: TaskDependencyRepository, task_repo: TaskRepository, tasks: dict[str, UUID]
 ) -> None:
-    """Test get_blockers returns only pending/in_progress tasks."""
+    """Completing a blocker removes its edge rather than merely filtering its status."""
     dep_repo.add_dependency(task_id=tasks["A"], blocker_id=tasks["B"])
     dep_repo.add_dependency(task_id=tasks["A"], blocker_id=tasks["C"])
 
@@ -128,6 +128,8 @@ def test_get_blockers_only_active(
     # Only C should remain (B is completed)
     assert len(blockers) == 1
     assert blockers[0].task_id == tasks["C"]
+    with pytest.raises(DependencyError):
+        dep_repo.remove_dependency(task_id=tasks["A"], blocker_id=tasks["B"])
 
 
 # Get Blocked Tests

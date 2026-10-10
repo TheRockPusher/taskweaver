@@ -5,6 +5,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
+from rich.console import Console
 from typer.testing import CliRunner
 
 from taskweaver.cli import app
@@ -113,11 +114,8 @@ def test_list_command_with_tasks(test_db: Path, sample_task: str) -> None:  # no
     output = strip_ansi(result.stdout)
 
     assert result.exit_code == 0
-    assert "Sample" in output  # Title may be truncated in table
+    assert "Sample task" in output
     assert "Total: 1 task(s)" in output
-    # Check that dates are formatted as yyyy-mm-dd (no time component)
-    assert "2025-" in output  # Year present
-    assert "+00:00" not in output  # No timezone in list view
 
 
 def test_list_command_filter_by_status(test_db: Path) -> None:
@@ -131,7 +129,7 @@ def test_list_command_filter_by_status(test_db: Path) -> None:
 
     assert result.exit_code == 0
     assert "Active" in result.stdout
-    assert "in_pr" in result.stdout  # Status is truncated in table as "in_pr…"
+    assert "in_progress" in result.stdout
     assert "Pending task" not in result.stdout
 
 
@@ -273,9 +271,33 @@ def test_list_open_command_with_tasks(test_db: Path, sample_task: str) -> None: 
     output = strip_ansi(result.stdout)
 
     assert result.exit_code == 0
-    # Title may be truncated in table (Sam… task)
-    assert "Sample task" in output or "Sam" in output
+    assert "Sample task" in output
     assert "Total: 1 task(s)" in output
+
+
+@pytest.mark.parametrize("command", ["ls", "lso"])
+def test_list_commands_readable_at_80_columns(
+    test_db: Path, sample_task: str, monkeypatch: pytest.MonkeyPatch, command: str
+) -> None:
+    """Normal terminal widths preserve titles and statuses without detailed-field clutter."""
+    monkeypatch.setattr("taskweaver.cli.console", Console(width=80, color_system=None))
+    TaskRepository(test_db).update_task(UUID(sample_task), TaskUpdate(status=TaskStatus.IN_PROGRESS))
+
+    result = runner.invoke(app, [command, "--db", str(test_db)])
+    output = strip_ansi(result.stdout)
+
+    assert result.exit_code == 0
+    assert "Sample task" in output
+    assert "in_progress" in output
+    assert "30m" in output
+    assert "MCDA" in output
+    assert "Sample description" not in output
+    assert "created_at" not in output
+    assert "Total: 1 task(s)" in output
+    assert all(len(line) <= 80 for line in output.splitlines())
+    if command == "lso":
+        assert "Blocks" in output
+        assert "Blockers" in output
 
 
 def test_restart_db_command(test_db: Path) -> None:

@@ -1,5 +1,6 @@
 """Tests for agent tools."""
 
+import sqlite3
 from pathlib import Path
 from uuid import uuid4
 
@@ -16,7 +17,7 @@ from taskweaver.agents.tools import (
     update_task_tool,
 )
 from taskweaver.database.completion_repository import CompletionRepository
-from taskweaver.database.connection import init_database
+from taskweaver.database.connection import get_connection, init_database
 from taskweaver.database.dependency_repository import TaskDependencyRepository
 from taskweaver.database.models import Task, TaskCreate, TaskStatus
 from taskweaver.database.repository import TaskRepository
@@ -74,7 +75,7 @@ class TestUpdateTaskTool:
         """Test updating task status."""
         result = update_task_tool(ctx, sample_task.task_id, status="in_progress")
 
-        assert result.status == TaskStatus.IN_PROGRESS
+        assert result.status is TaskStatus.IN_PROGRESS
 
     def test_update_task_not_found(self, ctx: RunContext[TaskDependencies]) -> None:
         """Test update with non-existent task raises ModelRetry."""
@@ -98,6 +99,8 @@ class TestListTasksTool:
         assert isinstance(result, str)
         assert "Found 1 task" in result
         assert sample_task.title in result
+        assert f"Status: {sample_task.status.value}" in result
+        assert "TaskStatus." not in result
 
     def test_list_tasks_by_status(self, ctx: RunContext[TaskDependencies], sample_task: Task) -> None:  # noqa: ARG002
         """Test listing tasks filtered by status."""
@@ -105,7 +108,8 @@ class TestListTasksTool:
 
         assert isinstance(result, dict)
         assert len(result["tasks"]) == 1
-        assert result["tasks"][0].status == TaskStatus.PENDING
+        assert result["tasks"][0].status is TaskStatus.PENDING
+        assert result["tasks"][0].model_dump(mode="json")["status"] == "pending"
 
     def test_list_tasks_empty_filter(self, ctx: RunContext[TaskDependencies]) -> None:
         """Test listing with filter that matches no tasks."""
@@ -210,6 +214,8 @@ class TestListTasksPagination:
         assert isinstance(result, str)
         assert "Found 1 task" in result
         assert sample_task.title in result
+        assert f"Status: {sample_task.status.value}" in result
+        assert "TaskStatus." not in result
 
     def test_invalid_sort_by_raises(self, ctx: RunContext[TaskDependencies]) -> None:
         """Test invalid sort_by raises ModelRetry."""
@@ -251,6 +257,14 @@ class TestSearchTasksTool:
 
         assert isinstance(result, dict)
         assert result["total_matches"] == 1
+
+    def test_search_concise_status(self, ctx: RunContext[TaskDependencies], sample_task: Task) -> None:
+        """Search summaries expose the status value, not the enum representation."""
+        result = search_tasks_tool(ctx, sample_task.title, status="pending")
+
+        assert isinstance(result, str)
+        assert f"Status: {sample_task.status.value}" in result
+        assert "TaskStatus." not in result
 
     def test_search_no_matches(self, ctx: RunContext[TaskDependencies]) -> None:
         """Test search with no matching tasks."""
@@ -341,3 +355,90 @@ class TestUpdateTaskStatusTool:
 
         with pytest.raises(ModelRetry, match="not found"):
             update_task_status_tool(ctx, uuid4(), "completed")
+
+    @pytest.mark.parametrize("status", ["completed", "cancelled"])
+    def test_tracked_closure_snapshots_dependencies(
+        self, ctx: RunContext[TaskDependencies], sample_task: Task, status: str
+    ) -> None:
+        """The consolidated tool captures blocker evidence before cleanup."""
+        downstream = ctx.deps.task_repo.create_task(
+            TaskCreate(title="Downstream", duration_min=30, llm_value=80.0, requirement="Needs sample task")
+        )
+        ctx.deps.dep_repo.add_dependency(downstream.task_id, sample_task.task_id)
+
+        update_task_status_tool(ctx, sample_task.task_id, status, duration_actual=90, conclusion="Measured time")
+
+        completion = ctx.deps.completion_repo.get_completion_by_task_id(sample_task.task_id)
+        assert completion is not None
+        assert completion.status.value == status
+        assert completion.duration_actual == 90
+        assert completion.duration_expected == sample_task.duration_min
+        assert completion.raw_duration_min == sample_task.raw_duration_min
+        assert completion.category == sample_task.category
+        assert completion.conclusion == "Measured time"
+        assert completion.priority_factors is not None
+        assert completion.priority_factors["dependencies"] > 0
+        assert ctx.deps.dep_repo.get_blockers(downstream.task_id) == []
+
+    @pytest.mark.parametrize("status", ["completed", "cancelled"])
+    def test_tracked_closure_failure_preserves_task_and_edges(
+        self, ctx: RunContext[TaskDependencies], sample_task: Task, status: str
+    ) -> None:
+        """Cleanup failures propagate and roll back the complete closure transaction."""
+        downstream = ctx.deps.task_repo.create_task(
+            TaskCreate(title="Downstream", duration_min=30, llm_value=80.0, requirement="Needs sample task")
+        )
+        ctx.deps.dep_repo.add_dependency(downstream.task_id, sample_task.task_id)
+        with get_connection(ctx.deps.task_repo.db_path) as conn, conn:
+            conn.execute(
+                """CREATE TRIGGER reject_cleanup BEFORE DELETE ON task_dependencies
+                   BEGIN SELECT RAISE(ABORT, 'cleanup refused'); END"""
+            )
+
+        with pytest.raises(sqlite3.IntegrityError, match="cleanup refused"):
+            update_task_status_tool(ctx, sample_task.task_id, status, duration_actual=90)
+
+        unchanged = ctx.deps.task_repo.get_task(sample_task.task_id)
+        assert unchanged is not None
+        assert unchanged.status == TaskStatus.PENDING
+        assert ctx.deps.completion_repo.get_completion_by_task_id(sample_task.task_id) is None
+        assert [task.task_id for task in ctx.deps.dep_repo.get_blockers(downstream.task_id)] == [sample_task.task_id]
+
+    @pytest.mark.parametrize("status", ["completed", "cancelled"])
+    def test_completion_retries_are_idempotent_and_conflicts_become_model_retry(
+        self, ctx: RunContext[TaskDependencies], sample_task: Task, status: str
+    ) -> None:
+        """Correct retries reuse evidence; conflicting requests never rewrite it."""
+        update_task_status_tool(ctx, sample_task.task_id, status, duration_actual=90, conclusion="Measured time")
+        original = ctx.deps.completion_repo.get_completion_by_task_id(sample_task.task_id)
+        assert original is not None
+
+        update_task_status_tool(ctx, sample_task.task_id, status, duration_actual=90, conclusion="Measured time")
+        assert ctx.deps.completion_repo.get_completion_by_task_id(sample_task.task_id) == original
+
+        with pytest.raises(ModelRetry, match="Conflicting completion"):
+            update_task_status_tool(ctx, sample_task.task_id, status, duration_actual=100, conclusion="Measured time")
+        with pytest.raises(ModelRetry, match="Conflicting completion"):
+            update_task_status_tool(ctx, sample_task.task_id, status, duration_actual=90, conclusion="Changed notes")
+        other_status = "cancelled" if status == "completed" else "completed"
+        with pytest.raises(ModelRetry, match="different status"):
+            update_task_status_tool(
+                ctx, sample_task.task_id, other_status, duration_actual=90, conclusion="Measured time"
+            )
+
+        assert ctx.deps.completion_repo.get_completion_by_task_id(sample_task.task_id) == original
+        closed = ctx.deps.task_repo.get_task(sample_task.task_id)
+        assert closed is not None
+        assert closed.status.value == status
+
+    @pytest.mark.parametrize("status", ["completed", "cancelled"])
+    def test_untracked_closure_creates_no_completion_evidence(
+        self, ctx: RunContext[TaskDependencies], sample_task: Task, status: str
+    ) -> None:
+        """A closure without measured time changes status without inventing evidence."""
+        update_task_status_tool(ctx, sample_task.task_id, status, conclusion="No measured time")
+
+        closed = ctx.deps.task_repo.get_task(sample_task.task_id)
+        assert closed is not None
+        assert closed.status.value == status
+        assert ctx.deps.completion_repo.get_completion_by_task_id(sample_task.task_id) is None

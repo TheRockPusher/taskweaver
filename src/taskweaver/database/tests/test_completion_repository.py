@@ -1,5 +1,6 @@
 """Tests for completion repository."""
 
+import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
@@ -7,7 +8,9 @@ from uuid import uuid4
 import pytest
 
 from taskweaver.database.completion_repository import CompletionRepository
-from taskweaver.database.exceptions import CompletionNotFoundError
+from taskweaver.database.connection import get_connection
+from taskweaver.database.dependency_repository import TaskDependencyRepository
+from taskweaver.database.exceptions import CompletionNotFoundError, TaskNotFoundError
 from taskweaver.database.models import CompletionCreate, CompletionStatus, TaskCreate, TaskUpdate
 from taskweaver.database.repository import TaskRepository
 
@@ -366,3 +369,144 @@ def test_completion_immutable_snapshot(completion_repo: CompletionRepository, ta
     assert updated_task is not None
     assert updated_task.duration_min == 120  # Task updated
     assert retrieved_completion.duration_expected == 60  # Completion unchanged
+
+
+def test_complete_task_closes_and_unblocks_atomically(
+    completion_repo: CompletionRepository, task_repo: TaskRepository, dep_repo: TaskDependencyRepository
+) -> None:
+    task = task_repo.create_task(
+        TaskCreate(title="Dependency", duration_min=60, llm_value=80, requirement="Deliver", category="database")
+    )
+    downstream = task_repo.create_task(
+        TaskCreate(title="Consumer", duration_min=30, llm_value=50, requirement="Use delivery")
+    )
+    upstream = task_repo.create_task(
+        TaskCreate(title="Prerequisite", duration_min=10, llm_value=50, requirement="Prepare")
+    )
+    dep_repo.add_dependency(downstream.task_id, task.task_id)
+    dep_repo.add_dependency(task.task_id, upstream.task_id)
+
+    completion = completion_repo.complete_task(task.task_id, 90, "Shipped")
+    assert (completion.duration_expected, completion.raw_duration_min, completion.category) == (60, 60, "database")
+    assert completion.priority_factors is not None
+    assert set(completion.priority_factors) == {"urgency", "importance", "effort", "dependencies", "age"}
+    closed = task_repo.get_task(task.task_id)
+    assert closed is not None
+    assert closed.status == "completed"
+    assert dep_repo.get_blockers(downstream.task_id) == []
+    assert dep_repo.get_blocked(upstream.task_id) == []
+    assert completion_repo.get_completion(completion.completion_id) == completion
+
+
+def test_complete_task_exact_retries_preserve_single_event(
+    completion_repo: CompletionRepository, task_repo: TaskRepository
+) -> None:
+    task = task_repo.create_task(
+        TaskCreate(title="Work", duration_min=60, llm_value=80, requirement="Deliver", category="database")
+    )
+    first = completion_repo.complete_task(task.task_id, 90, "Shipped")
+    task_repo.update_task(task.task_id, TaskUpdate(duration_min=200, category="frontend"))
+    assert completion_repo.complete_task(task.task_id, 90, "Shipped") == first
+    assert len(completion_repo.list_completions()) == 1
+    with pytest.raises(ValueError, match="Conflicting completion"):
+        completion_repo.complete_task(task.task_id, 100, "Shipped")
+    with pytest.raises(ValueError, match="Conflicting completion"):
+        completion_repo.complete_task(task.task_id, 90, "Different conclusion")
+    with pytest.raises(ValueError, match="different status"):
+        completion_repo.complete_task(task.task_id, 90, "Shipped", CompletionStatus.CANCELLED)
+    assert completion_repo.get_completion(first.completion_id) == first
+
+
+def test_cancelled_completion_closes_and_unblocks(
+    completion_repo: CompletionRepository, task_repo: TaskRepository, dep_repo: TaskDependencyRepository
+) -> None:
+    task = task_repo.create_task(TaskCreate(title="Abandoned", duration_min=60, llm_value=80, requirement="Deliver"))
+    downstream = task_repo.create_task(
+        TaskCreate(title="Alternate work", duration_min=30, llm_value=50, requirement="Deliver another way")
+    )
+    dep_repo.add_dependency(downstream.task_id, task.task_id)
+    completion = completion_repo.complete_task(task.task_id, 20, status=CompletionStatus.CANCELLED)
+    assert completion.status == "cancelled"
+    closed = task_repo.get_task(task.task_id)
+    assert closed is not None
+    assert closed.status == "cancelled"
+    assert dep_repo.get_blockers(downstream.task_id) == []
+    assert completion_repo.complete_task(task.task_id, 20, status=CompletionStatus.CANCELLED) == completion
+
+
+def test_complete_task_failure_rolls_back_record_status_and_dependencies(
+    completion_repo: CompletionRepository,
+    task_repo: TaskRepository,
+    dep_repo: TaskDependencyRepository,
+) -> None:
+    task = task_repo.create_task(TaskCreate(title="Work", duration_min=60, llm_value=80, requirement="Deliver"))
+    downstream = task_repo.create_task(
+        TaskCreate(title="Waiting", duration_min=30, llm_value=50, requirement="Use work")
+    )
+    dep_repo.add_dependency(downstream.task_id, task.task_id)
+
+    with get_connection(completion_repo.db_path) as conn, conn:
+        conn.execute(
+            """CREATE TRIGGER reject_completion_cleanup BEFORE DELETE ON task_dependencies
+            BEGIN SELECT RAISE(ABORT, 'completion cleanup refused'); END"""
+        )
+    try:
+        with pytest.raises(sqlite3.IntegrityError):
+            completion_repo.complete_task(task.task_id, 90)
+        assert completion_repo.get_completion_by_task_id(task.task_id) is None
+        unchanged = task_repo.get_task(task.task_id)
+        assert unchanged is not None
+        assert unchanged.status == "pending"
+        assert [blocker.task_id for blocker in dep_repo.get_blockers(downstream.task_id)] == [task.task_id]
+    finally:
+        with get_connection(completion_repo.db_path) as conn, conn:
+            conn.execute("DROP TRIGGER reject_completion_cleanup")
+
+
+def test_invalid_completion_never_closes_work(completion_repo: CompletionRepository, task_repo: TaskRepository) -> None:
+    task = task_repo.create_task(TaskCreate(title="Work", duration_min=60, llm_value=80, requirement="Deliver"))
+    with pytest.raises(ValueError, match="duration_actual"):
+        completion_repo.complete_task(task.task_id, 0)
+    with pytest.raises(TaskNotFoundError):
+        completion_repo.complete_task(uuid4(), 30)
+    assert completion_repo.get_completion_by_task_id(task.task_id) is None
+    unchanged = task_repo.get_task(task.task_id)
+    assert unchanged is not None
+    assert unchanged.status == "pending"
+
+
+def test_historical_create_preserves_snapshot_and_can_close_later(
+    completion_repo: CompletionRepository, task_repo: TaskRepository
+) -> None:
+    task = task_repo.create_task(
+        TaskCreate(title="Work", duration_min=60, llm_value=80, requirement="Deliver", category="database")
+    )
+    historical = completion_repo.create_completion(
+        CompletionCreate(
+            task_id=task.task_id,
+            status=CompletionStatus.COMPLETED,
+            duration_expected=90,
+            duration_actual=120,
+            raw_duration_min=45,
+            category="historical",
+        )
+    )
+    pending = task_repo.get_task(task.task_id)
+    assert pending is not None
+    assert pending.status == "pending"
+    assert completion_repo.complete_task(task.task_id, 120) == historical
+    closed = task_repo.get_task(task.task_id)
+    assert closed is not None
+    assert closed.status == "completed"
+    assert (historical.duration_expected, historical.raw_duration_min, historical.category) == (90, 45, "historical")
+
+
+def test_recording_closed_task_does_not_reverse_cancellation(
+    completion_repo: CompletionRepository, task_repo: TaskRepository
+) -> None:
+    task = task_repo.create_task(TaskCreate(title="Abandoned", duration_min=60, llm_value=80, requirement="Deliver"))
+    task_repo.mark_cancelled(task.task_id)
+    with pytest.raises(ValueError, match="different status"):
+        completion_repo.complete_task(task.task_id, 60)
+    assert completion_repo.get_completion_by_task_id(task.task_id) is None
+    assert completion_repo.complete_task(task.task_id, 20, status=CompletionStatus.CANCELLED).status == "cancelled"
