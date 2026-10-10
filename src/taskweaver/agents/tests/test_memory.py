@@ -12,6 +12,7 @@ import anthropic
 import httpx
 import openai
 import pytest
+from google.genai.errors import APIError as GoogleAPIError
 
 import taskweaver.agents.memory as memory_module
 from taskweaver.agents.memory import MemoryService
@@ -100,10 +101,12 @@ def test_legacy_provider_records_can_be_corrected_and_removed(memory_path: Path)
     service = MemoryService(memory_path, semantic_backend=backend)
     assert [record.id for record in service.list_semantic()] == ["1"]
     assert not service.forget_semantic("2")
-    service.correct_semantic("1", "preference", "correct preference")
+    with pytest.raises(RuntimeError):
+        service.correct_semantic("1", "preference", "correct preference")
     assert [record.value for record in service.list_semantic()] == ["correct preference"]
     assert [fact.value for fact in service.search("preference")] == ["correct preference"]
-    assert service.forget_semantic("3")
+    with pytest.raises(RuntimeError):
+        service.forget_semantic("3")
     assert service.list_facts() == []
     assert service.list_semantic() == []
 
@@ -176,6 +179,7 @@ def test_provider_programming_errors_are_not_hidden(memory_path: Path) -> None:
         "anthropic_connection",
         "anthropic_auth",
         "anthropic_rate_limit",
+        "google_api",
         "httpx_connection",
         "httpx_timeout",
         "httpx_protocol",
@@ -201,6 +205,7 @@ def provider_error(request: pytest.FixtureRequest) -> Exception:
         "anthropic_rate_limit": anthropic.RateLimitError(
             "Quota exhausted", response=httpx.Response(429, request=http_request), body=None
         ),
+        "google_api": GoogleAPIError(503, {"error": {"message": "Provider unavailable"}}),
         "httpx_connection": httpx.ConnectError("Provider unavailable", request=http_request),
         "httpx_timeout": httpx.ReadTimeout("Provider timed out", request=http_request),
         "httpx_protocol": httpx.RemoteProtocolError("Connection closed", request=http_request),
@@ -237,7 +242,10 @@ def test_sdk_outage_preserves_local_mutation_and_retrieval(memory_path: Path, pr
     assert [fact.value for fact in service.list_facts()] == ["coffee"]
     assert [fact.value for fact in service.search("drink")] == ["coffee"]
     assert '"value": "coffee"' in service.retrieval_context("drink")
-    assert service.list_semantic() == []
+    with pytest.raises(RuntimeError):
+        service.list_semantic()
+    with pytest.raises(RuntimeError):
+        service.forget_semantic("unavailable-record")
     assert service.forget("drink")
     assert MemoryService(memory_path).list_facts() == []
 
@@ -409,13 +417,16 @@ def test_malformed_provider_metadata_is_skipped_but_remains_manageable(memory_pa
     assert [record.value for record in service.list_semantic()] == ["tea", "valid legacy"]
     assert [fact.value for fact in service.search("drink")] == ["tea"]
     assert '"value": "tea"' in service.retrieval_context("drink")
-    assert service.forget_semantic("3")
-    assert service.forget_semantic("2")
+    with pytest.raises(RuntimeError):
+        service.forget_semantic("3")
+    with pytest.raises(RuntimeError):
+        service.forget_semantic("2")
     assert not service.forget_semantic("4")
-    assert not service.forget_semantic("2")
+    with pytest.raises(RuntimeError):
+        service.forget_semantic("2")
     assert [record.value for record in service.list_semantic()] == ["tea"]
     assert service.list_facts()[0].backend_id == local_fact.backend_id
-    assert backend.deleted == ["3", "2"]
+    assert "4" not in backend.deleted
 
 
 def test_malformed_provider_record_can_be_explicitly_corrected(memory_path: Path) -> None:
@@ -423,7 +434,32 @@ def test_malformed_provider_record_can_be_explicitly_corrected(memory_path: Path
     backend = SemanticStore()
     backend.add("false", user_id="default", metadata={"key": "   ", "version": "bad"}, infer=False)
     service = MemoryService(memory_path, semantic_backend=backend)
-    corrected = service.correct_semantic("1", "drink", "tea")
-    assert corrected.value == "tea"
+    with pytest.raises(RuntimeError):
+        service.correct_semantic("1", "drink", "tea")
+    assert [(fact.key, fact.value) for fact in service.list_facts()] == [("drink", "tea")]
     assert [record.value for record in service.list_semantic()] == ["tea"]
     assert backend.deleted == ["1"]
+
+
+def test_explicit_backend_removal_can_resume_after_failure(memory_path: Path) -> None:
+    """A local tombstone prevents resurfacing without preventing deliberate remote cleanup."""
+
+    class RecoveringStore(SemanticStore):
+        unavailable = True
+
+        def delete(self, identifier: str) -> None:
+            if self.unavailable:
+                raise openai.APIConnectionError(request=httpx.Request("DELETE", "https://provider.invalid/memory"))
+            self.records = [record for record in self.records if record["id"] != identifier]
+
+    backend = RecoveringStore()
+    service = MemoryService(memory_path, semantic_backend=backend)
+    fact = service.remember("drink", "tea")
+    assert fact.backend_id is not None
+    with pytest.raises(RuntimeError):
+        service.forget_semantic(fact.backend_id)
+    assert service.list_facts() == []
+    assert service.list_semantic() == []
+    backend.unavailable = False
+    assert service.forget_semantic(fact.backend_id)
+    assert backend.records == []

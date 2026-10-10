@@ -1,105 +1,31 @@
-/* Theme-based styling for beautiful, themeable UI */
-
-/* Chat container - main surface with primary accent */
-#chat-container {
-    height: 60%;
-    background: $surface;
-    border: round $primary;
-    margin: 1;
+Screen { background: $background; }
+Header { height: 1; }
+Footer { height: 1; }
+#views { height: 1fr; }
+TabbedContent > ContentSwitcher { height: 1fr; }
+TabPane { padding: 0 1; }
+.legend { height: auto; color: $text-muted; }
+DataTable { height: 1fr; }
+#board { height: 1fr; }
+.board-column { width: 1fr; border-right: solid $primary; padding: 0 1; }
+.board-column DataTable { height: 1fr; }
+#dependency-graph { height: auto; padding: 1 0; }
+#graph-tasks { height: 1fr; min-height: 5; }
+#notice { height: 2; color: $text-muted; padding: 0 1; }
+#chat-view { height: 1fr; }
+#input-field { height: 4; border: solid $accent; }
+Markdown { padding: 0 1; }
+.user-message, .agent-message, .system-message { margin: 0 0 1 0; }
+.error-message { border-left: solid $error; color: $error; }
+FormScreen, TaskFormScreen, CompletionScreen, DependencyScreen, PlanningFormScreen, TaskDetailScreen {
+    align: center middle;
+    background: $background 70%;
 }
-
-#chat-view {
-    padding: 1 2;
-    background: $surface;
-}
-
-/* Tasks container - divided panels */
-#tasks-container {
-    height: 40%;
-    layout: horizontal;
-    margin: 0 1 1 1;
-}
-
-#open-tasks {
-    width: 1fr;
-    background: $panel;
-    border: round $primary-darken-1;
-    margin: 0 1 0 0;
-    padding: 1;
-}
-
-#unblocked-tasks {
-    width: 1fr;
-    background: $panel;
-    border: round $primary-darken-1;
-    padding: 1;
-}
-
-/* Message styling - colorful and distinct */
-.agent-message {
-    background: $primary-muted;
-    color: $text-primary;
-    border-left: wide $primary;
-    margin: 1 0;
-    padding: 1 2;
-}
-
-.user-message {
-    background: $secondary-muted;
-    color: $text-secondary;
-    border-left: wide $secondary;
-    margin: 1 0;
-    padding: 1 2;
-}
-
-.system-message {
-    background: $surface-lighten-1;
-    color: $text-muted;
-    margin: 1 0;
-    padding: 1 2;
-}
-
-.error-message {
-    background: $error-muted;
-    color: $text-error;
-    border: solid $error;
-    margin: 1 0;
-    padding: 1 2;
-}
-
-/* TextArea - multiline input with focus effects */
-TextArea {
-    dock: bottom;
-    background: $surface;
-    border: round $accent-darken-1;
-    margin: 0 1 1 1;
-    padding: 0 1;
-    max-height: 20%;
-    height: auto;
-}
-
-TextArea:focus {
-    border: heavy $accent;
-    background: $surface-lighten-1;
-}
-
-/* Tables - styled with theme colors */
-DataTable {
-    height: 100%;
-    background: transparent;
-}
-
-DataTable > .datatable--header {
-    background: $accent;
-    color: $text-accent;
-    text-style: bold;
-}
-
-.task-header {
-    text-align: left;
-    color: $primary;
-    background: $surface-darken-1;
-    text-style: bold;
-    padding: 0 1;
-    margin: 0 0 1 0;
-}
+.dialog { width: 74; max-width: 96%; height: 90%; background: $surface; border: solid $primary; padding: 0 1; }
+.form-fields { height: 1fr; }
+.form-fields Label { height: auto; margin-top: 1; }
+.form-fields Input, .form-fields Select { height: 3; }
+#form-error { height: auto; max-height: 4; color: $error; }
+.dialog-buttons { height: 3; }
+.dialog-buttons Button { margin-right: 1; }
+#close-button { height: 3; }

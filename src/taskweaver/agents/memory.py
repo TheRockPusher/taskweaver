@@ -9,22 +9,24 @@ from sqlite3 import Row
 from typing import Protocol, cast
 
 from anthropic import APIError as AnthropicAPIError
+from google.genai.errors import APIError as GoogleAPIError
 from httpx import TransportError
 from openai import APIError as OpenAIAPIError
 
 from taskweaver.database.connection import get_connection
 
 CATEGORIES = frozenset({"preference", "skill", "goal", "context"})
+BACKEND_OPERATION_ERRORS = (OSError, TransportError, OpenAIAPIError, AnthropicAPIError, GoogleAPIError)
 
 
 class SemanticBackend(Protocol):
-    """The Mem0 operations used by the optional semantic provider."""
+    """The Mem0 operations used by the optional semantic provider, with positional payloads."""
 
-    def add(self, value: str, *, user_id: str, metadata: dict[str, object], infer: bool) -> object:
+    def add(self, value: str, /, *, user_id: str, metadata: dict[str, object], infer: bool) -> object:
         """Store an explicit fact without inferring additional memories."""
         ...
 
-    def delete(self, identifier: str) -> object:
+    def delete(self, identifier: str, /) -> object:
         """Attempt removal of a provider record."""
         ...
 
@@ -32,7 +34,7 @@ class SemanticBackend(Protocol):
         """Return the provider's records for one user."""
         ...
 
-    def search(self, query: str, *, user_id: str, limit: int) -> object:
+    def search(self, query: str, /, *, user_id: str, limit: int) -> object:
         """Return provider matches for one user."""
         ...
 
@@ -77,14 +79,19 @@ class MemoryService:
             raise ValueError("Memory key must not be empty")
         return normalized
 
-    def _backend_call(self, call: Callable[[SemanticBackend], object]) -> object:
+    def _backend_call(self, call: Callable[[SemanticBackend], object], *, required: bool = False) -> object:
         if self.backend is None:
+            if required:
+                msg = "Semantic memory is disabled or unavailable."
+                raise RuntimeError(msg)
             return None
         try:
             return call(self.backend)
-        except (OSError, TransportError, OpenAIAPIError, AnthropicAPIError):
-            # SDK, transport and credential failures leave SQLite authoritative.
-            # Programming errors propagate; failed provider calls never imply success.
+        except BACKEND_OPERATION_ERRORS as exc:
+            if required:
+                msg = "Semantic memory backend operation failed; local facts are still available."
+                raise RuntimeError(msg) from exc
+            # Optional indexing/retrieval failures must not discard local facts.
             return None
 
     @staticmethod
@@ -274,7 +281,7 @@ class MemoryService:
             metadata = self._mapping(record.get("metadata"))
             if (
                 not identifier
-                or identifier in blocked
+                or (identifier in blocked and not for_management)
                 or record.get("user_id", metadata.get("user_id", self.user_id)) != self.user_id
             ):
                 continue
@@ -306,21 +313,29 @@ class MemoryService:
         return result
 
     def list_semantic(self) -> list[SemanticMemory]:
-        """Expose provider-only memories and IDs for deliberate management."""
-        return self._visible_semantic(self._backend_call(lambda backend: backend.get_all(user_id=self.user_id)))
+        """Expose provider-only records, reporting an unavailable backend rather than an empty list."""
+        response = self._backend_call(lambda backend: backend.get_all(user_id=self.user_id), required=True)
+        return self._visible_semantic(response)
 
-    def forget_semantic(self, identifier: str) -> bool:
-        """Remove a user-owned record even when its provider metadata is malformed."""
-        response = self._backend_call(lambda backend: backend.get_all(user_id=self.user_id))
+    def _tombstone_semantic(self, identifier: str) -> bool:
+        """Record deliberate local forgetting after verifying provider ownership."""
+        response = self._backend_call(lambda backend: backend.get_all(user_id=self.user_id), required=True)
         if identifier not in {record.id for record in self._visible_semantic(response, for_management=True)}:
             return False
         with get_connection(self.db_path) as conn, conn:
             conn.execute("INSERT OR IGNORE INTO memory_tombstones VALUES (?,?)", (self.user_id, identifier))
             conn.execute(
-                "UPDATE memory_facts SET deleted=1,version=version+1,updated_at=? WHERE user_id=? AND backend_id=?",
+                "UPDATE memory_facts SET deleted=1,version=version+1,updated_at=?,backend_id=NULL "
+                "WHERE user_id=? AND backend_id=?",
                 (datetime.now(UTC).isoformat(), self.user_id, identifier),
             )
-        self._backend_call(lambda backend: backend.delete(identifier))
+        return True
+
+    def forget_semantic(self, identifier: str) -> bool:
+        """Forget locally and confirm provider removal; failed removal remains safely tombstoned."""
+        if not self._tombstone_semantic(identifier):
+            return False
+        self._backend_call(lambda backend: backend.delete(identifier), required=True)
         return True
 
     def correct_semantic(
@@ -339,9 +354,11 @@ class MemoryService:
             raise ValueError("Memory value must not be empty")
         if expires_at is not None and expires_at.tzinfo is None:
             raise ValueError("Memory expiry must include a timezone")
-        if not self.forget_semantic(identifier):
+        if not self._tombstone_semantic(identifier):
             raise ValueError("Semantic memory is not visible to this user")
-        return self.remember(key, value, category, expires_at)
+        corrected = self.remember(key, value, category, expires_at)
+        self._backend_call(lambda backend: backend.delete(identifier), required=True)
+        return corrected
 
     def search(self, query: str, limit: int = 10) -> list[MemoryFact]:
         """Retrieve current explicit facts lexically and by optional semantic IDs."""

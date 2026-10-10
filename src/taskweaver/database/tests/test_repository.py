@@ -552,3 +552,69 @@ def test_list_tasks_with_priority(task_repo: TaskRepository) -> None:
 
     # Can easily compare intrinsic vs effective
     assert blocker_enriched.effective_priority > blocker_enriched.priority
+
+
+def test_caller_owned_create_and_update_rollback_together(task_repo: TaskRepository) -> None:
+    task_ids = []
+
+    def import_and_abort() -> None:
+        with get_connection(task_repo.db_path) as conn, conn:
+            conn.execute("BEGIN IMMEDIATE")
+            task = task_repo.create_task(
+                TaskCreate(title="Atomic import", duration_min=30, llm_value=50, requirement="Deliver"),
+                connection=conn,
+            )
+            task_ids.append(task.task_id)
+            task_repo.update_task(task.task_id, TaskUpdate(urgency=5), connection=conn)
+            assert (
+                conn.execute(
+                    "SELECT COUNT(*) FROM priority_history WHERE task_id = ?", (str(task.task_id),)
+                ).fetchone()[0]
+                > 0
+            )
+            raise RuntimeError("abort caller transaction")
+
+    with pytest.raises(RuntimeError, match="abort caller transaction"):
+        import_and_abort()
+    task_id = task_ids[0]
+    assert task_repo.get_task(task_id) is None
+    with get_connection(task_repo.db_path) as conn:
+        assert (
+            conn.execute("SELECT COUNT(*) FROM priority_history WHERE task_id = ?", (str(task_id),)).fetchone()[0] == 0
+        )
+
+
+def test_caller_owned_update_does_not_commit_or_release_blocker_on_rollback(
+    task_repo: TaskRepository, dep_repo: TaskDependencyRepository
+) -> None:
+    blocker = task_repo.create_task(TaskCreate(title="Blocker", duration_min=30, llm_value=50, requirement="Done"))
+    dependent = task_repo.create_task(TaskCreate(title="Downstream", duration_min=30, llm_value=50, requirement="Done"))
+    dep_repo.add_dependency(dependent.task_id, blocker.task_id)
+
+    def close_and_abort() -> None:
+        with get_connection(task_repo.db_path) as conn, conn:
+            conn.execute("BEGIN IMMEDIATE")
+            task_repo.update_task(blocker.task_id, TaskUpdate(status=TaskStatus.COMPLETED), connection=conn)
+            assert conn.execute("SELECT COUNT(*) FROM task_dependencies").fetchone()[0] == 0
+            raise RuntimeError("rollback")
+
+    with pytest.raises(RuntimeError, match="rollback"):
+        close_and_abort()
+    stored = task_repo.get_task(blocker.task_id)
+    assert stored is not None
+    assert stored.status is TaskStatus.PENDING
+    assert [task.task_id for task in dep_repo.get_blockers(dependent.task_id)] == [blocker.task_id]
+
+
+def test_supplied_connection_requires_transaction(task_repo: TaskRepository) -> None:
+    task_data = TaskCreate(title="Transaction required", duration_min=30, llm_value=50, requirement="Done")
+    task = task_repo.create_task(task_data)
+    with get_connection(task_repo.db_path) as conn:
+        with pytest.raises(ValueError, match="active transaction"):
+            task_repo.create_task(task_data, connection=conn)
+        with pytest.raises(ValueError, match="active transaction"):
+            task_repo.update_task(task.task_id, TaskUpdate(title="Not committed"), connection=conn)
+    stored = task_repo.get_task(task.task_id)
+    assert stored is not None
+    assert stored.title == task.title
+    assert len(task_repo.list_tasks()) == 1

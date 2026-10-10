@@ -1,0 +1,13 @@
+services:
+  taskweaver:
+    build:
+      context: .
+      args:
+        TASKWEAVER_MEMORY: ${TASKWEAVER_MEMORY:-false}
+    stdin_open: true
+    tty: true
+    volumes:
+      - taskweaver-data:/data
+
+volumes:
+  taskweaver-data:

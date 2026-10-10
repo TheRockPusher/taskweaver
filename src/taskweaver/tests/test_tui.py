@@ -1,651 +1,292 @@
-"""Tests for TaskWeaver TUI application.
+"""Real SQLite/Textual workflows, with no mocked app or chat worker."""
 
-Tests use minimal mocking - only worker threads and agent interaction are mocked.
-Real database operations are tested with temporary test databases.
-"""
-
-import tempfile
-from pathlib import Path
-from unittest.mock import patch
+import asyncio
 
 import pytest
-from textual.widgets import DataTable, Footer, Header, TextArea
+from textual.widgets import Button, DataTable, Input, Markdown, Select, Static, TabbedContent, TextArea
 
 from taskweaver.database.connection import init_database
-from taskweaver.database.models import TaskCreate, TaskStatus, TaskUpdate, TaskWithPriority
-from taskweaver.database.repository import TaskRepository
+from taskweaver.database.models import TaskCreate, TaskStatus, TaskUpdate
 from taskweaver.tui import TaskWeaverApp
-from taskweaver.tui.screens import TaskDetailScreen
+from taskweaver.tui.screens import TaskDetailScreen, TaskFormScreen
 
 
 @pytest.fixture
-def test_db():
-    """Create a temporary test database."""
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-        db_path = Path(f.name)
+def app(tmp_path, monkeypatch):
+    for name in ("OPENAI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "TASKWEAVER_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    database = tmp_path / "workspace.db"
+    init_database(database)
+    return TaskWeaverApp(database)
 
-    # Initialize database schema
-    init_database(db_path)
 
-    # Add some test tasks
-    repo = TaskRepository(db_path)
-    repo.create_task(
-        TaskCreate(
-            title="Test Task 1",
-            description="First test task",
-            duration_min=30,
-            llm_value=8.5,
-            requirement="Must complete",
-        )
+def create(app, title, **fields):
+    return app.task_repo.create_task(
+        TaskCreate(title=title, duration_min=30, llm_value=60, requirement="Deliver the outcome", **fields)
     )
-    task2 = repo.create_task(
-        TaskCreate(
-            title="Test Task 2",
-            description="Second test task",
-            duration_min=45,
-            llm_value=7.0,
-            requirement="Should finish",
+
+
+def fill(app, **fields):
+    for name, value in fields.items():
+        app.screen.query_one(f"#{name}", Input).value = str(value)
+
+
+async def select_task(app, pilot, task_id):
+    table = app.query_one("#task-table", DataTable)
+    table.focus()
+    table.move_cursor(row=table.get_row_index(str(task_id)))
+    await pilot.pause()
+
+
+async def test_local_create_edit_clear_and_score_detail_without_keys(app):
+    goal = app.planning.create_goal("Ship a useful product")
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.press("n")
+        fill(
+            app,
+            **{
+                "task-title": "Write release notes",
+                "task-requirement": "Explain all user-facing changes",
+                "task-description": "Full notes",
+                "task-duration_min": 45,
+                "task-llm_value": 90,
+                "task-urgency": 5,
+                "task-importance": 4,
+                "task-effort": 2,
+                "task-category": "writing",
+                "task-skill_domain": "writing",
+                "task-required_skill_level": 2,
+            },
         )
-    )
-    # Update status after creation
-    repo.update_task(task2.task_id, TaskUpdate(status=TaskStatus.IN_PROGRESS))
-
-    yield db_path
-
-    # Cleanup
-    db_path.unlink()
-
-
-@pytest.fixture
-def app(test_db):
-    """Create TUI app instance with test database."""
-    # Patch the worker to prevent it from starting
-    with patch.object(TaskWeaverApp, "start_chat_worker", return_value=None):
-        app_instance = TaskWeaverApp(test_db)
-        yield app_instance
-
-
-class TestTUIInitialization:
-    """Test TUI app initialization and composition."""
-
-    async def test_app_creation(self, app):
-        """Test that app can be created successfully."""
-        assert app is not None
-        assert app.db_path.exists()
-        assert app.task_repo is not None
-        assert app.dep_repo is not None
-        assert app.chat_handler is not None
-
-    async def test_app_title(self, app):
-        """Test app title and subtitle are set correctly."""
-        assert app.TITLE == "🧵 TaskWeaver"
-        assert app.SUB_TITLE == "AI Task Manager"
-
-    async def test_widget_composition(self, app):
-        """Test that all required widgets are composed."""
-        async with app.run_test() as pilot:
-            # Wait for widgets to mount
-            await pilot.pause()
-
-            # Check for Header
-            assert app.query_one(Header) is not None
-
-            # Check for Footer
-            assert app.query_one(Footer) is not None
-
-            # Check for TextArea widget
-            assert app.query_one(TextArea) is not None
-
-            # Check for task tables
-            tables = app.query(DataTable)
-            assert len(tables) == 2  # open-tasks-table and unblocked-tasks-table
-
-
-class TestMessagePosting:
-    """Test message posting methods."""
-
-    async def test_post_agent_message(self, app):
-        """Test posting agent message to chat view."""
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            # Count initial messages
-            initial_count = len(app.query("#chat-view Markdown"))
-
-            # Post agent message
-            app.post_agent_message("Hello from agent")
-            await pilot.pause()
-
-            # Check message was added
-            chat_messages = app.query("#chat-view Markdown")
-            assert len(chat_messages) == initial_count + 1
-
-            # Verify it's a Markdown widget with agent-message class
-            last_message = chat_messages[-1]
-            assert last_message.has_class("agent-message")
-
-    async def test_post_system_message(self, app):
-        """Test posting system message to chat view."""
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            # Post system message
-            app.post_system_message("System notification")
-            await pilot.pause()
-
-            # Check message appears
-            messages = app.query("#chat-view Markdown")
-            assert len(messages) > 1
-
-    async def test_post_error_message(self, app):
-        """Test posting error message to chat view."""
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            # Count initial messages
-            initial_count = len(app.query("#chat-view Markdown"))
-
-            # Post error message
-            app.post_error_message("Something went wrong")
-            await pilot.pause()
-
-            # Check error message was added
-            messages = app.query("#chat-view Markdown")
-            assert len(messages) == initial_count + 1
-
-            # Verify it has the error-message class
-            last_message = messages[-1]
-            assert last_message.has_class("error-message")
-
-
-class TestTaskTables:
-    """Test task table functionality."""
-
-    async def test_task_tables_setup(self, app):
-        """Test that task tables are set up with correct columns."""
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            # Get both tables
-            open_table = app.query_one("#open-tasks-table", DataTable)
-            unblocked_table = app.query_one("#unblocked-tasks-table", DataTable)
-
-            # Check open tasks table has correct number of columns
-            assert len(open_table.columns) == 6  # Title, Duration, Priority, Eff. Priority, Status, Blocked By
-
-            # Check unblocked tasks table has correct number of columns
-            assert len(unblocked_table.columns) == 6  # Title, Duration, Requirement, Priority, Eff. Priority, Status
-
-    async def test_task_tables_refresh(self, app):
-        """Test that task tables show data from database."""
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            # Trigger refresh
-            app.refresh_tasks()
-            await pilot.pause()
-
-            # Check that tables have data
-            open_table = app.query_one("#open-tasks-table", DataTable)
-
-            # Should have rows from test database
-            assert open_table.row_count >= 2  # We added 2 tasks in fixture
-
-
-class TestInputHandling:
-    """Test input handling and queue interaction."""
-
-    async def test_input_submission(self, app):
-        """Test that TextArea submission queues user input."""
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            # Get TextArea widget
-            text_area = app.query_one(TextArea)
-
-            # Simulate user typing
-            text_area.text = "test message"
-            await pilot.pause()
-
-            # Submit input with Ctrl+Enter
-            await pilot.press("ctrl+enter")
-            await pilot.pause()
-
-            # Check TextArea was cleared
-            assert text_area.text == ""
-
-            # Check message was queued
-            assert not app.chat_handler.input_queue.empty()
-            queued_msg = app.chat_handler.input_queue.get_nowait()
-            assert queued_msg == "test message"
-
-    async def test_exit_commands(self, app):
-        """Test that exit commands set exit flag."""
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            # Get TextArea widget
-            text_area = app.query_one(TextArea)
-
-            # Test 'exit' command
-            text_area.text = "exit"
-            await pilot.pause()
-
-            await pilot.press("ctrl+enter")
-            await pilot.pause()
-
-            # Check exit flag is set
-            assert app.chat_handler.should_exit
-
-
-class TestChatHandlerIntegration:
-    """Test TuiChatHandler integration with the app."""
-
-    def test_chat_handler_initialization(self, app):
-        """Test that chat handler is properly initialized."""
-        handler = app.chat_handler
-        assert handler is not None
-        assert handler.app is app
-        assert handler.input_queue is not None
-        assert handler.should_exit is False
-
-    async def test_chat_handler_display_methods(self, app):
-        """Test chat handler display methods delegate to app correctly."""
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            # Test that methods exist and can be called
-            # Note: We test via app.post_* methods directly since call_from_thread
-            # requires actual threading which is difficult to test
-            app.post_agent_message("Test agent message")
-            await pilot.pause()
-
-            app.post_system_message("Test system message")
-            await pilot.pause()
-
-            app.post_error_message("Test error message")
-            await pilot.pause()
-
-            # Verify messages appear in chat view
-            messages = app.query("#chat-view Markdown")
-            assert len(messages) >= 3  # Initial + 3 test messages
-
-
-class TestRepositoryMethods:
-    """Test new repository methods used by TUI."""
-
-    async def test_get_open_tasks_sorted(self, app):
-        """Test that TUI uses repository method for sorted tasks."""
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            # Get tasks through repository method
-            tasks = app.dep_repo.get_open_tasks_sorted()
-
-            # Should be sorted by effective priority descending
-            assert len(tasks) >= 2
-            # Verify sorted order
-            for i in range(len(tasks) - 1):
-                assert tasks[i].effective_priority >= tasks[i + 1].effective_priority
-
-    async def test_get_unblocked_tasks(self, app):
-        """Test filtering for unblocked tasks."""
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            # Get all open tasks
-            open_tasks = app.dep_repo.get_open_tasks_sorted()
-
-            # Get unblocked tasks
-            unblocked = app.dep_repo.get_unblocked_tasks(open_tasks)
-
-            # All unblocked tasks should have no active blockers
-            for task in unblocked:
-                assert not task.is_blocked
-
-
-class TestKeyboardShortcuts:
-    """Test keyboard shortcuts and bindings."""
-
-    async def test_quit_binding(self, app):
-        """Test that 'q' key quits the app."""
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            # Press 'q' to quit
-            await pilot.press("q")
-            await pilot.pause()
-
-            # App should exit (we can't easily test this, but we can verify binding exists)
-            assert ("q", "quit", "Quit") in app.BINDINGS
-
-
-class TestShutdownBehavior:
-    """Test clean shutdown and resource cleanup."""
-
-    async def test_on_unmount_pushes_sentinel_to_unblock_worker(self, app):
-        """Test that on_unmount pushes sentinel to wake up blocked worker.
-
-        Regression test for thread leak bug where worker was blocked on
-        input_queue.get() and couldn't observe cancellation. The fix ensures
-        that on_unmount pushes None to the queue before cancelling workers.
-        """
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            # Verify initial state
-            assert app.chat_handler.should_exit is False
-            assert app.chat_handler.input_queue.empty()
-
-            # Simulate unmount (what happens when user presses 'q')
-            app.on_unmount()
-
-            # Verify sentinel was pushed to queue to wake up blocked worker
-            assert app.chat_handler.should_exit is True
-            item = app.chat_handler.input_queue.get_nowait()
-            assert item is None, "Sentinel should be None to unblock get()"
-
-
-class TestModalIntegration:
-    """Test modal screen integration with main app."""
-
-    async def test_row_mappings_initialized(self, app):
-        """Test that row mappings are initialized on app creation."""
-        assert hasattr(app, "open_tasks_map")
-        assert hasattr(app, "unblocked_tasks_map")
-        assert isinstance(app.open_tasks_map, dict)
-        assert isinstance(app.unblocked_tasks_map, dict)
-
-    async def test_row_mappings_populated_on_refresh(self, app):
-        """Test that row mappings are populated when tasks refresh."""
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            # Trigger refresh
-            app.refresh_tasks()
-            await pilot.pause()
-
-            # Mappings should be populated
-            assert len(app.open_tasks_map) >= 2  # We have 2 test tasks
-            assert len(app.unblocked_tasks_map) >= 0
-
-    async def test_open_tasks_row_selection_handler_exists(self, app):
-        """Test that open tasks table has row selection handler configured."""
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            # Verify handler method exists
-            assert hasattr(app, "on_open_tasks_row_selected")
-            assert callable(app.on_open_tasks_row_selected)
-
-    async def test_unblocked_tasks_row_selection_handler_exists(self, app):
-        """Test that unblocked tasks table has row selection handler configured."""
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            # Verify handler method exists
-            assert hasattr(app, "on_unblocked_tasks_row_selected")
-            assert callable(app.on_unblocked_tasks_row_selected)
-
-    async def test_can_create_modal_with_task(self, app):
-        """Test that modal can be created with task data from mapping."""
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            # Ensure tables are populated
-            app.refresh_tasks()
-            await pilot.pause()
-
-            # Get first task from open_tasks_map
-            if app.open_tasks_map:
-                first_row_key = next(iter(app.open_tasks_map.keys()))
-                expected_task = app.open_tasks_map[first_row_key]
-
-                # Create modal directly (simulating what handler does)
-                modal = TaskDetailScreen(expected_task)
-                assert modal.task_data.task_id == expected_task.task_id
-                assert modal.task_data.title == expected_task.title
-
-    async def test_modal_has_escape_binding(self):
-        """Test that modal has escape binding configured."""
-        task = TaskWithPriority(
-            title="Test Task",
-            duration_min=30,
-            llm_value=50.0,
-            requirement="Test",
-            status=TaskStatus.PENDING,
-            tasks_blocked_count=0,
-            active_blocker_count=0,
-            effective_priority=1.0,
+        app.screen.query_one("#task-goal_id", Select).value = str(goal.goal_id)
+        await pilot.click("#save")
+        await pilot.pause()
+        task = next(task for task in app.task_repo.list_tasks() if task.title == "Write release notes")
+        assert (task.urgency, task.importance, task.effort, task.category) == (5, 4, 2, "writing")
+        assert (task.goal_id, task.skill_domain, task.required_skill_level) == (goal.goal_id, "writing", 2)
+        await pilot.press("e")
+        fill(
+            app,
+            **{
+                "task-title": "Publish release notes",
+                "task-description": "",
+                "task-skill_domain": "",
+                "task-required_skill_level": "",
+                "task-duration_min": 60,
+            },
         )
-        modal = TaskDetailScreen(task)
+        app.screen.query_one("#task-goal_id", Select).value = Select.BLANK
+        await pilot.click("#save")
+        await pilot.pause()
+        updated = app.task_repo.get_task(task.task_id)
+        assert updated.title == "Publish release notes"
+        assert (updated.description, updated.goal_id, updated.skill_domain, updated.required_skill_level) == (None,) * 4
+        assert (updated.duration_min, updated.raw_duration_min) == (60, 45)
+        await pilot.press("enter")
+        assert isinstance(app.screen, TaskDetailScreen)
+        assert app.screen.task_data.task_id == task.task_id
+        assert str(task.task_id) in app.screen.details
+        assert "Explain all user-facing changes" in app.screen.details
 
-        # Verify escape binding exists
-        assert any(binding[0] == "escape" for binding in modal.BINDINGS)
 
-    async def test_row_mapping_updates_on_refresh(self, app):
-        """Test that row mappings are updated when tables refresh."""
-        async with app.run_test() as pilot:
-            await pilot.pause()
+async def test_invalid_creation_keeps_fields_and_reports_repair(app):
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.press("n")
+        fill(app, **{"task-title": "Keep my draft", "task-requirement": "Deliver", "task-duration_min": 0})
+        await pilot.click("#save")
+        assert isinstance(app.screen, TaskFormScreen)
+        assert app.screen.query_one("#task-title", Input).value == "Keep my draft"
+        assert "Cannot save" in str(app.screen.query_one("#form-error", Static).render())
+        assert app.task_repo.list_tasks() == []
+        fill(app, **{"task-duration_min": 20})
+        app.screen.query_one("#save", Button).press()
+        await pilot.pause()
+        saved = app.task_repo.list_tasks()[0]
+        assert (saved.title, saved.duration_min) == ("Keep my draft", 20)
 
-            # Initial refresh
+
+async def test_selection_survives_priority_reorder_and_view_navigation(app):
+    first = create(app, "High urgency", urgency=5)
+    selected = create(app, "Selected task", urgency=1)
+    async with app.run_test(size=(80, 24)) as pilot:
+        await select_task(app, pilot, selected.task_id)
+        app.task_repo.update_task(selected.task_id, TaskUpdate(urgency=5, importance=5, effort=1))
+        app.refresh_tasks()
+        await pilot.pause()
+        table = app.query_one("#task-table", DataTable)
+        assert table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value == str(selected.task_id)
+        await pilot.press("2")
+        assert app.query_one("#views", TabbedContent).active == "board-view"
+        board = app.query_one("#board-pending", DataTable)
+        assert board.coordinate_to_cell_key(board.cursor_coordinate).row_key.value == str(selected.task_id)
+        await pilot.press("ctrl+tab")
+        assert app.query_one("#views", TabbedContent).active == "graph-view"
+        await pilot.press("1", "j", "enter")
+        assert app.screen.task_data.task_id == first.task_id
+        await pilot.press("escape", "k", "enter")
+        assert app.screen.task_data.task_id == selected.task_id
+
+
+async def test_dependency_workflow_rejects_cycle_and_completion_releases_focus(app):
+    blocker = create(app, "Prepare environment")
+    dependent = create(app, "Run experiment", skill_domain="science", required_skill_level=3)
+    async with app.run_test(size=(80, 24)) as pilot:
+        await select_task(app, pilot, dependent.task_id)
+        await pilot.press("d")
+        app.screen.query_one("#dependency-blocker", Select).value = str(blocker.task_id)
+        await pilot.click("#save")
+        await pilot.pause()
+        assert [task.task_id for task in app.dep_repo.get_blockers(dependent.task_id)] == [blocker.task_id]
+        await pilot.press("3")
+        graph = str(app.query_one("#dependency-graph", Static).render())
+        assert f"Prepare environment [{str(blocker.task_id)[:8]}] → Run experiment" in graph
+        assert "Learning gap → Run experiment" in graph
+        await pilot.press("1")
+        await select_task(app, pilot, blocker.task_id)
+        await pilot.press("d")
+        app.screen.query_one("#dependency-blocker", Select).value = str(dependent.task_id)
+        await pilot.click("#save")
+        assert "cycle" in str(app.screen.query_one("#form-error", Static).render()).lower()
+        await pilot.press("escape", "space")
+        await pilot.pause()
+        assert app.task_repo.get_task(blocker.task_id).status == TaskStatus.IN_PROGRESS
+        await pilot.press("c")
+        fill(app, **{"actual-minutes": 50, "conclusion": "Environment ready"})
+        await pilot.click("#save")
+        await pilot.pause()
+        completion = app.completions.get_completion_by_task_id(blocker.task_id)
+        assert (completion.duration_actual, completion.conclusion) == (50, "Environment ready")
+        assert app.dep_repo.get_blockers(dependent.task_id) == []
+        await pilot.press("f")
+        table = app.query_one("#task-table", DataTable)
+        assert list(table.rows) == []
+        app.planning.set_skill("science", 3, "Independently conducted experiments")
+        app.refresh_tasks()
+        await pilot.pause()
+        assert table.get_row(str(dependent.task_id))[0] == "Run experiment"
+        await pilot.press("space")
+        await pilot.pause()
+        assert app.task_repo.get_task(dependent.task_id).status == TaskStatus.IN_PROGRESS
+
+
+async def test_dependency_remove_and_cancel_are_durable(app):
+    blocker = create(app, "Draft")
+    dependent = create(app, "Publish")
+    app.dep_repo.add_dependency(dependent.task_id, blocker.task_id)
+    async with app.run_test(size=(80, 24)) as pilot:
+        await select_task(app, pilot, dependent.task_id)
+        await pilot.press("d")
+        app.screen.query_one("#dependency-blocker", Select).value = str(blocker.task_id)
+        app.screen.query_one("#dependency-operation", Select).value = "remove"
+        await pilot.click("#save")
+        await pilot.pause()
+        assert app.dep_repo.get_blockers(dependent.task_id) == []
+        await pilot.press("x")
+        fill(app, **{"actual-minutes": 5, "conclusion": "No longer needed"})
+        await pilot.click("#save")
+        await pilot.pause()
+        assert app.task_repo.get_task(dependent.task_id).status == TaskStatus.CANCELLED
+        assert app.completions.get_completion_by_task_id(dependent.task_id).conclusion == "No longer needed"
+        await pilot.press("2")
+
+
+async def test_goal_skill_and_category_learning_surface(app):
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.press("g")
+        fill(app, **{"planning-name": "Release", "planning-evidence": "Ship to users"})
+        await pilot.click("#save")
+        await pilot.pause()
+        goal = app.planning.list_goals()[0]
+        await pilot.press("s")
+        fill(
+            app,
+            **{"planning-name": "engineering", "planning-level": 3, "planning-evidence": "Built production systems"},
+        )
+        await pilot.click("#save")
+        await pilot.pause()
+        assert app.planning.skill_history("engineering")[0].evidence == "Built production systems"
+        for index in range(3):
+            task = create(app, f"Release {index}", goal_id=goal.goal_id, category="engineering")
+            app.planning.complete_task(task.task_id, 60, "Delivered")
+        app.refresh_tasks()
+        await pilot.press("5")
+        text = app.query_one("#insights", Markdown).source
+        assert "Release**: 3/3 (100%)" in text
+        assert "engineering · level 3" in text
+        assert "Built production systems" in text
+        assert "samples 3, median actual/raw 2.0" in text
+        assert "automatic adjustment on" in text
+        assert "60/30 min actual/expected" in text
+
+
+async def test_shared_local_chat_help_focus_and_shutdown_without_provider(app):
+    task = create(app, "Ready without cloud")
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.press("4")
+        text = app.query_one("#input-field", TextArea)
+        text.text = "/focus"
+        await pilot.press("ctrl+enter")
+        for _ in range(20):
+            await pilot.pause(0.05)
+            if str(task.task_id) in str(app.query_one("#notice", Static).render()):
+                break
+            if any("Ready without cloud" in widget.source for widget in app.query("#chat-view Markdown")):
+                break
+        assert any("Ready without cloud" in widget.source for widget in app.query("#chat-view Markdown"))
+        text.text = "/help"
+        await pilot.press("ctrl+enter")
+        for _ in range(20):
+            await pilot.pause(0.05)
+            if any(
+                "/review" in widget.source and "/focus" in widget.source for widget in app.query("#chat-view Markdown")
+            ):
+                break
+        assert any(
+            "/review" in widget.source and "/focus" in widget.source for widget in app.query("#chat-view Markdown")
+        )
+        text.text = "/not-a-command"
+        await pilot.press("ctrl+enter")
+        for _ in range(20):
+            await pilot.pause(0.05)
+            if "unknown" in str(app.query_one("#notice", Static).render()).lower():
+                break
+        assert "unknown" in str(app.query_one("#notice", Static).render()).lower()
+        await pilot.press("ctrl+tab")
+        assert app.query_one("#views", TabbedContent).active == "insights-view"
+    assert app.chat_handler.should_exit
+
+
+async def test_cancellation_with_unknown_effort_releases_edges_without_learning(app):
+    blocker = create(app, "Cancelled experiment")
+    downstream = create(app, "Replacement experiment")
+    app.dep_repo.add_dependency(downstream.task_id, blocker.task_id)
+    async with app.run_test(size=(80, 24)) as pilot:
+        await select_task(app, pilot, blocker.task_id)
+        await pilot.press("x")
+        fill(app, **{"actual-minutes": "", "conclusion": "Unsupported learning evidence"})
+        await pilot.click("#save")
+        assert app.task_repo.get_task(blocker.task_id).status == TaskStatus.PENDING
+        assert app.dep_repo.get_blockers(downstream.task_id)[0].task_id == blocker.task_id
+        fill(app, conclusion="")
+        app.screen.query_one("#save", Button).press()
+        await pilot.pause()
+        assert app.task_repo.get_task(blocker.task_id).status == TaskStatus.CANCELLED
+        assert app.dep_repo.get_blockers(downstream.task_id) == []
+        assert app.completions.get_completion_by_task_id(blocker.task_id) is None
+        assert app.planning.insights() == []
+
+
+async def test_rapid_refresh_keeps_latest_data_and_workspace_interactive(app):
+    task = create(app, "Initial")
+    async with app.run_test(size=(80, 24)) as pilot:
+        for index in range(12):
+            app.task_repo.update_task(task.task_id, TaskUpdate(title=f"Updated {index}"))
             app.refresh_tasks()
-            await pilot.pause()
-
-            # Store initial mapping size
-            initial_open_count = len(app.open_tasks_map)
-
-            # Refresh again
-            app.refresh_tasks()
-            await pilot.pause()
-
-            # Mappings should still be populated
-            assert len(app.open_tasks_map) > 0
-            assert len(app.unblocked_tasks_map) >= 0
-
-            # Count should be consistent (no tasks were added/removed)
-            assert len(app.open_tasks_map) == initial_open_count
-
-    async def test_tables_have_row_cursor_enabled(self, app):
-        """Test that tables have row cursor enabled for navigation."""
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            # Get both tables
-            open_table = app.query_one("#open-tasks-table", DataTable)
-            unblocked_table = app.query_one("#unblocked-tasks-table", DataTable)
-
-            # Verify cursor_type is set to "row"
-            assert open_table.cursor_type == "row"
-            assert unblocked_table.cursor_type == "row"
-
-
-class TestCursorPreservation:
-    """Test cursor position preservation during table refreshes."""
-
-    async def test_cursor_preserved_in_open_tasks_on_refresh(self, app):
-        """Test cursor stays at same position after refresh."""
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            # Get open tasks table and move cursor to row 1
-            open_table = app.query_one("#open-tasks-table", DataTable)
-            open_table.move_cursor(row=1)
-
-            initial_cursor = open_table.cursor_coordinate
-            assert initial_cursor.row == 1
-
-            # Trigger refresh
-            app.refresh_tasks()
-            await pilot.pause()
-
-            # Cursor should still be at row 1
-            final_cursor = open_table.cursor_coordinate
-            assert final_cursor.row == 1
-            assert final_cursor.row == initial_cursor.row
-
-    async def test_cursor_preserved_in_unblocked_tasks_on_refresh(self, app):
-        """Test cursor stays at same position after refresh in unblocked table."""
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            # Get unblocked tasks table and move cursor to row 1
-            unblocked_table = app.query_one("#unblocked-tasks-table", DataTable)
-
-            # Only test if table has rows
-            if unblocked_table.row_count > 1:
-                unblocked_table.move_cursor(row=1)
-                initial_cursor = unblocked_table.cursor_coordinate
-
-                # Trigger refresh
-                app.refresh_tasks()
-                await pilot.pause()
-
-                # Cursor should still be at row 1
-                final_cursor = unblocked_table.cursor_coordinate
-                assert final_cursor.row == initial_cursor.row
-
-    async def test_cursor_clamps_when_table_shrinks(self, app, test_db):
-        """Test cursor resets if table shrinks below saved position."""
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            # Move cursor to last row
-            open_table = app.query_one("#open-tasks-table", DataTable)
-            if open_table.row_count > 0:
-                last_row = open_table.row_count - 1
-                open_table.move_cursor(row=last_row)
-
-                # Mark all tasks as completed (should shrink open tasks table)
-                repo = TaskRepository(test_db)
-                tasks = repo.list_tasks(status=TaskStatus.PENDING)
-                for task in tasks:
-                    repo.update_task(task.task_id, TaskUpdate(status=TaskStatus.COMPLETED))
-
-                # Trigger refresh
-                app.refresh_tasks()
-                await pilot.pause()
-
-                # Cursor should be clamped (at 0 if table is now empty)
-                final_cursor = open_table.cursor_coordinate
-                assert final_cursor.row < open_table.row_count or open_table.row_count == 0
-
-    async def test_cursor_handles_empty_table(self, app, test_db):
-        """Test cursor preservation doesn't crash on empty table."""
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            # Complete all tasks
-            repo = TaskRepository(test_db)
-            tasks = repo.list_tasks()
-            for task in tasks:
-                repo.update_task(task.task_id, TaskUpdate(status=TaskStatus.COMPLETED))
-
-            # Refresh should handle empty table gracefully
-            app.refresh_tasks()
-            await pilot.pause()
-
-            # No assertion needed - just verify no crash
-            open_table = app.query_one("#open-tasks-table", DataTable)
-            assert open_table.row_count == 0
-
-    async def test_scroll_preserved_in_open_tasks_on_refresh(self, app):
-        """Test scroll position stays the same after refresh."""
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            # Get open tasks table
-            open_table = app.query_one("#open-tasks-table", DataTable)
-
-            # Scroll down if table has enough rows
-            if open_table.row_count > 5:
-                # Scroll to middle of table
-                target_y = 100.0  # Arbitrary scroll position
-                open_table.scroll_to(0, target_y, animate=False)
-                await pilot.pause()
-
-                initial_scroll = open_table.scroll_offset
-
-                # Trigger refresh
-                app.refresh_tasks()
-                await pilot.pause()
-
-                # Scroll should be preserved
-                final_scroll = open_table.scroll_offset
-                assert abs(final_scroll.y - initial_scroll.y) < 1.0  # Allow 1px tolerance
-
-    async def test_scroll_preserved_in_unblocked_tasks_on_refresh(self, app):
-        """Test scroll position stays the same after refresh in unblocked table."""
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            # Get unblocked tasks table
-            unblocked_table = app.query_one("#unblocked-tasks-table", DataTable)
-
-            # Only test if table has rows
-            if unblocked_table.row_count > 5:
-                # Scroll down
-                target_y = 50.0
-                unblocked_table.scroll_to(0, target_y, animate=False)
-                await pilot.pause()
-
-                initial_scroll = unblocked_table.scroll_offset
-
-                # Trigger refresh
-                app.refresh_tasks()
-                await pilot.pause()
-
-                # Scroll should be preserved
-                final_scroll = unblocked_table.scroll_offset
-                assert abs(final_scroll.y - initial_scroll.y) < 1.0
-
-    async def test_scroll_clamps_when_table_shrinks(self, app, test_db):
-        """Test scroll position clamps if table shrinks significantly."""
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            # Get open tasks table
-            open_table = app.query_one("#open-tasks-table", DataTable)
-
-            if open_table.row_count > 5:
-                # Scroll to bottom
-                max_y = open_table.max_scroll_y
-                open_table.scroll_to(0, max_y, animate=False)
-                await pilot.pause()
-
-                # Mark most tasks as completed (shrink table)
-                repo = TaskRepository(test_db)
-                tasks = repo.list_tasks(status=TaskStatus.PENDING)
-                for i, task in enumerate(tasks):
-                    if i < len(tasks) - 2:  # Leave 2 tasks
-                        repo.update_task(task.task_id, TaskUpdate(status=TaskStatus.COMPLETED))
-
-                # Trigger refresh
-                app.refresh_tasks()
-                await pilot.pause()
-
-                # Scroll should be clamped (not past new max)
-                final_scroll = open_table.scroll_offset
-                new_max = open_table.max_scroll_y
-                assert final_scroll.y <= new_max + 1.0  # Allow 1px tolerance
-
-    async def test_scroll_handles_empty_table(self, app, test_db):
-        """Test scroll preservation doesn't crash on empty table."""
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            # Complete all tasks
-            repo = TaskRepository(test_db)
-            tasks = repo.list_tasks()
-            for task in tasks:
-                repo.update_task(task.task_id, TaskUpdate(status=TaskStatus.COMPLETED))
-
-            # Refresh should handle empty table gracefully
-            app.refresh_tasks()
-            await pilot.pause()
-
-            # No assertion needed - just verify no crash
-            open_table = app.query_one("#open-tasks-table", DataTable)
-            assert open_table.row_count == 0
-            # Scroll offset should be 0 for empty table
-            assert open_table.scroll_offset.y == 0
+            await asyncio.sleep(0)
+        await pilot.pause()
+        assert app.query_one("#task-table", DataTable).get_row(str(task.task_id))[0] == "Updated 11"
+        await pilot.press("n")
+        fill(app, **{"task-title": "Still interactive", "task-requirement": "Saved after refresh"})
+        await pilot.click("#save")
+        await pilot.pause()
+        assert {task.title for task in app.task_repo.list_tasks()} == {"Updated 11", "Still interactive"}

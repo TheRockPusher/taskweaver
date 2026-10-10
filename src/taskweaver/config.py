@@ -1,47 +1,4 @@
-"""Configuration management following XDG Base Directory Specification.
-
-This module provides XDG-compliant paths and configuration loading from TOML files.
-Follows Linux standards for config, data, cache, and state directories.
-
-Configuration Hierarchy (later overrides earlier):
-    1. Built-in defaults
-    2. XDG user config (~/.config/taskweaver/config.toml)
-    3. Project-local config (./config.toml) - takes precedence!
-
-Environment Variables (.env):
-    - Loaded from ./.env (project-local) or ~/.config/taskweaver/.env
-    - Provider-specific API keys (see examples below)
-
-    OpenAI models (gpt-4o, gpt-4o-mini, etc.):
-        OPENAI_API_KEY=sk-...
-
-    OpenRouter (multi-provider gateway):
-        OPENROUTER_API_KEY=sk-or-...
-
-    Anthropic models (claude-3-5-sonnet, etc.):
-        ANTHROPIC_API_KEY=sk-ant-...
-
-    Google models (gemini-1.5-flash, etc.):
-        GOOGLE_API_KEY=...
-
-    Note: TaskWeaver uses PydanticAI which requires provider-specific
-    environment variables. Set the appropriate key for your model provider.
-
-Directory Structure:
-    # Project-local (default when in project directory)
-    ./config.toml                      - Project-specific preferences
-    ./.env                             - Project API keys (gitignored)
-    ./tasks.db                         - SQLite database (default)
-    ./qdrant_store/                    - Qdrant vector database (default)
-
-    # XDG user directories (fallback when no project detected)
-    ~/.config/taskweaver/config.toml   - User preferences
-    ~/.config/taskweaver/.env          - API keys (secrets)
-    ~/.local/share/taskweaver/tasks.db - SQLite database
-    ~/.local/share/taskweaver/qdrant_store/ - Qdrant vector database
-    ~/.cache/taskweaver/               - Temporary cache
-    ~/.local/state/taskweaver/         - Logs and history
-"""
+"""Native application paths, project overrides, and TOML configuration."""
 
 import os
 import sys
@@ -49,80 +6,60 @@ import tomllib
 from functools import lru_cache
 from pathlib import Path
 
-from dotenv import load_dotenv
-from loguru import logger
+from dotenv import dotenv_values
 from pydantic import BaseModel, Field
 
 
 def get_project_root() -> Path | None:
-    """Detect project root directory.
-
-    Searches for project markers (pyproject.toml, .git) starting from current directory.
-
-    Returns:
-        Path to project root if found, None otherwise.
-    """
+    """Find an explicit TaskWeaver config, legacy database, or project marker."""
     current = Path.cwd()
-
-    # Search up to 5 levels
-    for _ in range(5):
-        # Check for project markers
-        if (current / "pyproject.toml").exists() or (current / ".git").exists():
-            return current
-
-        parent = current.parent
-        if parent == current:  # Reached filesystem root
-            break
-        current = parent
-
+    for directory in (current, *current.parents):
+        if any((directory / name).exists() for name in ("config.toml", "tasks.db", "pyproject.toml", ".git")):
+            return directory
     return None
 
 
-def get_xdg_config_home() -> Path:
-    """Get XDG config directory.
+def _native_home(kind: str) -> Path:
+    home = Path.home()
+    if sys.platform == "darwin":
+        directories = {
+            "config": "Application Support",
+            "data": "Application Support",
+            "cache": "Caches",
+            "state": "Logs",
+        }
+        return home / "Library" / directories[kind]
+    if sys.platform == "win32":
+        variable = "APPDATA" if kind == "config" else "LOCALAPPDATA"
+        fallback = home / "AppData" / ("Roaming" if kind == "config" else "Local")
+        return Path(os.environ.get(variable) or fallback)
+    return home / {"config": ".config", "data": ".local/share", "cache": ".cache", "state": ".local/state"}[kind]
 
-    Returns:
-        Path to config directory (default: ~/.config).
-    """
-    return Path(os.getenv("XDG_CONFIG_HOME", Path.home() / ".config"))
+
+def get_xdg_config_home() -> Path:
+    """Return the native config root, respecting an explicit XDG override."""
+    return Path(os.environ.get("XDG_CONFIG_HOME") or _native_home("config"))
 
 
 def get_xdg_data_home() -> Path:
-    """Get XDG data directory.
-
-    Returns:
-        Path to data directory (default: ~/.local/share).
-    """
-    return Path(os.getenv("XDG_DATA_HOME", Path.home() / ".local" / "share"))
+    """Return the native data root, respecting an explicit XDG override."""
+    return Path(os.environ.get("XDG_DATA_HOME") or _native_home("data"))
 
 
 def get_xdg_cache_home() -> Path:
-    """Get XDG cache directory.
-
-    Returns:
-        Path to cache directory (default: ~/.cache).
-    """
-    return Path(os.getenv("XDG_CACHE_HOME", Path.home() / ".cache"))
+    """Return the native cache root, respecting an explicit XDG override."""
+    return Path(os.environ.get("XDG_CACHE_HOME") or _native_home("cache"))
 
 
 def get_xdg_state_home() -> Path:
-    """Get XDG state directory.
-
-    Returns:
-        Path to state directory (default: ~/.local/state).
-    """
-    return Path(os.getenv("XDG_STATE_HOME", Path.home() / ".local" / "state"))
+    """Return the native log/state root, respecting an explicit XDG override."""
+    return Path(os.environ.get("XDG_STATE_HOME") or _native_home("state"))
 
 
 class XDGPaths:
-    """XDG-compliant paths for TaskWeaver with project-local support.
-
-    Supports both project-local and system-wide XDG paths.
-    Project-local files take precedence when they exist.
-    """
+    """Native user paths with existing project-local files taking precedence."""
 
     def __init__(self) -> None:
-        """Initialize XDG paths."""
         self._project_root = get_project_root()
         self._config_dir = get_xdg_config_home() / "taskweaver"
         self._data_dir = get_xdg_data_home() / "taskweaver"
@@ -131,171 +68,128 @@ class XDGPaths:
 
     @property
     def project_root(self) -> Path | None:
-        """Project root directory if detected."""
+        """Return the detected existing project directory, if any."""
         return self._project_root
+
+    @staticmethod
+    def _directory(path: Path) -> Path:
+        path.mkdir(parents=True, exist_ok=True)
+        return path
 
     @property
     def config_dir(self) -> Path:
-        """Config directory path (creates if missing)."""
-        self._config_dir.mkdir(parents=True, exist_ok=True)
-        return self._config_dir
+        """Return and create the user configuration directory."""
+        return self._directory(self._config_dir)
 
     @property
     def data_dir(self) -> Path:
-        """Data directory path (creates if missing)."""
-        self._data_dir.mkdir(parents=True, exist_ok=True)
-        return self._data_dir
+        """Return and create the user data directory."""
+        return self._directory(self._data_dir)
 
     @property
     def cache_dir(self) -> Path:
-        """Cache directory path (creates if missing)."""
-        self._cache_dir.mkdir(parents=True, exist_ok=True)
-        return self._cache_dir
+        """Return and create the user cache directory."""
+        return self._directory(self._cache_dir)
 
     @property
     def state_dir(self) -> Path:
-        """State directory path (creates if missing)."""
-        self._state_dir.mkdir(parents=True, exist_ok=True)
-        return self._state_dir
+        """Return and create the user log/state directory."""
+        return self._directory(self._state_dir)
+
+    def _local_or_user(self, name: str) -> Path:
+        if self.project_root:
+            local = self.project_root / name
+            if local.is_file():
+                return local
+        return self.config_dir / name
 
     @property
     def config_file(self) -> Path:
-        """Path to config.toml (project-local if exists, else XDG)."""
-        if self._project_root:
-            local_config = self._project_root / "config.toml"
-            if local_config.exists():
-                return local_config
-        return self.config_dir / "config.toml"
+        """Prefer an existing project config over the user configuration file."""
+        return self._local_or_user("config.toml")
 
     @property
     def env_file(self) -> Path:
-        """Path to .env (project-local if exists, else XDG)."""
-        if self._project_root:
-            local_env = self._project_root / ".env"
-            if local_env.exists():
-                return local_env
-        return self.config_dir / ".env"
+        """Prefer an existing project env file over the user secrets file."""
+        return self._local_or_user(".env")
 
     @property
     def database_file(self) -> Path:
-        """Path to SQLite database (project-local by default, XDG if configured).
-
-        Returns:
-            - Project-local: ./tasks.db (default when in project)
-            - XDG: ~/.local/share/taskweaver/tasks.db (fallback if no project root)
-        """
-        if self._project_root:
-            return self._project_root / "tasks.db"
+        """Resolve an explicit override, an existing legacy DB, or native user data."""
+        configured = get_config().database_file
+        if configured is not None:
+            configured.parent.mkdir(parents=True, exist_ok=True)
+            return configured
+        if self.project_root:
+            legacy = self.project_root / "tasks.db"
+            if legacy.is_file():
+                return legacy
         return self.data_dir / "tasks.db"
 
     @property
     def qdrant_dir(self) -> Path:
-        """Path to Qdrant storage directory (co-located with SQLite database).
-
-        Returns directory path next to tasks.db:
-        - Project-local: ./qdrant_store (default when in project)
-        - XDG: ~/.local/share/taskweaver/qdrant_store (fallback if no project root)
-        """
-        if self._project_root:
-            return self._project_root / "qdrant_store"
-        return self.data_dir / "qdrant_store"
+        """Place optional semantic storage beside the selected database."""
+        return self.database_file.parent / "qdrant_store"
 
     @property
     def log_file(self) -> Path:
-        """Path to application log."""
+        """Return the application log path in the native log/state directory."""
         return self.state_dir / "taskweaver.log"
 
 
+_loaded_env: dict[str, str] = {}
+
+
 def _load_env_file() -> None:
-    """Load .env file with project-local precedence.
-
-    Loads from:
-    1. ./.env (project-local) if exists
-    2. ~/.config/taskweaver/.env (XDG) if exists
-
-    Called once during module import.
-    """
-    paths = XDGPaths()
-
-    # Try project-local .env first
+    """Merge user and local secrets without replacing explicit process variables."""
+    paths = get_paths()
+    files = [paths.config_dir / ".env"]
     if paths.project_root:
-        local_env = paths.project_root / ".env"
-        if local_env.exists():
-            load_dotenv(local_env, override=True)
-            return
-
-    # Fall back to XDG .env
-    xdg_env = paths.config_dir / ".env"
-    if xdg_env.exists():
-        load_dotenv(xdg_env, override=True)
+        files.append(paths.project_root / ".env")
+    values: dict[str, str] = {}
+    for file in files:
+        if file.is_file():
+            values.update(
+                {key: value for key, value in dotenv_values(file, interpolate=False).items() if value is not None}
+            )
+    for key, old_value in _loaded_env.items():
+        if key not in values and os.environ.get(key) == old_value:
+            os.environ.pop(key, None)
+    for key, value in values.items():
+        if key not in os.environ or os.environ[key] == _loaded_env.get(key):
+            os.environ[key] = value
+    _loaded_env.clear()
+    _loaded_env.update(values)
 
 
 class Config(BaseModel):
-    """Application configuration.
+    """Flat user preferences; provider credentials live only in the environment."""
 
-    Simple, flat configuration structure with sensible defaults.
-    Supports any LLM API endpoint (OpenAI, Anthropic, local models, etc.).
-    """
-
-    llm_model: str = Field(
-        default="gpt-4o-mini",
-        description="LLM model name (e.g., gpt-4o-mini, claude-3-5-sonnet-20241022)",
-    )
-    api_endpoint: str = Field(
-        default="https://api.openai.com/v1",
-        description="API endpoint URL (OpenAI, Anthropic, local, or custom)",
-    )
-    auto_decompose: bool = Field(
-        default=True,
-        description="Automatically decompose complex tasks into subtasks",
-    )
-    log_level: str = Field(
-        default="WARNING",
-        description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
-    )
-    github_repos: list[str] = Field(default=[], description="List of repos to get from github")
-    mem0_llm_provider: str = Field(default="openai", description="LLM model name for memory management")
-    mem0_embedding: str = Field(default="text-embedding-3-small", description="Model for embedding memories")
-    mem0_embedding_provider: str = Field(default="openai", description="provider of the LLM model for embedding")
-    mem0_site_url: str | None = Field(
-        default=None, description="Custom site URL for Mem0 LLM provider (auto-set for openrouter)"
-    )
-    mem0_max_memories: int = Field(
-        default=10, ge=1, le=100, description="Maximum number of memories to retrieve from Mem0"
-    )
+    llm_model: str = "openai:gpt-4o-mini"
+    api_endpoint: str | None = None
+    database_file: Path | None = None
+    user_id: str = "default"
+    github_repos: list[str] = Field(default_factory=list)
+    github_sync_interval_seconds: int = Field(default=3600, ge=30)
+    memory_enabled: bool = False
+    mem0_llm_provider: str = "openai"
+    mem0_llm_model: str | None = None
+    mem0_embedding: str = "text-embedding-3-small"
+    mem0_embedding_provider: str = "openai"
+    mem0_embedding_endpoint: str | None = None
+    mem0_site_url: str | None = None
+    mem0_max_memories: int = Field(default=10, ge=1, le=100)
 
     @property
     def mem0_llm_provider_resolved(self) -> str:
-        """Get the actual provider for Mem0 (translates openrouter → openai).
-
-        OpenRouter uses OpenAI-compatible API, so we translate the provider
-        name to 'openai' while using OpenRouter's endpoint.
-
-        Returns:
-            Resolved provider name ('openai' if user specified 'openrouter').
-
-        Example:
-            >>> config = Config(mem0_llm_provider="openrouter")
-            >>> config.mem0_llm_provider_resolved
-            'openai'
-        """
-        return "openai" if self.mem0_llm_provider == "openrouter" else self.mem0_llm_provider
+        """Translate gateway/local/Google names to their Mem0 SDK providers."""
+        if self.mem0_llm_provider in {"google", "google-genai"}:
+            return "gemini"
+        return "openai" if self.mem0_llm_provider in {"openrouter", "local"} else self.mem0_llm_provider
 
     @property
     def mem0_site_url_resolved(self) -> str | None:
-        """Get the site URL (auto-set for openrouter if not specified).
-
-        When using OpenRouter, automatically sets the site_url to OpenRouter's
-        API endpoint unless explicitly overridden.
-
-        Returns:
-            Site URL string or None for default provider endpoints.
-
-        Example:
-            >>> config = Config(mem0_llm_provider="openrouter")
-            >>> config.mem0_site_url_resolved
-            'https://openrouter.ai/api/v1'
-        """
+        """Resolve an explicit LLM endpoint or OpenRouter's native gateway URL."""
         if self.mem0_llm_provider == "openrouter":
             return self.mem0_site_url or "https://openrouter.ai/api/v1"
         return self.mem0_site_url
@@ -303,70 +197,25 @@ class Config(BaseModel):
 
 @lru_cache
 def get_paths() -> XDGPaths:
-    """Get cached XDG paths instance.
-
-    Returns:
-        Cached XDGPaths instance.
-
-    Example:
-        >>> from taskweaver.config import get_paths
-        >>> paths = get_paths()
-        >>> print(paths.database_file)
-        PosixPath('/home/user/.local/share/taskweaver/tasks.db')
-    """
+    """Return the cached native path resolver."""
     return XDGPaths()
 
 
 @lru_cache
 def get_config() -> Config:
-    """Get cached configuration instance.
-
-    Loads configuration with precedence hierarchy:
-        1. Defaults (built-in)
-        2. XDG user config (~/.config/taskweaver/config.toml)
-        3. Project-local config (./config.toml) - overrides above
-
-    Returns:
-        Cached Config instance with merged preferences.
-
-    Example:
-        >>> from taskweaver.config import get_config
-        >>> config = get_config()
-        >>> print(config.llm_model)
-        'gpt-4o-mini'
-    """
+    """Load defaults, user config, then project config; anchor relative DB paths."""
     paths = get_paths()
-
-    # Start with defaults
-    config_data: dict = {}
-
-    # Load XDG config if it exists
-    xdg_config = paths.config_dir / "config.toml"
-    if xdg_config.exists():
-        with xdg_config.open("rb") as f:
-            config_data = tomllib.load(f)
-
-    # Load project-local config if it exists (overrides XDG)
+    _load_env_file()
+    files = [paths.config_dir / "config.toml"]
     if paths.project_root:
-        local_config = paths.project_root / "config.toml"
-        if local_config.exists():
-            with local_config.open("rb") as f:
-                local_data = tomllib.load(f)
-                # Merge: local overrides XDG (flat structure)
-                config_data.update(local_data)
-
-    if not config_data:
-        return Config()
-
-    return Config(**config_data)
-
-
-# Load .env file when module is imported
-_load_env_file()
-
-# Configure logging level from config
-logger.remove()  # Remove default handler
-logger.add(
-    sys.stderr,
-    level=os.getenv("LOGURU_LEVEL", "WARNING"),
-)
+        files.append(paths.project_root / "config.toml")
+    data: dict = {}
+    for file in files:
+        if file.is_file():
+            with file.open("rb") as stream:
+                values = tomllib.load(stream)
+            if values.get("database_file"):
+                database = Path(values["database_file"]).expanduser()
+                values["database_file"] = database if database.is_absolute() else (file.parent / database).resolve()
+            data.update(values)
+    return Config(**data)

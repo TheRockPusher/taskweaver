@@ -1,335 +1,121 @@
-"""Tests for XDG-compliant configuration system."""
+"""Configuration precedence and platform-native path behavior."""
 
 from pathlib import Path
 
+import pytest
+
 from taskweaver import config as config_module
-from taskweaver.config import (
-    Config,
-    XDGPaths,
-    get_config,
-    get_paths,
-    get_project_root,
-    get_xdg_cache_home,
-    get_xdg_config_home,
-    get_xdg_data_home,
-    get_xdg_state_home,
+from taskweaver.config import XDGPaths, get_config, get_paths
+
+
+@pytest.fixture(autouse=True)
+def isolated_config(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    for kind in ("CONFIG", "DATA", "CACHE", "STATE"):
+        monkeypatch.setenv(f"XDG_{kind}_HOME", str(tmp_path / kind.lower()))
+    get_config.cache_clear()
+    get_paths.cache_clear()
+    yield
+    get_config.cache_clear()
+    get_paths.cache_clear()
+
+
+@pytest.mark.parametrize(
+    ("platform", "expected"),
+    [
+        ("linux", (".config", ".local/share", ".cache", ".local/state")),
+        ("darwin", ("Library/Application Support", "Library/Application Support", "Library/Caches", "Library/Logs")),
+        ("win32", ("AppData/Roaming", "AppData/Local", "AppData/Local", "AppData/Local")),
+    ],
 )
-
-
-def test_get_xdg_config_home_default():
-    """Test XDG_CONFIG_HOME defaults to ~/.config."""
-    result = get_xdg_config_home()
-    assert result == Path.home() / ".config"
-
-
-def test_get_xdg_config_home_override(monkeypatch):
-    """Test XDG_CONFIG_HOME can be overridden."""
-    custom_path = "/custom/config"
-    monkeypatch.setenv("XDG_CONFIG_HOME", custom_path)
-    result = get_xdg_config_home()
-    assert result == Path(custom_path)
-
-
-def test_get_xdg_data_home_default():
-    """Test XDG_DATA_HOME defaults to ~/.local/share."""
-    result = get_xdg_data_home()
-    assert result == Path.home() / ".local" / "share"
-
-
-def test_get_xdg_data_home_override(monkeypatch):
-    """Test XDG_DATA_HOME can be overridden."""
-    custom_path = "/custom/data"
-    monkeypatch.setenv("XDG_DATA_HOME", custom_path)
-    result = get_xdg_data_home()
-    assert result == Path(custom_path)
-
-
-def test_get_xdg_cache_home_default():
-    """Test XDG_CACHE_HOME defaults to ~/.cache."""
-    result = get_xdg_cache_home()
-    assert result == Path.home() / ".cache"
-
-
-def test_get_xdg_cache_home_override(monkeypatch):
-    """Test XDG_CACHE_HOME can be overridden."""
-    custom_path = "/custom/cache"
-    monkeypatch.setenv("XDG_CACHE_HOME", custom_path)
-    result = get_xdg_cache_home()
-    assert result == Path(custom_path)
-
-
-def test_get_xdg_state_home_default():
-    """Test XDG_STATE_HOME defaults to ~/.local/state."""
-    result = get_xdg_state_home()
-    assert result == Path.home() / ".local" / "state"
-
-
-def test_get_xdg_state_home_override(monkeypatch):
-    """Test XDG_STATE_HOME can be overridden."""
-    custom_path = "/custom/state"
-    monkeypatch.setenv("XDG_STATE_HOME", custom_path)
-    result = get_xdg_state_home()
-    assert result == Path(custom_path)
-
-
-def test_xdg_paths_creates_directories(monkeypatch, tmp_path):
-    """Test XDGPaths creates directories on access."""
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
-    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
-
+def test_native_paths_without_xdg_overrides(monkeypatch, tmp_path, platform, expected):
+    for kind in ("CONFIG", "DATA", "CACHE", "STATE"):
+        monkeypatch.delenv(f"XDG_{kind}_HOME", raising=False)
+    monkeypatch.delenv("APPDATA", raising=False)
+    monkeypatch.delenv("LOCALAPPDATA", raising=False)
+    monkeypatch.setattr(config_module.sys, "platform", platform)
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
     paths = XDGPaths()
-
-    # Access properties to trigger directory creation
-    config = paths.config_dir
-    data = paths.data_dir
-    cache = paths.cache_dir
-    state = paths.state_dir
-
-    # Verify directories were created
-    assert config.exists()
-    assert data.exists()
-    assert cache.exists()
-    assert state.exists()
+    assert (paths.config_dir, paths.data_dir, paths.cache_dir, paths.state_dir) == tuple(
+        tmp_path / part / "taskweaver" for part in expected
+    )
 
 
-def test_xdg_paths_file_paths(monkeypatch, tmp_path):
-    """Test XDGPaths returns correct XDG file paths when no project detected."""
-    # Create a non-project directory
-    test_dir = tmp_path / "non_project"
-    test_dir.mkdir()
-
-    monkeypatch.chdir(test_dir)
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
-    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
-
+@pytest.mark.parametrize("platform", ["linux", "darwin", "win32"])
+def test_explicit_xdg_overrides_native_defaults(monkeypatch, tmp_path, platform):
+    monkeypatch.setattr(config_module.sys, "platform", platform)
     paths = XDGPaths()
-
-    # Should return XDG paths when no project root detected
-    assert paths.config_file == tmp_path / "config" / "taskweaver" / "config.toml"
-    assert paths.env_file == tmp_path / "config" / "taskweaver" / ".env"
-    assert paths.database_file == tmp_path / "data" / "taskweaver" / "tasks.db"
-    assert paths.log_file == tmp_path / "state" / "taskweaver" / "taskweaver.log"
+    assert (paths.config_dir, paths.data_dir, paths.cache_dir, paths.state_dir) == tuple(
+        tmp_path / kind / "taskweaver" for kind in ("config", "data", "cache", "state")
+    )
 
 
-def test_config_defaults():
-    """Test Config default values."""
-    config = Config()
-    assert config.llm_model == "gpt-4o-mini"
-    assert config.api_endpoint == "https://api.openai.com/v1"
-    assert config.auto_decompose is True
+def test_windows_environment_paths(monkeypatch, tmp_path):
+    monkeypatch.setattr(config_module.sys, "platform", "win32")
+    for kind in ("CONFIG", "DATA", "CACHE", "STATE"):
+        monkeypatch.delenv(f"XDG_{kind}_HOME", raising=False)
+    monkeypatch.setenv("APPDATA", str(tmp_path / "roaming"))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    paths = XDGPaths()
+    assert paths.config_dir == tmp_path / "roaming/taskweaver"
+    assert paths.database_file == tmp_path / "local/taskweaver/tasks.db"
 
 
-def test_get_config_returns_defaults_when_no_file(monkeypatch, tmp_path):
-    """Test get_config returns defaults when config file doesn't exist."""
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-
-    # Mock get_project_root to prevent loading project-local config
-
-    monkeypatch.setattr(config_module, "get_project_root", lambda: None)
-
-    # Clear cache to force reload
-    get_config.cache_clear()
-    get_paths.cache_clear()
-
-    config = get_config()
-
-    assert config.llm_model == "gpt-4o-mini"
-    assert config.api_endpoint == "https://api.openai.com/v1"
+def test_new_git_project_does_not_capture_user_database(tmp_path):
+    (tmp_path / ".git").mkdir()
+    assert get_paths().database_file == tmp_path / "data/taskweaver/tasks.db"
+    assert not (tmp_path / "tasks.db").exists()
 
 
-def test_get_config_loads_from_file(monkeypatch, tmp_path):
-    """Test get_config loads configuration from TOML file."""
-    config_dir = tmp_path / "taskweaver"
-    config_dir.mkdir()
-    config_file = config_dir / "config.toml"
-
-    # Write custom config (flat structure)
-    config_file.write_text("""
-llm_model = "gpt-4"
-api_endpoint = "http://localhost:1234/v1"
-auto_decompose = false
-""")
-
-    # Mock get_project_root to prevent loading project-local config
-
-    monkeypatch.setattr(config_module, "get_project_root", lambda: None)
-
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-
-    # Clear cache to force reload
-    get_config.cache_clear()
-    get_paths.cache_clear()
-
-    config = get_config()
-
-    assert config.llm_model == "gpt-4"
-    assert config.api_endpoint == "http://localhost:1234/v1"
-    assert config.auto_decompose is False
+def test_existing_legacy_database_survives_without_config(tmp_path):
+    legacy = tmp_path / "tasks.db"
+    legacy.write_bytes(b"existing user data")
+    assert get_paths().database_file == legacy
+    assert legacy.read_bytes() == b"existing user data"
 
 
-def test_get_paths_is_cached():
-    """Test get_paths returns same instance (cached)."""
-    paths1 = get_paths()
-    paths2 = get_paths()
-    assert paths1 is paths2
-
-
-def test_get_config_is_cached():
-    """Test get_config returns same instance (cached)."""
-    get_config.cache_clear()
-    config1 = get_config()
-    config2 = get_config()
-    assert config1 is config2
-
-
-def test_get_project_root_finds_pyproject(tmp_path, monkeypatch):
-    """Test get_project_root finds project with pyproject.toml."""
-    project_dir = tmp_path / "myproject"
-    project_dir.mkdir()
-    (project_dir / "pyproject.toml").touch()
-
-    # Change to project directory
-    monkeypatch.chdir(project_dir)
-
-    root = get_project_root()
-    assert root == project_dir
-
-
-def test_get_project_root_finds_git(tmp_path, monkeypatch):
-    """Test get_project_root finds project with .git."""
-    project_dir = tmp_path / "myproject"
-    project_dir.mkdir()
-    (project_dir / ".git").mkdir()
-
-    monkeypatch.chdir(project_dir)
-
-    root = get_project_root()
-    assert root == project_dir
-
-
-def test_get_project_root_searches_parents(tmp_path, monkeypatch):
-    """Test get_project_root searches parent directories."""
-    project_dir = tmp_path / "myproject"
-    project_dir.mkdir()
-    (project_dir / "pyproject.toml").touch()
-
-    # Create nested directory
-    nested = project_dir / "src" / "taskweaver"
-    nested.mkdir(parents=True)
-
+def test_local_config_overrides_user_and_anchors_database(tmp_path, monkeypatch):
+    user_dir = tmp_path / "config/taskweaver"
+    user_dir.mkdir(parents=True)
+    (user_dir / "config.toml").write_text(
+        'llm_model = "openai:user"\nuser_id = "retained"\ndatabase_file = "user.db"\n'
+    )
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "config.toml").write_text('llm_model = "local:project"\ndatabase_file = "store/tasks.db"\n')
+    nested = project / "nested"
+    nested.mkdir()
     monkeypatch.chdir(nested)
-
-    root = get_project_root()
-    assert root == project_dir
-
-
-def test_get_project_root_returns_none_if_not_found(tmp_path, monkeypatch):
-    """Test get_project_root returns None when no project found."""
-    no_project_dir = tmp_path / "random"
-    no_project_dir.mkdir()
-
-    monkeypatch.chdir(no_project_dir)
-
-    root = get_project_root()
-    assert root is None
+    configuration = get_config()
+    assert configuration.llm_model == "local:project"
+    assert configuration.user_id == "retained"
+    assert get_paths().database_file == project / "store/tasks.db"
+    assert configuration.database_file == project / "store/tasks.db"
 
 
-def test_xdg_paths_project_root_detection(tmp_path, monkeypatch):
-    """Test XDGPaths detects project root."""
-    project_dir = tmp_path / "myproject"
-    project_dir.mkdir()
-    (project_dir / "pyproject.toml").touch()
-
-    monkeypatch.chdir(project_dir)
-    get_paths.cache_clear()
-
-    paths = get_paths()
-    assert paths.project_root == project_dir
+def test_user_relative_database_is_not_reanchored_by_local_config(tmp_path):
+    user_dir = tmp_path / "config/taskweaver"
+    user_dir.mkdir(parents=True)
+    (user_dir / "config.toml").write_text('database_file = "saved.db"\n')
+    (tmp_path / "config.toml").write_text('user_id = "local"\n')
+    assert get_paths().database_file == user_dir / "saved.db"
 
 
-def test_config_file_prefers_local(tmp_path, monkeypatch):
-    """Test config_file returns local path when it exists."""
-    project_dir = tmp_path / "myproject"
-    project_dir.mkdir()
-    (project_dir / "pyproject.toml").touch()
-    local_config = project_dir / "config.toml"
-    local_config.touch()
-
-    monkeypatch.chdir(project_dir)
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-    get_paths.cache_clear()
-
-    paths = get_paths()
-    assert paths.config_file == local_config
-
-
-def test_config_file_falls_back_to_xdg(tmp_path, monkeypatch):
-    """Test config_file returns XDG path when local doesn't exist."""
-    project_dir = tmp_path / "myproject"
-    project_dir.mkdir()
-    (project_dir / "pyproject.toml").touch()
-    # No local config.toml
-
-    monkeypatch.chdir(project_dir)
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-    get_paths.cache_clear()
-
-    paths = get_paths()
-    assert paths.config_file == tmp_path / "config" / "taskweaver" / "config.toml"
-
-
-def test_database_file_prefers_local(tmp_path, monkeypatch):
-    """Test database_file returns local path when it exists."""
-    project_dir = tmp_path / "myproject"
-    project_dir.mkdir()
-    (project_dir / "pyproject.toml").touch()
-    local_db = project_dir / "tasks.db"
-    local_db.touch()
-
-    monkeypatch.chdir(project_dir)
-    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
-    get_paths.cache_clear()
-
-    paths = get_paths()
-    assert paths.database_file == local_db
-
-
-def test_get_config_merges_local_over_xdg(tmp_path, monkeypatch):
-    """Test get_config merges project-local config over XDG config."""
-    project_dir = tmp_path / "myproject"
-    project_dir.mkdir()
-    (project_dir / "pyproject.toml").touch()
-
-    # Create XDG config
-    xdg_config_dir = tmp_path / "config" / "taskweaver"
-    xdg_config_dir.mkdir(parents=True)
-    xdg_config = xdg_config_dir / "config.toml"
-    xdg_config.write_text("""
-llm_model = "gpt-4"
-api_endpoint = "https://api.openai.com/v1"
-auto_decompose = true
-""")
-
-    # Create local config (overrides model and endpoint)
-    local_config = project_dir / "config.toml"
-    local_config.write_text("""
-llm_model = "claude-3-5-sonnet-20241022"
-api_endpoint = "https://api.anthropic.com/v1"
-""")
-
-    monkeypatch.chdir(project_dir)
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-
+def test_environment_precedence_and_refresh(tmp_path, monkeypatch):
+    variable = "TASKWEAVER_API_KEY"
+    monkeypatch.delenv(variable, raising=False)
+    user_dir = tmp_path / "config/taskweaver"
+    user_dir.mkdir(parents=True)
+    (user_dir / ".env").write_text(f'{variable}="user"\n')
+    (tmp_path / "config.toml").write_text('llm_model="local:model"\n')
+    (tmp_path / ".env").write_text(f'{variable}="project"\n')
+    get_config()
+    assert config_module.os.environ[variable] == "project"
+    (tmp_path / ".env").write_text(f'{variable}="updated"\n')
     get_config.cache_clear()
-    get_paths.cache_clear()
-
-    config = get_config()
-
-    # Local overrides model and endpoint
-    assert config.llm_model == "claude-3-5-sonnet-20241022"
-    assert config.api_endpoint == "https://api.anthropic.com/v1"
-    # XDG auto_decompose is preserved
-    assert config.auto_decompose is True
+    get_config()
+    assert config_module.os.environ[variable] == "updated"
+    monkeypatch.setenv(variable, "explicit-process")
+    get_config.cache_clear()
+    get_config()
+    assert config_module.os.environ[variable] == "explicit-process"

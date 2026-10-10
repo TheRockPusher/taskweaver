@@ -45,29 +45,55 @@ def _validate_goal(conn: sqlite3.Connection, goal_id: UUID | None) -> None:
         raise ValueError(msg)
 
 
+def _create_task(conn: sqlite3.Connection, task_data: TaskCreate) -> Task:
+    task = Task.model_validate(task_data.model_dump(exclude_none=True))
+    _validate_goal(conn, task.goal_id)
+    task.duration_min = estimate_duration(conn, task.category, task.raw_duration_min).adjusted_minutes
+    conn.execute(INSERT_TASK, task.model_dump(mode="json"))
+    refresh_priorities(conn)
+    return _require_task(conn, task.task_id)
+
+
+def _update_task(conn: sqlite3.Connection, task_id: UUID, task_data: TaskUpdate) -> Task:
+    changes = {
+        key: value
+        for key, value in task_data.model_dump(exclude_unset=True).items()
+        if value is not None or key in _NULLABLE_FIELDS
+    }
+    task = _require_task(conn, task_id)
+    task = Task.model_validate(task.model_dump() | changes | {"updated_at": datetime.now(UTC)})
+    _validate_goal(conn, task.goal_id)
+    conn.execute(UPDATE_TASK, task.model_dump(mode="json"))
+    if task.status in _TERMINAL_STATUSES:
+        conn.execute("DELETE FROM task_dependencies WHERE blocker_id = ?", (str(task_id),))
+    refresh_priorities(conn)
+    return _require_task(conn, task_id)
+
+
 class TaskRepository:
     """Persist tasks and their derived rankings in the same SQLite transaction."""
 
     def __init__(self, db_path: Path = DEFAULT_DB_PATH) -> None:
         self.db_path = db_path
 
-    def create_task(self, task_data: TaskCreate) -> Task:
+    def create_task(self, task_data: TaskCreate, *, connection: sqlite3.Connection | None = None) -> Task:
         """Create a task, adjusting its original duration estimate exactly once.
 
         Args:
             task_data: Validated task fields and optional original duration baseline.
+            connection: An active caller-owned transaction, or None to commit independently.
 
         Returns:
             Persisted task with current MCDA score and learned duration estimate.
         """
-        task = Task.model_validate(task_data.model_dump(exclude_none=True))
+        if connection is not None:
+            if not connection.in_transaction:
+                msg = "A supplied connection must have an active transaction"
+                raise ValueError(msg)
+            return _create_task(connection, task_data)
         with get_connection(self.db_path) as conn, conn:
             conn.execute("BEGIN IMMEDIATE")
-            _validate_goal(conn, task.goal_id)
-            task.duration_min = estimate_duration(conn, task.category, task.raw_duration_min).adjusted_minutes
-            conn.execute(INSERT_TASK, task.model_dump(mode="json"))
-            refresh_priorities(conn)
-            return _require_task(conn, task.task_id)
+            return _create_task(conn, task_data)
 
     def get_task(self, task_id: UUID) -> Task | None:
         """Retrieve a task, returning None when it does not exist."""
@@ -93,7 +119,9 @@ class TaskRepository:
             rows = conn.execute(SELECT_ALL_TASKS_DEPENDENCY).fetchall()
         return [TaskWithDependencies.model_validate(dict(row)) for row in rows]
 
-    def update_task(self, task_id: UUID, task_data: TaskUpdate) -> Task:
+    def update_task(
+        self, task_id: UUID, task_data: TaskUpdate, *, connection: sqlite3.Connection | None = None
+    ) -> Task:
         """Apply supplied fields, clearing nullable fields when explicitly set to None.
 
         The original raw_duration_min remains immutable. Editing duration_min changes
@@ -104,6 +132,7 @@ class TaskRepository:
         Args:
             task_id: Task to update.
             task_data: Fields explicitly supplied by the caller.
+            connection: An active caller-owned transaction, or None to commit independently.
 
         Returns:
             Persisted task with refreshed rankings.
@@ -111,21 +140,14 @@ class TaskRepository:
         Raises:
             TaskNotFoundError: If the task does not exist.
         """
-        changes = {
-            key: value
-            for key, value in task_data.model_dump(exclude_unset=True).items()
-            if value is not None or key in _NULLABLE_FIELDS
-        }
+        if connection is not None:
+            if not connection.in_transaction:
+                msg = "A supplied connection must have an active transaction"
+                raise ValueError(msg)
+            return _update_task(connection, task_id, task_data)
         with get_connection(self.db_path) as conn, conn:
             conn.execute("BEGIN IMMEDIATE")
-            task = _require_task(conn, task_id)
-            task = Task.model_validate(task.model_dump() | changes | {"updated_at": datetime.now(UTC)})
-            _validate_goal(conn, task.goal_id)
-            conn.execute(UPDATE_TASK, task.model_dump(mode="json"))
-            if task.status in _TERMINAL_STATUSES:
-                conn.execute("DELETE FROM task_dependencies WHERE blocker_id = ?", (str(task_id),))
-            refresh_priorities(conn)
-            return _require_task(conn, task_id)
+            return _update_task(conn, task_id, task_data)
 
     def update_task_scores(
         self, task_id: UUID, urgency: int | None = None, importance: int | None = None, effort: int | None = None

@@ -1,6 +1,6 @@
 """Database schema definitions and queries."""
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 # Schema creation SQL
 CREATE_TASKS_TABLE = """
@@ -317,6 +317,24 @@ CREATE TABLE IF NOT EXISTS memory_tombstones (
 );
 """
 
+CREATE_GITHUB_ISSUE_MAPPINGS_TABLE = """
+CREATE TABLE IF NOT EXISTS github_issue_mappings (
+    repo TEXT NOT NULL COLLATE NOCASE,
+    issue_number INTEGER NOT NULL CHECK (issue_number > 0),
+    task_id TEXT NOT NULL UNIQUE REFERENCES tasks(task_id) ON DELETE CASCADE,
+    url TEXT NOT NULL,
+    remote_state TEXT NOT NULL,
+    local_state TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (repo, issue_number)
+);
+"""
+
+CREATE_GITHUB_ISSUE_MAPPINGS_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_github_issue_mappings_updated
+ON github_issue_mappings(updated_at);
+"""
+
 SCHEMA_STATEMENTS = (
     CREATE_GOALS_TABLE,
     CREATE_TASKS_TABLE,
@@ -336,5 +354,7 @@ SCHEMA_STATEMENTS = (
     CREATE_PRIORITY_HISTORY_INDEX,
     CREATE_MEMORY_FACTS_TABLE,
     CREATE_MEMORY_TOMBSTONES_TABLE,
+    CREATE_GITHUB_ISSUE_MAPPINGS_TABLE,
+    CREATE_GITHUB_ISSUE_MAPPINGS_INDEX,
     CREATE_VIEW_TASKS_FULL,
 )

@@ -65,23 +65,7 @@ class Task(TaskCreate):
 
     @property
     def priority(self) -> float:
-        """Calculate priority score as value per minute (llm_value / duration_min).
-
-        Higher priority = higher value delivered per minute of effort.
-        Uses CD3 (Cost of Delay Divided by Duration) from WSJF framework.
-
-        Returns:
-            Priority score (higher is better). Ranges from ~0.4 (value=1, duration=240min)
-            to 100.0 (value=100, duration=1min).
-
-        Example:
-            >>> task = Task(title="Quick win", duration_min=30, llm_value=90.0, requirement="Done")
-            >>> task.priority
-            3.0  # High value, short duration = good priority
-            >>> task2 = Task(title="Long grind", duration_min=240, llm_value=30.0, requirement="Done")
-            >>> task2.priority
-            0.125  # Low value, long duration = poor priority
-        """
+        """Return CD3 value per working minute, independently of the weighted MCDA score."""
         return self.llm_value / self.duration_min
 
 

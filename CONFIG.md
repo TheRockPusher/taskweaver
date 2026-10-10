@@ -1,266 +1,89 @@
-# TaskWeaver Configuration Guide
+# Configuration and data
 
-TaskWeaver follows the [XDG Base Directory Specification](https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html) for configuration, making it a well-behaved Linux citizen.
+Use `taskweaver setup` in an interactive terminal, or edit flat TOML preferences and a separate `.env`. `taskweaver info` shows resolved paths/model and task counts without printing keys. See [README.md](README.md) for product workflows.
 
-## Configuration Hierarchy
+## Resolution and native locations
 
-TaskWeaver loads configuration in this order (later overrides earlier):
+Preferences merge **defaults → user config → detected project config**. Project detection walks upward from the working directory and stops at a directory containing `config.toml`, `tasks.db`, `pyproject.toml`, or `.git`; it is not limited to the current directory. Existing project `config.toml`/`.env` are preferred for setup writes. User secrets load before project secrets; explicit process environment variables win over file values. Environment interpolation in secret files is disabled.
 
-1. **Built-in defaults** - Hardcoded fallback values
-2. **XDG user config** (`~/.config/taskweaver/config.toml`) - System-wide user preferences
-3. **Project-local config** (`./config.toml`) - **Takes precedence!** (for development)
+Each native root gains a `taskweaver` subdirectory:
 
-This means you can have both a system-wide config for general use AND project-specific overrides when working in a cloned repository.
+| Platform | Config | Data | Cache | State/logs |
+| --- | --- | --- | --- | --- |
+| Linux | `~/.config` | `~/.local/share` | `~/.cache` | `~/.local/state` |
+| macOS | `~/Library/Application Support` | same | `~/Library/Caches` | `~/Library/Logs` |
+| Windows | `%APPDATA%` | `%LOCALAPPDATA%` | `%LOCALAPPDATA%` | `%LOCALAPPDATA%` |
 
-## Directory Structure
+`XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME`, and `XDG_STATE_HOME` override the corresponding roots on every platform. Config files are `config.toml` and `.env`; the database is `tasks.db`; logs are `taskweaver.log` in state. Optional Qdrant storage is `qdrant_store` beside the selected database. The optional Mem0 SDK state defaults to application data unless `MEM0_DIR` is explicitly supplied. Native path selection is implemented; that is not evidence of native OS execution.
 
-```
-# Project-local (for development)
-./config.toml                      # Project-specific preferences (gitignored)
-./.env                             # Project API keys (gitignored)
-./tasks.db                         # Optional local database (gitignored)
+Database precedence is command-local `--db`, root `--db`, configured `database_file`, an existing detected-project `tasks.db`, then native data. The selected database also determines the semantic vector/history directory for CLI memory and CLI/TUI chat; an explicit override does not silently use the configured database's store. A relative TOML `database_file` is anchored to that TOML file's directory (and `~` expands). A relative CLI path is relative to the invocation directory.
 
-# XDG user directories (system-wide)
-~/.config/taskweaver/
-├── config.toml          # User preferences (model selection, display settings)
-└── .env                 # API keys (secrets - gitignored)
+## Models and credentials
 
-~/.local/share/taskweaver/
-└── tasks.db             # SQLite database (application data)
+The wizard defaults to `offline:none`. Built-in preferences without a config file instead default to `openai:gpt-4o-mini`, but no model is constructed until requested. Local CLI/TUI task workflows never require a cloud key.
 
-~/.cache/taskweaver/
-└── (future: LLM cache)
+| `llm_model` prefix | Credential | Endpoint |
+| --- | --- | --- |
+| `offline:none` | None | AI disabled |
+| `local:MODEL` | Optional `TASKWEAVER_API_KEY` | Required OpenAI-compatible URL |
+| `openai:MODEL` | `OPENAI_API_KEY` | Defaults to `https://api.openai.com/v1` |
+| `openrouter:PROVIDER/MODEL` | `OPENROUTER_API_KEY` | Defaults to `https://openrouter.ai/api/v1` |
+| `anthropic:MODEL` | `ANTHROPIC_API_KEY` | Defaults to `https://api.anthropic.com` |
+| `google-genai:MODEL` (also `google`) | `GOOGLE_API_KEY` | Provider default unless overridden |
 
-~/.local/state/taskweaver/
-└── taskweaver.log       # Application logs
-```
-
-## Configuration Files
-
-### 1. User Preferences (`~/.config/taskweaver/config.toml`)
-
-Copy `config.toml.example` from the repository to get started:
-
-```bash
-cp config.toml.example ~/.config/taskweaver/config.toml
-```
-
-**Example configuration:**
+`api_endpoint` is honored by the shared request-time provider constructor, including delegated agents. Model names must be available on your selected service. An anonymous local endpoint example:
 
 ```toml
-# Simple, flat configuration - no nested sections!
-
-# LLM model name
-llm_model = "gpt-4o-mini"
-
-# API endpoint URL (OpenAI, Anthropic, local, or custom)
-api_endpoint = "https://api.openai.com/v1"
-
-# Automatically decompose complex tasks into subtasks
-auto_decompose = true
+llm_model = "local:your-model-alias"
+api_endpoint = "http://127.0.0.1:8080/v1"
+memory_enabled = false
 ```
 
-### 2. API Key (`~/.config/taskweaver/.env`)
+Leave `TASKWEAVER_API_KEY` unset or empty for anonymous local requests: no Authorization header is sent and cloud keys are not borrowed. Configure a key if that local endpoint requires authentication. Main LLM and embedding services are separate; a chat endpoint does not imply embedding support.
 
-Copy `.env.example` from the repository:
+Setup preserves unrelated preferences/keys and replaces each saved file atomically. POSIX temporary/final files have mode `0600`; newly created parent directories request `0700`. Existing parent directories are not recursively hardened. Config and secrets are separate file replacements, not a cross-file transaction. Secrets are plaintext on disk, not an encrypted vault/keychain. Windows files inherit directory ACLs; POSIX modes are **not** equivalent Windows protection. Restrict ACLs yourself. Protect database, semantic stores, backups, and logs too; never commit `.env` or pass secrets as Docker build arguments.
 
-```bash
-cp .env.example ~/.config/taskweaver/.env
+## Preference reference
+
+Copy the existing [config.toml.example](config.toml.example) as a starting point; it is offline and disables external backends.
+
+| Key | Default / behavior |
+| --- | --- |
+| `llm_model` | `openai:gpt-4o-mini`; wizard default offline |
+| `api_endpoint` | Unset; provider default except required for local |
+| `database_file` | Unset; path resolution above |
+| `user_id` | `default`; scopes explicit memory |
+| `github_repos` | `[]`; default repositories for imports |
+| `github_sync_interval_seconds` | `3600`, minimum 30; configured-repository TUI read-only sync interval |
+| `memory_enabled` | `false`; optional semantic backend only |
+| `mem0_llm_provider` | `openai`; `local`/`openrouter` translate to compatible SDK provider, Google names to Gemini |
+| `mem0_llm_model` | Unset; explicit memory provider:model can be configured independently |
+| `mem0_site_url` | Unset; separate memory LLM endpoint; OpenRouter has a gateway default |
+| `mem0_embedding_provider` | `openai` |
+| `mem0_embedding` | `text-embedding-3-small` |
+| `mem0_embedding_endpoint` | Unset; independent embedding-service URL |
+| `mem0_max_memories` | `10`, allowed 1–100 |
+
+MCDA weights are database-backed (`weights show/set`), not TOML aliases. All five custom weights must be finite, nonnegative, and sum to one. UI shortcuts and sorting are not configurable TOML fields.
+
+## Explicit optional boundaries
+
+**Memory:** local facts work without extras. For semantic memory install `[memory]`, enable `memory_enabled`, and configure a real LLM **and** embedding provider/model/endpoint plus their credentials. Anthropic has no embedding service; select another provider for that role. Local semantic services each require their own reachable endpoint. Optional provider failure does not revoke authoritative local facts. Logical forget/tombstones do not securely erase SQLite free pages, backups, provider histories, or chat transcripts.
+
+**Observability:** install `[observability]`, configure `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and optionally `LANGFUSE_HOST`, then explicitly use `taskweaver chat --o` or `taskweaver tui --o`. Merely setting keys does not enable tracing. Opt-in instrumentation can export model prompts, responses, and tool data; review your provider/retention policy before enabling it. Default application logging is not intended to capture private conversation content.
+
+**GitHub:** `GH_TOKEN` takes precedence over `GITHUB_TOKEN`; absent a token, public reads may work subject to GitHub limits. Configured `github_repos` enables TUI read-only imports/pulls on mount and periodically via `github_sync_interval_seconds`; overlapping jobs are skipped and owned processes are cancelled on exit. CLI imports/sync remain explicit. Configuration never authorizes remote writes: only `github sync --push` requests status writes. Use minimally scoped credentials and inspect conflicts first.
+
+## Migration and backups
+
+SQLite schema **6** is initialized/migrated when repositories open the database. The v4 task layout and v5 data/history are preserved through upgrade; unsupported newer schemas are rejected instead of downgraded. There is no automatic pre-upgrade backup or rollback command.
+
+Before upgrading, stop writers and use SQLite's backup facility (example for an explicitly selected database):
+
+```sh
+sqlite3 /path/to/tasks.db ".backup '/path/to/tasks-before-upgrade.db'"
 ```
 
-**Add your API key:**
+Alternatively copy a database only after all application connections have closed; an active database may have journal/WAL files and cannot safely be backed up by blindly copying one file. Back up semantic stores separately while their SDK clients are closed, and protect configuration/secrets separately. Restore with the application stopped, retain the original backup, and use a compatible application version. A SQLite backup alone is not a full semantic/provider-history backup.
 
-```bash
-# Your API key (works with any provider)
-API_KEY=sk-...
-
-# Examples:
-# OpenAI:     API_KEY=sk-proj-...
-# Anthropic:  API_KEY=sk-ant-...
-# Local LLM:  API_KEY=not-needed  (or leave empty)
-```
-
-**How it works:**
-- Single `API_KEY` environment variable
-- Works with whichever `api_endpoint` you configured
-- Change providers by updating `config.toml`, keep same `.env`
-- Perfect for local models that don't need authentication
-
-**⚠️ Security Note:** Never commit `.env` files to version control!
-
-### 3. Project-Local Configuration (Development)
-
-**For Developers**: When working on TaskWeaver itself or contributing, you can create local config files in the project root:
-
-```bash
-cd /path/to/taskweaver
-
-# Create local config (overrides your XDG config)
-cp config.toml.example config.toml
-
-# Create local .env (overrides your XDG .env)
-cp .env.example .env
-
-# Add your dev API keys
-echo "OPENAI_API_KEY=sk-dev-..." >> .env
-```
-
-**How it works:**
-
-- TaskWeaver detects project roots by looking for `pyproject.toml` or `.git/`
-- If `./config.toml` exists, it **overrides** settings from `~/.config/taskweaver/config.toml`
-- If `./tasks.db` exists, it will be used instead of `~/.local/share/taskweaver/tasks.db`
-- Perfect for testing without affecting your system-wide tasks!
-
-**Example use case:**
-
-```toml
-# ~/.config/taskweaver/config.toml (system-wide)
-llm_model = "gpt-4"
-api_endpoint = "https://api.openai.com/v1"
-
-# ./config.toml (project-local override)
-llm_model = "gpt-4o-mini"  # Cheaper model for development
-```
-
-When running from the project directory, TaskWeaver will use `gpt-4o-mini` (local) instead of `gpt-4` (system).
-
-**⚠️ Gitignore Note:** Local `config.toml`, `.env`, and `tasks.db` are gitignored to prevent accidentally committing dev secrets.
-
-## Environment Variable Overrides
-
-You can override XDG directories using environment variables:
-
-```bash
-# Override config directory (default: ~/.config)
-export XDG_CONFIG_HOME=/custom/config
-
-# Override data directory (default: ~/.local/share)
-export XDG_DATA_HOME=/custom/data
-
-# Override cache directory (default: ~/.cache)
-export XDG_CACHE_HOME=/custom/cache
-
-# Override state directory (default: ~/.local/state)
-export XDG_STATE_HOME=/custom/state
-```
-
-## CLI Flags
-
-All commands support the `--db` flag to override the database path:
-
-```bash
-taskweaver create "Test task" --db /tmp/test.db
-taskweaver ls --db /tmp/test.db
-```
-
-## Complete Configuration Hierarchy
-
-Settings are loaded in this order (later overrides earlier):
-
-1. **Built-in defaults** (hardcoded in `config.py`)
-2. **XDG user config** (`~/.config/taskweaver/config.toml`)
-3. **Project-local config** (`./config.toml`) - **overrides XDG settings**
-4. **Environment variables** (`XDG_*` for paths only)
-5. **CLI flags** (`--db` for temporary overrides)
-
-**Example:**
-
-```toml
-# ~/.config/taskweaver/config.toml
-llm_model = "gpt-4"
-api_endpoint = "https://api.openai.com/v1"
-auto_decompose = true
-
-# ./config.toml (in project directory)
-llm_model = "claude-3-5-sonnet-20241022"  # Overrides "gpt-4"
-api_endpoint = "https://api.anthropic.com/v1"  # Overrides OpenAI endpoint
-# auto_decompose stays true from XDG config
-```
-
-Result: Uses Claude model with Anthropic endpoint, auto-decompose enabled.
-
-## Accessing Configuration in Code
-
-```python
-from taskweaver.config import get_config, get_paths
-
-# Get configuration (cached)
-config = get_config()
-print(config.model)  # "gpt-4o-mini"
-print(config.api_endpoint)  # "https://api.openai.com/v1"
-print(config.auto_decompose)  # True
-print(config.api_key)  # Your API key from .env (or None)
-
-# Get XDG paths (cached)
-paths = get_paths()
-print(paths.database_file)  # PosixPath('/home/user/.local/share/taskweaver/tasks.db')
-print(paths.project_root)  # PosixPath('/path/to/project') or None
-```
-
-## Migration from Old Path
-
-If you used TaskWeaver before XDG compliance, migrate your data:
-
-```bash
-# Old location
-OLD_DB="~/.taskweaver/tasks.db"
-
-# New location
-NEW_DB="~/.local/share/taskweaver/tasks.db"
-
-# Copy database
-mkdir -p ~/.local/share/taskweaver
-cp $OLD_DB $NEW_DB
-
-# Remove old directory (optional)
-rm -rf ~/.taskweaver
-```
-
-## Troubleshooting
-
-### Database Not Found
-
-If you see "Database does not exist" errors, check permissions:
-
-```bash
-# Verify data directory is writable
-ls -la ~/.local/share/taskweaver/
-
-# Create manually if needed
-mkdir -p ~/.local/share/taskweaver
-```
-
-### API Keys Not Working
-
-Verify your `.env` file is in the correct location:
-
-```bash
-# Should be here:
-cat ~/.config/taskweaver/.env
-
-# Not here:
-cat .env  # ❌ (project root - wrong!)
-```
-
-### Custom Model Not Available
-
-Check your `config.toml` syntax:
-
-```bash
-# Validate TOML syntax
-python3 -c "import tomllib; tomllib.load(open('~/.config/taskweaver/config.toml', 'rb'))"
-```
-
-## Best Practices
-
-1. **Version control your config.toml** - It's safe to share (no secrets)
-2. **Never commit .env files** - Use `.gitignore`
-3. **Use environment variables in CI/CD** - Don't rely on files in automated environments
-4. **Back up your database** - `~/.local/share/taskweaver/tasks.db` contains all your tasks
-
-## Further Reading
-
-- [XDG Base Directory Specification](https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html)
-- [TOML Specification](https://toml.io/)
-- [Pydantic Settings Documentation](https://docs.pydantic.dev/latest/concepts/pydantic_settings/)
+`restartDB` preserves data while initializing/migrating. **`restartDB --delete` deletes the selected SQLite file**; it is not a secure erasure feature or a semantic-store reset. Deleting edges makes database pages reusable but does not automatically shrink the file.

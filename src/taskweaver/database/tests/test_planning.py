@@ -346,3 +346,28 @@ def test_different_category_patterns_never_pool(planning: PlanningService, task_
 def test_match_missing_task_reports_missing_work(planning: PlanningService) -> None:
     with pytest.raises(TaskNotFoundError):
         planning.match(uuid4())
+
+
+def test_ready_work_inherits_urgent_downstream_score_until_goal_closes(
+    planning: PlanningService, task_repo: TaskRepository, dep_repo: TaskDependencyRepository
+) -> None:
+    independent = make_task(task_repo, title="Independent", urgency=4, importance=4, effort=2)
+    blocker = make_task(task_repo, title="Blocker", urgency=1, importance=1, effort=5)
+    downstream = make_task(task_repo, title="Urgent goal", urgency=5, importance=5, effort=1)
+    dep_repo.add_dependency(downstream.task_id, blocker.task_id)
+    assert [task.task_id for task in planning.recommendations().ready] == [
+        blocker.task_id,
+        independent.task_id,
+    ]
+    task_repo.update_task(blocker.task_id, TaskUpdate(skill_domain="python", required_skill_level=3))
+    assert [task.task_id for task in planning.recommendations().ready] == [independent.task_id]
+    planning.set_skill("python", 3, "Independent implementations")
+    assert [task.task_id for task in planning.recommendations().ready] == [
+        blocker.task_id,
+        independent.task_id,
+    ]
+    planning.complete_task(downstream.task_id, 60)
+    assert [task.task_id for task in planning.recommendations().ready] == [
+        independent.task_id,
+        blocker.task_id,
+    ]

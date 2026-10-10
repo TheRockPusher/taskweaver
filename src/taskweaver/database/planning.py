@@ -3,6 +3,7 @@
 import sqlite3
 from datetime import UTC, datetime
 from enum import IntEnum
+from heapq import heapify, heappop, heappush
 from math import ceil
 from pathlib import Path
 from statistics import median
@@ -12,9 +13,9 @@ from pydantic import BaseModel, Field
 
 from .completion_repository import CompletionRepository
 from .connection import DEFAULT_DB_PATH, get_connection
-from .exceptions import TaskNotFoundError
+from .exceptions import DependencyError, TaskNotFoundError
 from .models import Completion, CompletionStatus, Task, TaskUpdate, TaskWithDependencies
-from .schema import SELECT_ALL_TASKS_DEPENDENCY
+from .priority_service import _load_weights, _Snapshot
 
 MINIMUM_DURATION_SAMPLES = 3
 
@@ -77,6 +78,18 @@ class Recommendations(BaseModel):
 
     ready: list[Task]
     learning_gaps: list[SkillMatch]
+
+
+class WorkAnalysis(BaseModel):
+    """Working-time DAG analysis, assuming unlimited parallel capacity.
+
+    Durations exclude skill-learning time and do not predict completion dates.
+    Quick wins use CD3 value/minute, not inherited MCDA scores.
+    """
+
+    critical_path: list[Task]
+    critical_path_minutes: int
+    quick_wins: list[Task]
 
 
 class EstimateConfidence(BaseModel):
@@ -343,17 +356,100 @@ class PlanningService:
         return self.match_tasks([TaskWithDependencies.model_validate(dict(row))], levels=levels)[0]
 
     def recommendations(self) -> Recommendations:
-        """Separate eligible work and learning gaps using one task/dependency/skill read snapshot."""
+        """Rank ready work by inherited MCDA; capture dependencies and skills in one snapshot."""
         with get_connection(self.db_path) as conn:
             conn.execute("BEGIN")
-            rows = conn.execute(SELECT_ALL_TASKS_DEPENDENCY).fetchall()
+            snapshot = _Snapshot(conn, _load_weights(conn))
             levels = skill_levels(conn)
-        tasks = [TaskWithDependencies.model_validate(dict(row)) for row in rows]
-        tasks.sort(key=lambda task: (-(task.priority_score or 0.0), task.created_at, str(task.task_id)))
+        effective = snapshot.effective()
+        tasks = [
+            TaskWithDependencies.model_validate(
+                {
+                    **dict(snapshot.rows[key]),
+                    "priority_score": snapshot.scores[key],
+                    "tasks_blocked_count": len(snapshot.dependents[key]),
+                    "active_blocker_count": len(snapshot.blockers[key]),
+                }
+            )
+            for key in snapshot.selected(None)
+        ]
+        tasks.sort(
+            key=lambda task: (
+                -effective[str(task.task_id)],
+                -(task.priority_score or 0.0),
+                task.created_at,
+                str(task.task_id),
+            )
+        )
         matches = self.match_tasks(tasks, levels=levels)
         return Recommendations(
             ready=[task for task, match in zip(tasks, matches, strict=True) if match.ready],
             learning_gaps=[match for match in matches if match.learning_gap and not match.blocked],
+        )
+
+    def work_analysis(self, max_minutes: int = 30, limit: int = 5) -> WorkAnalysis:
+        """Find the longest active duration path and ready CD3-ranked quick wins.
+
+        Ties use creation time then ID, including equal-duration predecessors.
+        Closed work and its edges are excluded; active cycles are errors.
+        """
+        if max_minutes <= 0:
+            raise ValueError("Quick-win maximum minutes must be positive")
+        if limit < 0:
+            raise ValueError("Quick-win limit must be nonnegative")
+        with get_connection(self.db_path) as conn:
+            conn.execute("BEGIN")
+            snapshot = _Snapshot(conn, _load_weights(conn))
+            levels = skill_levels(conn)
+        tasks = {
+            key: TaskWithDependencies.model_validate(
+                {
+                    **dict(snapshot.rows[key]),
+                    "priority_score": snapshot.scores[key],
+                    "tasks_blocked_count": len(snapshot.dependents[key]),
+                    "active_blocker_count": len(snapshot.blockers[key]),
+                }
+            )
+            for key in snapshot.selected(None)
+        }
+        stable = {key: (task.created_at, key) for key, task in tasks.items()}
+        remaining = {key: len(snapshot.blockers[key]) for key in tasks}
+        queue = [stable[key] for key, count in remaining.items() if not count]
+        heapify(queue)
+        totals = {key: task.duration_min for key, task in tasks.items()}
+        predecessor: dict[str, str] = {}
+        processed = 0
+        while queue:
+            _, key = heappop(queue)
+            processed += 1
+            for child in snapshot.dependents[key]:
+                candidate = totals[key] + tasks[child].duration_min
+                previous = predecessor.get(child)
+                if candidate > totals[child] or (
+                    candidate == totals[child] and (previous is None or stable[key] < stable[previous])
+                ):
+                    totals[child] = candidate
+                    predecessor[child] = key
+                remaining[child] -= 1
+                if not remaining[child]:
+                    heappush(queue, stable[child])
+        if processed != len(tasks):
+            raise DependencyError("Cannot analyze a cyclic task dependency graph")
+        path: list[Task] = []
+        endpoint = min(tasks, key=lambda key: (-totals[key], stable[key])) if tasks else None
+        minutes = totals[endpoint] if endpoint is not None else 0
+        while endpoint is not None:
+            path.append(tasks[endpoint])
+            endpoint = predecessor.get(endpoint)
+        path.reverse()
+        quick_wins = [
+            task for task in tasks.values() if task.duration_min <= max_minutes and self._match(task, levels).ready
+        ]
+        quick_wins.sort(key=lambda task: (-task.priority, task.created_at, str(task.task_id)))
+        return WorkAnalysis(
+            critical_path=path,
+            critical_path_minutes=minutes,
+            quick_wins=quick_wins[:limit],
         )
 
     def estimate(self, category: str, baseline_minutes: int) -> DurationEstimate:

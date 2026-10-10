@@ -31,6 +31,10 @@ if TYPE_CHECKING:
 DEFAULT_DB_PATH = get_paths().database_file
 DEFAULT_QDRANT_PATH = get_paths().qdrant_dir
 
+# Version 5 introduced the current task-table layout; later additive migrations
+# must not rebuild those tables or disturb their foreign keys and history.
+_TASK_LAYOUT_SCHEMA_VERSION = 5
+
 _TASK_DEFAULTS = {
     "description": "NULL",
     "raw_duration_min": "duration_min",
@@ -70,6 +74,9 @@ _MEMORY_EXTERNAL_AUTH_PROVIDERS = frozenset(
         "langchain",
         "litellm",
     }
+)
+_MEMORY_MODEL_PREFIXES = (
+    frozenset(_MEMORY_KEY_NAMES) | _MEMORY_EXTERNAL_AUTH_PROVIDERS | {"google", "google-genai", "local"}
 )
 
 
@@ -168,8 +175,8 @@ def init_database(db_path: Path = DEFAULT_DB_PATH) -> None:
                 raise ValueError(msg)
             conn.execute(CREATE_SCHEMA_VERSION_TABLE)
             conn.execute(CREATE_GOALS_TABLE)
-            conn.execute("DROP VIEW IF EXISTS tasks_full")
-            if version < SCHEMA_VERSION and _table_exists(conn, "tasks"):
+            if version < _TASK_LAYOUT_SCHEMA_VERSION and _table_exists(conn, "tasks"):
+                conn.execute("DROP VIEW IF EXISTS tasks_full")
                 _migrate_tasks(conn)
             for statement in SCHEMA_STATEMENTS:
                 conn.execute(statement)
@@ -233,6 +240,37 @@ def _memory_provider_key(provider: str, role: str) -> str | None:
     return key
 
 
+def _memory_role(
+    provider: str, model: str, role: str, endpoint: str | None, *, resolve_prefix: bool = True
+) -> tuple[str, dict[str, str]]:
+    prefix, separator, model_name = model.partition(":")
+    if separator and prefix in _MEMORY_MODEL_PREFIXES:
+        model = model_name
+        if resolve_prefix:
+            provider = prefix
+    if provider in {"google", "google-genai"}:
+        provider = "gemini"
+    if provider == "local":
+        if not endpoint:
+            msg = f"Mem0 local {role} requires its own explicit endpoint. Configure it or disable semantic memory."
+            raise RuntimeError(msg)
+        key = os.getenv("TASKWEAVER_API_KEY", "")
+        provider = "openai"
+    else:
+        key = _memory_provider_key(provider, role)
+        if provider == "openrouter":
+            provider = "openai"
+            endpoint = endpoint or "https://openrouter.ai/api/v1"
+        elif provider == "openai":
+            endpoint = endpoint or "https://api.openai.com/v1"
+    config = {"model": model}
+    if key is not None:
+        config["api_key"] = key
+    if endpoint:
+        config["openai_base_url"] = endpoint
+    return provider, config
+
+
 def mem0_memory(toml_config: Config) -> Memory:
     """Initialize semantic memory lazily after validating provider credentials.
 
@@ -245,23 +283,21 @@ def mem0_memory(toml_config: Config) -> Memory:
     Raises:
         RuntimeError: If a configured API key or the optional memory extra is missing.
     """
-    llm_key = _memory_provider_key(toml_config.mem0_llm_provider, "LLM")
-    embedding_key = _memory_provider_key(toml_config.mem0_embedding_provider, "embedding")
-    llm_config = {"model": getattr(toml_config, "mem0_llm_model", None) or toml_config.llm_model}
-    embedding_config = {"model": toml_config.mem0_embedding}
-    if llm_key is not None:
-        llm_config["api_key"] = llm_key
-    if embedding_key is not None:
-        embedding_config["api_key"] = embedding_key
-    if toml_config.mem0_site_url_resolved:
-        llm_config["openai_base_url"] = toml_config.mem0_site_url_resolved
-    embedding_endpoint = getattr(toml_config, "mem0_embedding_endpoint", None)
-    embedding_provider = toml_config.mem0_embedding_provider
-    if embedding_provider == "openrouter":
-        embedding_provider = "openai"
-        embedding_endpoint = embedding_endpoint or "https://openrouter.ai/api/v1"
-    if embedding_endpoint:
-        embedding_config["openai_base_url"] = embedding_endpoint
+    llm_provider, llm_config = _memory_role(
+        toml_config.mem0_llm_provider,
+        toml_config.mem0_llm_model or toml_config.llm_model,
+        "LLM",
+        toml_config.mem0_site_url,
+        resolve_prefix=toml_config.mem0_llm_model is not None,
+    )
+    embedding_provider, embedding_config = _memory_role(
+        toml_config.mem0_embedding_provider,
+        toml_config.mem0_embedding,
+        "embedding",
+        toml_config.mem0_embedding_endpoint,
+    )
+    paths = get_paths()
+    os.environ.setdefault("MEM0_DIR", str(paths.data_dir / "mem0"))
     # Explicit facts must not opt users into third-party analytics.
     os.environ.setdefault("MEM0_TELEMETRY", "False")
     try:
@@ -270,8 +306,11 @@ def mem0_memory(toml_config: Config) -> Memory:
     except ModuleNotFoundError as exc:
         msg = "Semantic memory requires the optional memory extra: install taskweaver[memory]."
         raise RuntimeError(msg) from exc
+    from .mem0_openai import register_openai_providers  # noqa: PLC0415
 
-    qdrant_path = get_paths().qdrant_dir
+    register_openai_providers()
+
+    qdrant_path = toml_config.database_file.parent / "qdrant_store" if toml_config.database_file else paths.qdrant_dir
     qdrant_path.mkdir(parents=True, exist_ok=True)
     config = {
         "history_db_path": str(qdrant_path / "memory_history.db"),
@@ -279,17 +318,24 @@ def mem0_memory(toml_config: Config) -> Memory:
             "provider": "qdrant",
             "config": {"collection_name": "test", "path": str(qdrant_path), "on_disk": True},
         },
-        "llm": {"provider": toml_config.mem0_llm_provider_resolved, "config": llm_config},
+        "llm": {"provider": llm_provider, "config": llm_config},
         "embedder": {"provider": embedding_provider, "config": embedding_config},
     }
     return Memory.from_config(config)
 
 
 def close_mem0_memory(memory: Memory) -> None:
-    """Close both Qdrant clients and any open history connection despite close failures."""
+    """Close owned Qdrant, optional telemetry, history, and model clients despite failures."""
     with ExitStack() as cleanup:
         history_connection = memory.db.connection
         if history_connection is not None:
             cleanup.callback(history_connection.close)
-        cleanup.callback(memory._telemetry_vector_store.client.close)
+        telemetry_store = getattr(memory, "_telemetry_vector_store", None)
+        if telemetry_store is not None:
+            cleanup.callback(telemetry_store.client.close)
         cleanup.callback(memory.vector_store.client.close)
+        for component in (getattr(memory, "llm", None), getattr(memory, "embedding_model", None)):
+            client = getattr(component, "client", None)
+            close = getattr(client, "close", None)
+            if callable(close):
+                cleanup.callback(close)

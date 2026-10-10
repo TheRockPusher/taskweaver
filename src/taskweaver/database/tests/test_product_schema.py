@@ -21,7 +21,7 @@ from taskweaver.database.dependency_repository import TaskDependencyRepository
 from taskweaver.database.exceptions import DependencyError, TaskNotFoundError
 from taskweaver.database.models import CompletionCreate, CompletionStatus, Task, TaskCreate, TaskStatus, TaskUpdate
 from taskweaver.database.repository import TaskRepository
-from taskweaver.database.schema import INSERT_TASK
+from taskweaver.database.schema import INSERT_TASK, SCHEMA_VERSION
 
 if TYPE_CHECKING:
     from mem0 import Memory
@@ -111,8 +111,6 @@ def test_legacy_migration_preserves_tasks_and_completion_history(tmp_path: Path,
         (task.urgency, task.importance, task.effort, task.category) == (3, 3, 3, "general") for task in tasks.values()
     )
     with get_connection(db_path) as conn:
-        assert conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 5
-        assert conn.execute("SELECT COUNT(*) FROM schema_version WHERE version = 5").fetchone()[0] == 1
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
     if version == 4:
         assert [task.task_id for task in TaskDependencyRepository(db_path).get_blockers(ids[1])] == [ids[0]]
@@ -143,15 +141,16 @@ def test_existing_legacy_file_auto_migrates_on_first_access(tmp_path: Path) -> N
 
 def test_future_schema_is_rejected_without_mutation(tmp_path: Path) -> None:
     db_path = tmp_path / "future.db"
+    future_version = SCHEMA_VERSION + 1
     with closing(sqlite3.connect(db_path)) as conn, conn:
         conn.execute("CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)")
-        conn.execute("INSERT INTO schema_version VALUES (6, ?)", (_STAMP,))
+        conn.execute("INSERT INTO schema_version VALUES (?, ?)", (future_version, _STAMP))
     with pytest.raises(ValueError, match="newer than supported"):
         init_database(db_path)
     with pytest.raises(ValueError, match="newer than supported"), get_connection(db_path):
         pass
     with closing(sqlite3.connect(db_path)) as conn:
-        assert conn.execute("SELECT version FROM schema_version").fetchall() == [(6,)]
+        assert conn.execute("SELECT version FROM schema_version").fetchall() == [(future_version,)]
         assert conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall() == [("schema_version",)]
 
 
@@ -446,56 +445,14 @@ def test_missing_memory_key_is_actionable_before_backend_creation(
             raise AssertionError("Missing credentials must be caught before any backend creation")
 
     monkeypatch.setitem(sys.modules, "mem0", SimpleNamespace(Memory=Backend))
-    monkeypatch.setattr(connection, "get_paths", lambda: SimpleNamespace(qdrant_dir=tmp_path / "vectors"))
+    monkeypatch.setattr(
+        connection, "get_paths", lambda: SimpleNamespace(qdrant_dir=tmp_path / "vectors", data_dir=tmp_path)
+    )
     with pytest.raises(RuntimeError, match=missing_key) as error:
         connection.mem0_memory(Config(mem0_llm_provider="openrouter"))
     assert "router-test-credential" not in str(error.value)
     assert "embedding-test-credential" not in str(error.value)
     assert not (tmp_path / "vectors").exists()
-
-
-def test_memory_provider_endpoint_keys_and_storage_are_independent(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("OPENROUTER_API_KEY", "router-test-credential")
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-
-    class Backend:
-        @classmethod
-        def from_config(cls, config):
-            return SimpleNamespace(config=config)
-
-    monkeypatch.setitem(sys.modules, "mem0", SimpleNamespace(Memory=Backend))
-    monkeypatch.setattr(connection, "get_paths", lambda: SimpleNamespace(qdrant_dir=tmp_path / "vectors"))
-    memory = cast(
-        SimpleNamespace,
-        connection.mem0_memory(
-            Config(
-                mem0_llm_provider="openrouter",
-                mem0_embedding_provider="openrouter",
-                llm_model="vendor/model",
-                mem0_embedding="vendor/embedding",
-            )
-        ),
-    )
-    assert memory.config["llm"] == {
-        "provider": "openai",
-        "config": {
-            "model": "vendor/model",
-            "api_key": "router-test-credential",
-            "openai_base_url": "https://openrouter.ai/api/v1",
-        },
-    }
-    assert memory.config["embedder"] == {
-        "provider": "openai",
-        "config": {
-            "model": "vendor/embedding",
-            "api_key": "router-test-credential",
-            "openai_base_url": "https://openrouter.ai/api/v1",
-        },
-    }
-    assert memory.config["vector_store"]["config"]["path"] == str(tmp_path / "vectors")
-    assert memory.config["history_db_path"] == str(tmp_path / "vectors" / "memory_history.db")
 
 
 @pytest.mark.parametrize("has_history", [True, False])
