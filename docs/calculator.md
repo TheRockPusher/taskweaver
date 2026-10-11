@@ -1,31 +1,46 @@
-# Calculator: completed design reference
+# Calculator
 
-The calculator is implemented in `src/taskweaver/agents/calculator.py`, wrapped by `calculator_tool` in `agents/tools.py`, and registered with the task-management agent. It supplies deterministic arithmetic for conversational calculations; persisted MCDA/CD3 and duration-learning formulas remain service-owned, not delegated to model arithmetic.
+The task-management agent uses `calculator_tool` for deterministic arithmetic. Its implementation is `src/taskweaver/agents/calculator.py`; the wrapper is in `src/taskweaver/agents/tools.py`. Stored priority and duration formulas remain in shared services.
 
-## Interface and usage
+## Interface and examples
 
-`evaluate_expression(expression: str) -> str` returns the original expression followed by ` = RESULT`. Integers retain integer formatting; floats use four decimal places. Examples by interface definition:
+```python
+from taskweaver.agents.calculator import evaluate_expression
 
-- `2 + 3 * 4` → `2 + 3 * 4 = 14`
-- `100 / 3` → `100 / 3 = 33.3333`
-- `(45 - 30) / 30 * 100` → `(45 - 30) / 30 * 100 = 50.0000`
+# evaluate_expression(expression: str) -> str
+```
 
-Allowed operations: numeric real literals, parentheses, unary `+`/`-`, binary `+`, `-`, `*`, `/`, `//`, `%`, `**`. No names, functions (including `sqrt`/`abs`), attributes, indexing, containers, comparisons, strings, booleans, or complex numbers are supported. This is an agent tool/Python interface, not a standalone CLI command.
+The result includes the original expression. Integers use integer formatting; floats use four decimal places.
 
-## Security/resource boundaries
+| Expression | Returned string |
+| --- | --- |
+| `2 + 3 * 4` | `2 + 3 * 4 = 14` |
+| `100 / 3` | `100 / 3 = 33.3333` |
+| `(45 - 30) / 30 * 100` | `(45 - 30) / 30 * 100 = 50.0000` |
 
-The implementation parses an expression AST, checks an exact node/operator allowlist, and uses `simpleeval` with empty names/functions and explicit operators. It does not use Python `eval` or execute arbitrary source.
+This is a Python interface and an agent tool, not a standalone CLI command.
 
-- Maximum input length: 1,024 characters.
-- Maximum AST size: 128 nodes.
-- Integer literals/intermediates/results: at most 4,096 bits.
-- Exponent magnitude: at most 1,000, with an integer power-size precheck before allocation.
-- Every evaluated numeric value must be real, finite, and within the limits.
+## Allowed syntax
 
-Malformed/unsupported/resource-exceeding expressions raise `ValueError`; zero division/modulo/negative powers of zero raise `ZeroDivisionError`. The tool wrapper translates fixable errors to PydanticAI `ModelRetry`, rather than fabricating a numeric result. These bounds reduce resource risk; this is not a general-purpose sandbox or arbitrary-code execution service. Floats retain ordinary floating-point rounding limitations.
+Use real numeric literals, parentheses, unary `+` and `-`, and binary `+`, `-`, `*`, `/`, `//`, `%`, and `**`. Normal arithmetic precedence applies.
 
-## Acceptance reference
+Names, function calls (including `sqrt` and `abs`), attributes, indexing, containers, comparisons, strings, booleans, and complex numbers are rejected. The evaluator checks a Python AST allowlist, then uses `simpleeval` with no names or functions; it does not use Python `eval`.
 
-Regression coverage should retain operator precedence, unary operations, parentheses, integer/float formatting, zero division, syntax failures, rejection of executable/non-numeric constructs, finite-number checking, and each input/AST/integer/exponent bound. Agent registration and error translation must remain covered independently of provider behavior.
+## Limits
 
-Core verification recorded calculator coverage at 100%; that historical observation is not a claim that new combined gates or a native/provider run were executed for this documentation change. See [CONTRIBUTING.md](../../CONTRIBUTING.md) for the overall check workflow. This reference replaces the obsolete implementation plan, not a pending feature proposal.
+| Constant | Limit |
+| --- | --- |
+| `MAX_EXPRESSION_LENGTH` | 1,024 input characters, including surrounding whitespace |
+| `MAX_AST_NODES` | 128 AST nodes, including expression and operator nodes |
+| `MAX_INTEGER_BITS` | 4,096 bits per integer literal, intermediate value, or result |
+| `MAX_EXPONENT` | Exponent magnitude at most 1,000 |
+
+Integer powers with positive integer exponents also require `base.bit_length() * exponent <= 4096` before allocation. This conservative check can reject powers whose actual result would fit. All numeric values and results must be real and finite. Floats use ordinary floating-point arithmetic and rounding.
+
+## Errors
+
+- Empty, malformed, unsupported, nonfinite, or over-limit expressions raise `ValueError`. Numeric overflow and evaluation recursion errors are translated to `ValueError`.
+- Division or modulo by zero, and zero raised to a negative power, raise `ZeroDivisionError`.
+- `calculator_tool` translates these errors to PydanticAI `ModelRetry`, so the agent can correct its expression. It never substitutes a numeric result for an error.
+
+See [CONTRIBUTING.md](../CONTRIBUTING.md) for the development checks.

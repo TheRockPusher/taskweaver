@@ -1,29 +1,26 @@
-# Flat preferences. Copy to your native TaskWeaver config directory or
-# an existing project's config.toml. See CONFIG.md for precedence and paths.
-# No credentials belong in TOML.
-llm_model = "offline:none"
+# Copy to user/project config.toml; paths and precedence: CONFIG.md.
+# Credentials belong in .env. This example selects offline mode.
+llm_model = "offline:none" # Built-in default: "openai:gpt-4o-mini".
 user_id = "default"
-github_repos = []
-# When repositories are configured, TUI imports/pulls read-only on startup and
-# periodically. No automatic push; interval must be at least 30 seconds.
-github_sync_interval_seconds = 3600
+github_repos = [] # owner/repo entries enable TUI read-only pulls.
+github_sync_interval_seconds = 3600 # Minimum: 30; no automatic push.
 memory_enabled = false
 
-# Anonymous OpenAI-compatible local chat (model must exist on your service):
+# For local chat, replace llm_model above and add api_endpoint (unset by default).
 # llm_model = "local:your-model-alias"
 # api_endpoint = "http://127.0.0.1:8080/v1"
-# Optional TASKWEAVER_API_KEY belongs in .env, not here.
+# Optional local authentication: TASKWEAVER_API_KEY in .env.
 
-# Relative database paths are anchored to this config file's directory.
+# Unset by default; relative paths resolve from this file's directory.
 # database_file = "tasks.db"
 
-# Optional semantic memory requires the memory extra and real LLM/embedding services.
-# Enable deliberately; chat endpoints need not support embeddings.
-# memory_enabled = true
-# mem0_llm_provider = "openai"
+# For memory, install taskweaver[memory], enable memory_enabled, and configure both services.
+mem0_llm_provider = "openai"
+mem0_embedding_provider = "openai"
+mem0_embedding = "text-embedding-3-small"
+mem0_max_memories = 10 # Range: 1–100.
+
+# Unset by default; model falls back to llm_model.
 # mem0_llm_model = "openai:gpt-4o-mini"
 # mem0_site_url = "https://api.openai.com/v1"
-# mem0_embedding_provider = "openai"
-# mem0_embedding = "text-embedding-3-small"
 # mem0_embedding_endpoint = "https://api.openai.com/v1"
-# mem0_max_memories = 10

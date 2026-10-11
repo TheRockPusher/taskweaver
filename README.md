@@ -1,138 +1,157 @@
 # TaskWeaver
 
-Local-first goal planning: turn an objective into an actionable task DAG, surface ready work, identify just-in-time learning needs, and improve estimates from recorded completions. AI is optional; task management works without credentials or a network.
+TaskWeaver is a local-first task planner for your terminal. Turn goals into linked tasks, find work that is ready to start, identify learning gaps, and improve duration estimates from recorded completions. The CLI and five-view terminal UI share a SQLite workspace; AI planning and conversation are optional.
 
-**Status:** package metadata is **1.0.0** on `product/taskweaver-completion`; this branch is not a published release. Python 3.13+; AGPL-3.0 ([LICENSE](LICENSE)). No claim of native macOS/Windows validation, public package publication, or live authenticated GitHub writes is implied.
+![TaskWeaver task list with duration and priority scores](docs/screenshots/tui-list.png)
 
-## Start locally
+## Quick start
 
-From a checkout with [uv](https://docs.astral.sh/uv/):
+Requires Python 3.13+ and [uv](https://docs.astral.sh/uv/). From a checkout:
 
 ```sh
 uv sync --locked
-uv run taskweaver --version
 uv run tw setup
 uv run tw
 ```
 
-`taskweaver` and `tw` are equivalent installed entry points. In an interactive terminal, no arguments run first-time setup if needed, then launch the TUI. Noninteractive no-argument invocation prints help. Setup defaults to offline; `tw tui` opens the local workspace directly. Use `tw --help` and `tw COMMAND --help` for the full interface.
+Setup defaults to offline task management. In an interactive terminal, `tw` runs setup if needed and opens the TUI; without an interactive terminal, it prints help. `tw tui` opens the workspace directly. `tw` and `taskweaver` are equivalent entry points.
 
-To install this checkout as a tool, use `uv tool install .`; optional integrations are `uv tool install '.[memory]'`, `'.[observability]'`, or `'.[memory,observability]'`. Development equivalents are `uv sync --extra memory` and `uv sync --extra observability`. These extras install SDKs, not model services or credentials. Do not assume that a public index already contains this branch's version.
-
-## Local workflow
-
-Replace UUID placeholders with IDs printed by create/list/show commands:
+To install this checkout as a standalone tool:
 
 ```sh
-tw --db ./work.db goals create "Ship a useful tool"
-tw --db ./work.db create "Prototype CLI" --duration 30 --value 80 --req "Usable offline" --category coding --urgency 4 --importance 5
-tw --db ./work.db ls --sort score --limit 10
-tw --db ./work.db show TASK_UUID --explain-priority
-tw --db ./work.db createDep DOWNSTREAM_UUID BLOCKER_UUID
-tw --db ./work.db goals link TASK_UUID --goal-id GOAL_UUID
-tw --db ./work.db skills set python 3 --evidence "Built and reviewed a working CLI"
-tw --db ./work.db edit TASK_UUID --domain python --required-skill-level 3
-tw --db ./work.db focus
-tw --db ./work.db analysis --max-minutes 30 --limit 5
-tw --db ./work.db complete TASK_UUID --actual 45 --conclusion "Ready for review"
-tw --db ./work.db insights --category coding --baseline 30
+uv tool install .
+tw setup
+tw
 ```
 
-Root `--db` sets the command default; command-local `--db` overrides it. `edit` preserves omitted fields; `--clear-description`, `--clear-goal`, `--clear-domain`, and `--clear-required-skill-level` explicitly remove nullable values. Other commands include `rm`, `lso`, `blocker`, `rmdep`, `cancel`, `score`, `recalc-priorities`, `weights show/set`, goal management, and `skills history`. Cancellation without actual time is not duration evidence.
+Optional extras install integration SDKs; configure their services and credentials separately in [CONFIG.md](CONFIG.md).
 
-CLI timestamps are displayed in UTC to minute precision; estimates distinguish adjusted working time from the original raw baseline. Priority tables round displayed components for readability without changing stored scores.
-
-### Planning, priority, and learning
-
-- Goals link tasks and report progress; cancelled tasks are excluded from the denominator. Deleting a goal unlinks, rather than deletes, its tasks.
-- Dependencies reject cycles. Closing a blocker removes its outgoing blocking edges; reopening it does not resurrect them. Edges into a closed downstream task can remain inactive until their blocker closes.
-- **MCDA** is a bounded weighted score: urgency .30, importance .35, inverse effort .15, dependencies .10, age .10. `ls --sort score` orders intrinsic MCDA; `--sort priority` orders inherited MCDA. `show --explain-priority` exposes components, weights, effective score, and trend. **CD3** is the separate value/minute metric (`--sort cd3`), not an alias for MCDA.
-- `focus`, `/focus`, and agent recommendations rank dependency- and skill-ready work by inherited MCDA; `ls --match-skills` filters readiness while retaining its chosen sort. Dreyfus levels 1–5 represent novice through expert; assessments retain evidence/history. Completion never automatically promotes a skill. Learning gaps guide just-in-time learning rather than marking blocked work ready.
-- Category estimates use the median actual/raw-duration ratio after at least three valid samples. The original baseline prevents compounded adjustment. Confidence reports sample count, median, and median absolute deviation; it is descriptive evidence, not a calibrated success probability.
-- Completion-derived priority preferences require at least 20 valid completions; explicitly chosen weights remain protected. No real-user accuracy or productivity improvement is claimed.
-- `analysis` finds the longest working-duration path in the active DAG, assuming unlimited independent parallel capacity. It excludes skill-learning time and resource constraints and predicts no dates. Ready quick wins are dependency-/skill-matched, at most 30 minutes by default, and ordered by descending **CD3**, not MCDA (`--max-minutes`, `--limit`).
-
-## Terminal workspace
-
-Five views share the same SQLite/services as the CLI:
-
-| Key | View | Purpose |
+| Extra | Tool installation | From a checkout |
 | --- | --- | --- |
-| `1` | List | Task state, duration, intrinsic/effective MCDA, CD3 |
-| `2` | Board | Status columns with numeric MCDA prefixes |
-| `3` | Graph | Active blocker → blocked DAG, readiness, duration critical path |
-| `4` | Chat | Optional AI and local slash commands |
-| `5` | Insights | Goals, skill evidence, learning gaps, duration confidence, quick wins |
+| Semantic memory | `uv tool install '.[memory]'` | `uv sync --extra memory` |
+| Langfuse observability | `uv tool install '.[observability]'` | `uv sync --extra observability` |
 
-`Ctrl+Tab` cycles views; `j/k` move, `Enter` opens detail, `Space` starts/pauses, `n/e` create/edit, `c/x` complete/cancel, `d` edits dependencies, `f` toggles focus, `g` creates a goal, `s` records a skill assessment, `r` refreshes, and `q`/`Ctrl+C` quit. Chat uses `Ctrl+Enter` or `F2` to send. Text editing and modal dialogs take precedence over workspace shortcuts. Selection is retained by task identity across refreshes. Database reads, saves, and local slash commands run off the UI loop, so the workspace stays responsive. The Board stacks its status columns 2×2 below 100 terminal columns.
+Combine extras with `uv tool install '.[memory,observability]'`.
 
-MCDA colors are red at ≥70, yellow at ≥40, and green below 40; numeric values remain visible, including when `NO_COLOR` disables colors. Completion dialogs require actual minutes rather than silently using estimates. Cancelling with unknown actual time leaves the actual field blank and records no completion-learning sample; a conclusion requires an actual duration.
+## Core workflow
 
-## Conversation and memory
-
-`tw chat` and the Chat view share these commands:
-
-- `/plan GOAL` creates a goal and linked tasks through planning tools.
-- `/breakdown DESCRIPTION` decomposes work and dependencies.
-- `/review TASK_UUID` loads real task, scoring, dependency, and skill context for read-only AI review; mutating tools and research-side issue imports are denied for that invocation.
-- `/focus`, `/help [command]`, `/memories [CATEGORY]` are local.
-- `/github [OWNER/REPO ...]` imports issues; never pushes.
-- `/remember [--category CATEGORY] [--expires ISO_TIMESTAMP] KEY=VALUE` and `/forget KEY` explicitly manage facts.
-
-Structured arguments to `/forget`, `/review`, `/github`, and `/remember` accept shell-style quoting; `/plan` and `/breakdown` take their prose verbatim.
-
-Unknown commands and malformed arguments fail locally. Command-specific instructions apply only to their invocation; ordinary conversation history is retained. Planning, breakdown, review, and ordinary conversation require a configured model. Provider failures are reported, not represented as successful work. Numerical tools use bounded arithmetic, not model guesses; see the [calculator reference](.agents/plans/add-calculator-tool-for-agents.md).
-
-Memory categories are `preference`, `skill`, `goal`, and `context`. Local facts are authoritative and user-scoped; updates, expiry, and tombstones prevent stale retrieval. `tw memory remember/list/update/search/forget/expire` work locally by default. Optional semantic memory adds provider IDs with `semantic-list`, `semantic-update`, and `semantic-forget`; it requires explicit configuration and the `memory` extra. Chat does not blindly extract/store every utterance. Retrieved memory is untrusted context. Forgetting is logical deletion, not secure physical erasure or deletion of every provider record, backup, or conversation history.
-
-## GitHub integration
+Use `uv run tw` instead of `tw` when working from a checkout. Replace `GOAL_UUID`, `TASK_UUID`, and `REVIEW_UUID` with the IDs printed by creation or list commands.
 
 ```sh
-tw github import OWNER/REPO --state open
-tw github sync OWNER/REPO
-# Only when you intend and are authorized to change remote issue state:
-tw github sync OWNER/REPO --push
+# Name the outcome, then create tasks linked to it.
+tw goals create "Ship a useful tool"
+tw create "Prototype CLI" --req "Usable offline" --duration 30 --value 80 --category coding --goal GOAL_UUID
+tw create "Review prototype" --req "Ready to merge" --duration 15 --value 60 --goal GOAL_UUID
+
+# Inspect the queue and understand a task's priority.
+tw ls --sort priority --limit 10
+tw show TASK_UUID --explain-priority
+
+# Review must wait for the prototype: downstream task first, blocker second.
+tw createDep REVIEW_UUID TASK_UUID
+
+# Find ready work, the critical path, and short high-value tasks.
+tw focus
+tw analysis --max-minutes 30 --limit 5
+
+# Record actual minutes and inspect category estimate history.
+tw complete TASK_UUID --actual 45 --conclusion "Ready for review"
+tw insights --category coding --baseline 30
 ```
 
-Durable repository/issue mappings make repeated pulls idempotent. Pulls reconcile title, description, and status against the last common snapshot, retaining divergent edits as reported conflicts (nonzero CLI exit). Local planning fields remain local. Explicit `--push` writes only unconflicted status changes—not titles, descriptions, comments, or new issues. Public reads can be anonymous; authenticated operations use `GH_TOKEN` or `GITHUB_TOKEN`. Inspect conflicts and resolve the underlying field before retrying. No authenticated remote-write validation is claimed here.
+Commands use your configured database. To select another workspace, put `--db PATH` before the command, for example `tw --db ./work.db ls`. Run `tw --help` or `tw COMMAND --help` for the full interface.
 
-With `github_repos` configured, the TUI imports open issues and pulls mapped issues on startup and periodically (default 3,600 seconds; minimum configurable interval 30 seconds). Automatic sync is **read-only**, skips overlapping work, and runs in an owned cancellable process so exit does not wait on remote backoff; an explicit `/github` import in the Chat view uses the same cancellable process. It never substitutes for explicit push authorization.
+![CLI task details and priority explanation](docs/screenshots/cli-show.png)
 
-## Architecture and data safety
+## Planning concepts
 
-Typer CLI and Textual TUI → shared planning/priority/memory/GitHub services → repositories → SQLite. PydanticAI orchestrates task and research agents only on demand; delegated runs share the request's event loop and model, and model transports close after each turn. TOML preferences and environment credentials select request-time providers; Mem0/Qdrant and Langfuse are opt-in boundaries, not startup requirements. Enabled semantic memory in the TUI uses an owned cancellable process to keep provider waits off the UI loop.
+- **Goals and dependencies:** goals group tasks and report progress. Dependencies form a directed acyclic graph; completing a blocker releases its outgoing blocking edges.
+- **MCDA priority:** a 0–100 score combines urgency **.30**, importance **.35**, inverse effort **.15**, dependencies **.10**, and age **.10**. A blocker's effective score inherits the highest score of work downstream. `ls --sort score` uses intrinsic scores; `ls --sort priority` uses effective scores.
+- **CD3:** value divided by estimated minutes. `ls --sort cd3` ranks this metric separately from MCDA.
+- **Skills and learning gaps:** evidence-backed Dreyfus levels run from **1** (novice) through **2** (advanced beginner), **3** (competent), **4** (proficient), and **5** (expert). `focus` ranks dependency- and skill-ready work by effective MCDA and lists learning gaps separately. Completing tasks does not automatically promote skills.
+- **Adaptive estimates:** after **3 valid completions** in a category, estimates use the median actual/raw-duration ratio. The original baseline is preserved to avoid compounding adjustments; `insights` shows sample counts and ratio dispersion.
+- **Learned priority weights:** learning starts after **20 completions with valid scoring snapshots**. Explicitly customized weights are protected from automatic changes.
+- **Critical path and quick wins:** `analysis` finds the longest estimated working-duration path through active tasks. It assumes independent work can run in parallel and excludes learning time and resource constraints, so it is not a dated schedule. Quick wins are ready tasks of at most **30 minutes** by default, ranked by CD3.
 
-See [CONFIG.md](CONFIG.md) for native OS paths, anonymous local endpoints, credential permissions, optional memory/observability, schema migration, and backups. Schema 6 upgrades older databases including v4/v5 while preserving data; newer unsupported schemas are refused. Make an explicit backup before upgrade. `restartDB` initializes/migrates; **`restartDB --delete` destroys the selected database after confirmation**.
+## Terminal UI
 
-### Docker
+Switch views with the number keys or cycle with `Ctrl+Tab`.
 
-The image installs the built wheel, runs as UID/GID 1000, and keeps native-path overrides under `/data`. It does not bake in credentials or probe provider connectivity.
+| Key | View | What it shows |
+| --- | --- | --- |
+| `1` | List | Task state, estimates, intrinsic/effective MCDA, and CD3 |
+| `2` | Board | Status columns with numeric MCDA scores |
+| `3` | Graph | Blocker → blocked dependencies, readiness, and critical path |
+| `4` | Chat | AI conversation and local slash commands |
+| `5` | Insights | Goals, skills, learning gaps, estimate history, and quick wins |
+
+![TaskWeaver status board](docs/screenshots/tui-board.png)
+
+![TaskWeaver dependency graph and critical path](docs/screenshots/tui-graph.png)
+
+| Keys | Action |
+| --- | --- |
+| `j` / `k` | Move down / up |
+| `Enter` | Open task details |
+| `Space` | Start / pause a task |
+| `n` / `e` | Create / edit a task |
+| `c` / `x` | Complete / cancel a task |
+| `d` | Edit dependencies |
+| `f` | Toggle focus mode |
+| `g` / `s` | Create a goal / record a skill assessment |
+| `r` | Refresh |
+| `Ctrl+Enter` / `F2` | Send a chat message |
+| `q` / `Ctrl+C` | Quit |
+
+Text editing and dialogs take precedence over workspace shortcuts. Completion asks for actual minutes; cancellation can leave actual time unknown and records no duration-learning sample in that case.
+
+## Chat and memory
+
+Use `tw chat` or the Chat view. Ordinary conversation, planning, breakdown, and review need a configured model; the other slash commands do not need AI. GitHub imports still require network access.
+
+| Command | Purpose |
+| --- | --- |
+| `/plan GOAL` | Create a goal and linked tasks with planning tools |
+| `/breakdown DESCRIPTION` | Decompose work into tasks and dependencies |
+| `/review TASK_UUID` | Read-only AI review of task, priority, dependencies, and skills |
+| `/focus` | Show ready work and learning gaps |
+| `/help [command]` | List commands or show one command's help |
+| `/github [OWNER/REPO ...]` | Import issues from supplied or configured repositories; never push |
+| `/remember [--category CATEGORY] [--expires ISO_TIMESTAMP] KEY=VALUE` | Store an explicit fact with optional expiry |
+| `/forget KEY` | Forget an explicit fact |
+| `/memories [CATEGORY]` | List current, unexpired local facts |
+
+Structured arguments accept shell-style quoting, for example `/remember --category preference "work style=short sessions"`. `/plan` and `/breakdown` take prose verbatim.
+
+Memory categories are `preference`, `skill`, `goal`, and `context`. Facts are user-scoped and stored locally by default; chat does not automatically save every utterance. `tw memory` also provides listing, search, updates, expiry, and explicit semantic-memory management. Semantic retrieval is opt-in and requires the `[memory]` extra and configured services. Forgetting is logical deletion, not secure erasure of backups or conversation history.
+
+Numerical agent tools use bounded arithmetic. See the [calculator reference](docs/calculator.md) for operations and limits.
+
+## GitHub sync
+
+```sh
+tw github import OWNER/REPO --state open  # Create or update mapped tasks.
+tw github sync OWNER/REPO                # Pull existing mapped issues.
+tw github sync OWNER/REPO --push         # Explicitly push local status changes.
+```
+
+Repeated imports do not duplicate tasks. Pulls reconcile titles, descriptions, and status against the last shared snapshot; divergent edits remain reported conflicts. Local planning fields stay local. `--push` writes only unconflicted status changes, not titles, descriptions, comments, or new issues. Resolve reported conflicts before retrying.
+
+Public reads can be anonymous. Authenticated operations use `GH_TOKEN` or `GITHUB_TOKEN` with the required repository access. With `github_repos` configured, the TUI imports open issues and pulls mapped issues at startup and periodically. Automatic TUI sync is **read-only**.
+
+## Docker
 
 ```sh
 docker compose build
 docker compose run --rm taskweaver setup
 docker compose run --rm taskweaver tui
 docker compose run --rm taskweaver ls
-# Optional semantic SDKs at build time:
-TASKWEAVER_MEMORY=true docker compose build
 ```
 
-Compose retains `/data` in a named volume. Host bind mounts must be writable by UID 1000. Pass secrets only at runtime (for example a protected `--env-file`), never as build arguments. A container-local `localhost` endpoint is not the host's endpoint; configure reachable networking explicitly. The observability extra is not included by this Docker build option. These are usage instructions, not evidence of a Docker-engine run.
+Compose keeps configuration and data under `/data` in a named volume. The image runs as UID/GID 1000; host bind mounts must be writable by that user. Pass credentials at runtime, not as build arguments. To include semantic-memory SDKs, build with `TASKWEAVER_MEMORY=true docker compose build`.
 
-## Evidence and open work
+## Reference
 
-A core synthetic benchmark scored 1,000 tasks in **10.09 ms**; this is not a production SLA. Dependency retention measurements and limitations are documented in [CONTRIBUTING.md](CONTRIBUTING.md).
-
-These issue links track the broader work; implemented code does **not** imply issue closure:
-
-| Tracking | Implemented here / remaining evidence |
-| --- | --- |
-| [#7](https://github.com/TheRockPusher/taskweaver/issues/7) | Active-blocker edge cleanup; production dependency lifetimes remain unmeasured |
-| [#9](https://github.com/TheRockPusher/taskweaver/issues/9) | Bounded MCDA, weights, rankings, explanations, trends and completion-based preferences; real-user priority agreement unmeasured |
-| [#21](https://github.com/TheRockPusher/taskweaver/issues/21) | Installable package, `tw` alias and first-run setup; publication, Homebrew/AUR and native validation remain external |
-| [#22](https://github.com/TheRockPusher/taskweaver/issues/22) | Evidence-backed Dreyfus skills and learning-gap matching; real-user learning outcomes unmeasured |
-| [#24](https://github.com/TheRockPusher/taskweaver/issues/24) | Five-view TUI, automatic read-only GitHub pulls, goals, completion-adaptive estimates, critical paths and quick wins; roadmap accuracy/adoption metrics require real users |
-| [#27](https://github.com/TheRockPusher/taskweaver/issues/27) | Invocation-scoped planning, read-only review, breakdown, focus and help; provider quality requires evaluation |
-| [#37](https://github.com/TheRockPusher/taskweaver/issues/37) | Categorized corrective memory, forgetting, expiry and optional semantic retrieval; longitudinal retrieval quality unmeasured |
-
-The roadmap is validation and distribution, not fabricated usage statistics: native runners, approved releases/channel maintainers, authorized live integration checks, and real completion histories. See [CONTRIBUTING.md](CONTRIBUTING.md) for development and safe release procedures.
+- [Configuration and data](CONFIG.md): providers, paths, credentials, migrations, and backups.
+- [Contributing](CONTRIBUTING.md): development and release procedures.
+- [License](LICENSE): AGPL-3.0.
