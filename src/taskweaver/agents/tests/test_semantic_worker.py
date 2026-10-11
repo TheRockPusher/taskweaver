@@ -5,7 +5,7 @@ import importlib.util
 import json
 import sqlite3
 import threading
-from contextlib import closing
+from contextlib import closing, suppress
 from pathlib import Path
 
 import pytest
@@ -56,11 +56,14 @@ async def _serve_embedding(
     try:
         if not await _embedding_response(reader, writer):
             started.set()
-            await reader.read()
+            # Windows reports a terminated client as a reset rather than EOF.
+            with suppress(ConnectionResetError):
+                await reader.read()
             disconnected.set()
     finally:
         writer.close()
-        await writer.wait_closed()
+        with suppress(ConnectionResetError):
+            await writer.wait_closed()
         connections.discard(current)
 
 

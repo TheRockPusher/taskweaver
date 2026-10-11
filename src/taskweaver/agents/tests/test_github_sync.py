@@ -50,7 +50,14 @@ class LocalGitHub:
                     api.entered.set()
                     while not api.shutdown.is_set():
                         readable, _, _ = select.select([self.connection], [], [], 0.05)
-                        if readable and not self.connection.recv(1):
+                        if not readable:
+                            continue
+                        try:
+                            closed = not self.connection.recv(1)
+                        except ConnectionResetError:
+                            # Windows reports a terminated client as a reset rather than EOF.
+                            closed = True
+                        if closed:
                             api.disconnected.set()
                             return
                     return

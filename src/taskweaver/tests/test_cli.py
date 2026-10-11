@@ -640,7 +640,8 @@ def test_empty_collections_do_not_render_empty_tables(test_db: Path, args: tuple
     result = invoke(test_db, *args)
     assert result.exit_code == 0, result.output
     assert result.output.strip()
-    assert not any(character in result.output for character in "┏┡└┃")
+    # Rich picks heavy or ASCII-safe box glyphs per platform; any box-drawing glyph means a table rendered.
+    assert not any("\u2500" <= character <= "\u257f" for character in result.output)
     assert TaskRepository(test_db).list_tasks() == []
 
 
@@ -649,7 +650,8 @@ def test_focus_without_skill_gaps_renders_only_ready_work(test_db: Path, sample_
     assert result.exit_code == 0, result.output
     assert "Sample task" in result.output
     assert sample_task in result.output
-    assert result.output.count("┏") == 1
+    assert "Actionable focus" in result.output
+    assert "Learning gaps" not in result.output
 
 
 def test_insights_without_samples_has_no_python_representations(test_db: Path) -> None:
