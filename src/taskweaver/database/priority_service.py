@@ -236,6 +236,42 @@ class PriorityService:
         with get_connection(self.db_path) as conn:
             return _load_weights(conn)
 
+    def list_tasks(self, status: TaskStatus | None = None) -> list[Task]:
+        """List all matching tasks newest first with current, unpersisted MCDA scores.
+
+        Unlike active priority calculations, an omitted status includes closed tasks.
+        Scores and task fields share one read snapshot; listing never adds history.
+        """
+        with get_connection(self.db_path) as conn:
+            conn.execute("BEGIN")
+            snapshot = _Snapshot(conn, _load_weights(conn))
+        tasks = [
+            Task.model_validate({**dict(row), "priority_score": snapshot.scores[key]})
+            for key, row in snapshot.rows.items()
+            if status is None or row["status"] == status.value
+        ]
+        tasks.sort(key=lambda task: task.created_at, reverse=True)
+        return tasks
+
+    def list_tasks_with_deps(self) -> list[TaskWithDependencies]:
+        """List active tasks with current MCDA scores and counts from one read snapshot."""
+        with get_connection(self.db_path) as conn:
+            conn.execute("BEGIN")
+            snapshot = _Snapshot(conn, _load_weights(conn))
+        tasks = [
+            TaskWithDependencies.model_validate(
+                {
+                    **dict(snapshot.rows[key]),
+                    "priority_score": snapshot.scores[key],
+                    "tasks_blocked_count": len(snapshot.dependents[key]),
+                    "active_blocker_count": len(snapshot.blockers[key]),
+                }
+            )
+            for key in snapshot.selected(None)
+        ]
+        tasks.sort(key=lambda task: task.created_at, reverse=True)
+        return tasks
+
     def calculate_priority(self, task_id: UUID) -> float:
         """Calculate a task's intrinsic score; never mutate its stored score."""
         with get_connection(self.db_path) as conn:

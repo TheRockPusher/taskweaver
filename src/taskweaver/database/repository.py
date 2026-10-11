@@ -9,12 +9,10 @@ from .connection import get_connection, get_database_path
 from .exceptions import TaskNotFoundError
 from .models import Task, TaskCreate, TaskStatus, TaskUpdate, TaskWithDependencies
 from .planning import estimate_duration
-from .priority_service import refresh_priorities
+from .priority_service import PriorityService, refresh_priorities
 from .schema import (
     DELETE_TASK,
     INSERT_TASK,
-    SELECT_ALL_TASKS,
-    SELECT_ALL_TASKS_DEPENDENCY,
     SELECT_TASK_BY_ID,
     UPDATE_TASK,
 )
@@ -102,22 +100,12 @@ class TaskRepository:
         return Task.model_validate(dict(row)) if row is not None else None
 
     def list_tasks(self, status: TaskStatus | None = None) -> list[Task]:
-        """List tasks newest first, optionally filtering by status."""
-        with get_connection(self.db_path) as conn:
-            rows = (
-                conn.execute(SELECT_ALL_TASKS).fetchall()
-                if status is None
-                else conn.execute(
-                    "SELECT * FROM tasks WHERE status = ? ORDER BY created_at DESC", (status.value,)
-                ).fetchall()
-            )
-        return [Task.model_validate(dict(row)) for row in rows]
+        """List tasks newest first with current MCDA scores, without persisting them."""
+        return PriorityService(self.db_path).list_tasks(status)
 
     def list_tasks_with_deps(self) -> list[TaskWithDependencies]:
-        """List active tasks with active blocker and downstream counts."""
-        with get_connection(self.db_path) as conn:
-            rows = conn.execute(SELECT_ALL_TASKS_DEPENDENCY).fetchall()
-        return [TaskWithDependencies.model_validate(dict(row)) for row in rows]
+        """List active tasks with current scores and active blocker/downstream counts."""
+        return PriorityService(self.db_path).list_tasks_with_deps()
 
     def update_task(
         self, task_id: UUID, task_data: TaskUpdate, *, connection: sqlite3.Connection | None = None
@@ -163,7 +151,7 @@ class TaskRepository:
             limit: Maximum number of results, or None for all matching tasks.
 
         Returns:
-            Ranked tasks, with tasks lacking a score last.
+            Ranked tasks with current scores; no score or history rows are written.
 
         Raises:
             ValueError: If limit is negative.
@@ -171,14 +159,9 @@ class TaskRepository:
         if limit is not None and limit < 0:
             msg = "limit must be nonnegative"
             raise ValueError(msg)
-        status_value = status.value if status is not None else None
-        with get_connection(self.db_path) as conn:
-            rows = conn.execute(
-                """SELECT * FROM tasks WHERE (? IS NULL OR status = ?)
-                ORDER BY priority_score DESC, created_at DESC, task_id LIMIT ?""",
-                (status_value, status_value, -1 if limit is None else limit),
-            ).fetchall()
-        return [Task.model_validate(dict(row)) for row in rows]
+        tasks = self.list_tasks(status)
+        tasks.sort(key=lambda task: (-(task.priority_score or 0.0), -task.created_at.timestamp(), str(task.task_id)))
+        return tasks if limit is None else tasks[:limit]
 
     def mark_completed(self, task_id: UUID) -> Task:
         """Complete a task and immediately release tasks it blocks."""

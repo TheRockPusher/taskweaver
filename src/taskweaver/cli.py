@@ -258,6 +258,7 @@ def show(ctx: typer.Context, task_id: UUID, explain_priority: bool = False, db_p
         task = TaskRepository(path).get_task(task_id)
         if task is None:
             raise ValueError(f"Task not found: {task_id}")
+        score = PriorityService(path).calculate_priority(task_id)
         table = Table.grid(padding=(0, 2))
         table.add_column("Field", style="bold cyan", no_wrap=True)
         table.add_column("Value", overflow="fold")
@@ -276,7 +277,7 @@ def show(ctx: typer.Context, task_id: UUID, explain_priority: bool = False, db_p
             ("Goal", str(task.goal_id) if task.goal_id is not None else "—"),
             ("Skill domain", task.skill_domain or "—"),
             ("Skill level", f"{task.required_skill_level}/5" if task.required_skill_level is not None else "—"),
-            ("MCDA", f"{task.priority_score:.1f}/100" if task.priority_score is not None else "—"),
+            ("MCDA", f"{score:.1f}/100"),
             ("CD3 (value/min)", f"{task.priority:.3f}"),
             ("Created", format_timestamp(task.created_at)),
             ("Updated", format_timestamp(task.updated_at)),

@@ -1,10 +1,13 @@
 """Tests for task repository."""
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from typer.testing import CliRunner
 
+from taskweaver.cli import app
 from taskweaver.database.completion_repository import CompletionRepository
 from taskweaver.database.connection import get_connection
 from taskweaver.database.dependency_repository import TaskDependencyRepository
@@ -20,6 +23,7 @@ from taskweaver.database.models import (
     TaskWithDependencies,
     TaskWithPriority,
 )
+from taskweaver.database.priority_service import PriorityService
 from taskweaver.database.repository import TaskRepository
 
 
@@ -50,6 +54,50 @@ def test_get_task_by_id(task_repo: TaskRepository) -> None:
     assert retrieved_task is not None
     assert retrieved_task.task_id == created_task.task_id
     assert retrieved_task.title == created_task.title
+
+
+def test_priority_listings_refresh_age_without_writing_history(task_repo: TaskRepository) -> None:
+    """CLI/TUI listing scores follow current age, leaving persisted scores and history untouched."""
+    old = task_repo.create_task(
+        TaskCreate(title="Old lower urgency", duration_min=30, llm_value=50, requirement="Deliver", urgency=2)
+    )
+    new = task_repo.create_task(
+        TaskCreate(title="New higher urgency", duration_min=30, llm_value=50, requirement="Deliver", urgency=3)
+    )
+    with get_connection(task_repo.db_path) as conn, conn:
+        conn.execute(
+            "UPDATE tasks SET created_at = ? WHERE task_id = ?",
+            ((datetime.now(UTC) - timedelta(days=30)).isoformat(), str(old.task_id)),
+        )
+        history_before = [tuple(row) for row in conn.execute("SELECT * FROM priority_history ORDER BY event_id")]
+        persisted_before = [
+            tuple(row)
+            for row in conn.execute("SELECT task_id, priority_score, priority_updated_at FROM tasks ORDER BY task_id")
+        ]
+
+    expected = PriorityService(task_repo.db_path).calculate_all_priorities()
+    assert expected[old.task_id] > expected[new.task_id]
+    ranked = task_repo.list_tasks_by_priority()
+    assert [task.task_id for task in ranked] == [old.task_id, new.task_id]
+    assert {task.task_id: task.priority_score for task in ranked} == expected
+    assert [task.task_id for task in task_repo.list_tasks_by_priority(limit=1)] == [old.task_id]
+    assert {task.task_id: task.priority_score for task in task_repo.list_tasks(TaskStatus.PENDING)} == expected
+    assert {task.task_id: task.priority_score for task in task_repo.list_tasks_with_deps()} == expected
+    runner = CliRunner()
+    for arguments in (["ls", "--sort", "score"], ["ls"], ["lso"], ["show", str(old.task_id)]):
+        result = runner.invoke(app, [*arguments, "--db", str(task_repo.db_path)])
+        assert result.exit_code == 0, result.output
+        assert f"{expected[old.task_id]:.1f}" in result.output
+        if arguments == ["ls", "--sort", "score"]:
+            assert result.output.index(old.title) < result.output.index(new.title)
+    with get_connection(task_repo.db_path) as conn:
+        assert [
+            tuple(row) for row in conn.execute("SELECT * FROM priority_history ORDER BY event_id")
+        ] == history_before
+        assert [
+            tuple(row)
+            for row in conn.execute("SELECT task_id, priority_score, priority_updated_at FROM tasks ORDER BY task_id")
+        ] == persisted_before
 
 
 def test_task_status_lifecycle_round_trip(task_repo: TaskRepository) -> None:

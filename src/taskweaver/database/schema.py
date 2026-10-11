@@ -85,10 +85,6 @@ SELECT_TASK_BY_ID = """
 SELECT * FROM tasks WHERE task_id = ?;
 """
 
-SELECT_ALL_TASKS = """
-SELECT * FROM tasks ORDER BY created_at DESC;
-"""
-
 UPDATE_TASK = (
     "UPDATE tasks SET "  # noqa: S608
     + ", ".join(column + " = :" + column for column in TASK_COLUMNS if column != "task_id")
@@ -174,9 +170,6 @@ LEFT JOIN (
     GROUP BY td.task_id
 ) as n_blocker ON t.task_id = n_blocker.blocked_id
 WHERE t.status IN ('pending', 'in_progress')
-"""
-SELECT_ALL_TASKS_DEPENDENCY = """
-SELECT * FROM tasks_full ORDER BY created_at DESC;
 """
 CREATE_COMPLETION = """
 CREATE TABLE IF NOT EXISTS completion(
