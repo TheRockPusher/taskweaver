@@ -48,10 +48,15 @@ async def wait_choices(app, pilot):
 
 
 async def save_form(app, pilot):
+    """Click Save and return once that attempt has finished: dismissed on success, error shown on failure."""
     await wait_choices(app, pilot)
-    await pilot.click("#save")
-    async with asyncio.timeout(3):
-        while app.screen.query("#save") and app.screen.query_one("#save", Button).disabled:
+    screen = app.screen
+    error = screen.query_one("#form-error", Static)
+    error.update("")
+    # press() avoids pointer hit-testing, which can miss after an error message reflows the dialog.
+    screen.query_one("#save", Button).press()
+    async with asyncio.timeout(5):
+        while app.screen is screen and not str(error.content):
             await pilot.pause(0.01)
 
 
@@ -118,8 +123,7 @@ async def test_invalid_creation_keeps_fields_and_reports_repair(app):
         assert app.screen.query_one("#form-error", Static).content
         assert app.task_repo.list_tasks() == []
         fill(app, **{"task-duration_min": 20})
-        app.screen.query_one("#save", Button).press()
-        await pilot.pause()
+        await save_form(app, pilot)
         saved = app.task_repo.list_tasks()[0]
         assert (saved.title, saved.duration_min) == ("Keep my draft", 20)
 
@@ -293,8 +297,7 @@ async def test_cancellation_with_unknown_effort_releases_edges_without_learning(
         assert app.task_repo.get_task(blocker.task_id).status == TaskStatus.PENDING
         assert app.dep_repo.get_blockers(downstream.task_id)[0].task_id == blocker.task_id
         fill(app, conclusion="")
-        app.screen.query_one("#save", Button).press()
-        await pilot.pause()
+        await save_form(app, pilot)
         assert app.task_repo.get_task(blocker.task_id).status == TaskStatus.CANCELLED
         assert app.dep_repo.get_blockers(downstream.task_id) == []
         assert app.completions.get_completion_by_task_id(blocker.task_id) is None
