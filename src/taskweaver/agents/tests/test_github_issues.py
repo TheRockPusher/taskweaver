@@ -379,6 +379,62 @@ def test_repository_alias_selection_pulls_canonical_mapping(db_path: Path, api: 
     assert api.writes == []
 
 
+@pytest.mark.parametrize("first_operation", ["import", "sync", "sync_all"])
+@pytest.mark.parametrize("existing_canonical", ["none", "distinct", "overlap"])
+def test_repository_rename_migrates_mappings_and_reuses_tasks(
+    db_path: Path,
+    api: GitHubAPI,
+    monkeypatch: pytest.MonkeyPatch,
+    first_operation: str,
+    existing_canonical: str,
+) -> None:
+    canonical = "old/repo"
+
+    def renamed(method, url, parameters=None, input=None, **kwargs):  # noqa: A002
+        if "/issues" not in url:
+            return {}, {"full_name": canonical, "url": f"https://api.github.com/repos/{canonical}"}
+        return api.request(method, url, parameters=parameters, input=input, **kwargs)
+
+    requester = api.client.get_repo("old/repo", lazy=True).requester
+    monkeypatch.setattr(requester, "requestJsonAndCheck", renamed)
+    api.add(1)
+    api.add(2)
+    service = GitHubIssueSyncService(db_path, client=api.client)
+    original = service.import_issues(["old/repo"])
+    expected = dict(zip((1, 2), original.task_ids, strict=True))
+    original_issues = dict(api.issues)
+    canonical = "new/repo"
+    if existing_canonical != "none":
+        api.issues = {1: original_issues[1]} if existing_canonical == "overlap" else {}
+        api.add(3)
+        canonical_import = service.import_issues(["new/repo"])
+        expected.update(zip(sorted(api.issues), canonical_import.task_ids, strict=True))
+        api.issues.update(original_issues)
+    task_count = len(TaskRepository(db_path).list_tasks())
+    api.issues[2]["title"] = "Renamed repository issue"
+    if first_operation == "import":
+        first = service.import_issues(["old/repo"])
+    elif first_operation == "sync":
+        first = service.sync(["old/repo"])
+    else:
+        first = service.sync()
+    assert first.imported == 0
+    assert set(first.task_ids) == set(expected.values())
+    assert first.updated == 1
+    assert stored(db_path, original.task_ids[1]).title == "Renamed repository issue"
+    assert service.import_issues(["old/repo"]).imported == 0
+    for selection in (["old/repo"], ["new/repo"], None):
+        result = service.sync(selection)
+        assert set(result.task_ids) == set(expected.values())
+        assert result.unchanged == len(expected)
+    assert len(TaskRepository(db_path).list_tasks()) == task_count
+    with get_connection(db_path) as conn:
+        mappings = conn.execute("SELECT repo, issue_number, task_id FROM github_issue_mappings").fetchall()
+        assert {row["repo"] for row in mappings} == {"new/repo"}
+        assert {row["issue_number"]: UUID(row["task_id"]) for row in mappings} == expected
+    assert api.writes == []
+
+
 def test_paginated_import_excludes_prs_on_every_page(
     db_path: Path, api: GitHubAPI, monkeypatch: pytest.MonkeyPatch
 ) -> None:

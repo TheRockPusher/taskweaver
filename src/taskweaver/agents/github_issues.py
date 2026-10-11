@@ -112,6 +112,7 @@ class GitHubIssueSyncService:
 
         Repeated imports reconcile existing mappings instead of creating duplicates.
         A task and its initial mapping are committed or rolled back together.
+        Repository aliases migrate to GitHub's canonical name before reconciliation.
         """
         if state not in {"open", "closed", "all"}:
             msg = "GitHub import state must be open, closed, or all"
@@ -120,6 +121,7 @@ class GitHubIssueSyncService:
         for name in _repos(repo_names):
             repo = self.client.get_repo(name)
             canonical = repo.full_name.casefold()
+            self._migrate_repository(name, canonical)
             for issue in repo.get_issues(state=state):
                 if issue.pull_request is None:
                     self._reconcile(canonical, issue, result, push=False)
@@ -133,30 +135,50 @@ class GitHubIssueSyncService:
         """
         names = None if repo_names is None else _repos(repo_names)
         with get_connection(self.db_path) as conn:
+            mapped_repos = conn.execute("SELECT DISTINCT repo FROM github_issue_mappings ORDER BY repo").fetchall()
+        result = SyncResult()
+        repositories = {}
+        if mapped_repos:
+            selected = [row["repo"] for row in mapped_repos] if names is None else names
+            for name in selected:
+                repository = self.client.get_repo(name)
+                canonical = repository.full_name.casefold()
+                self._migrate_repository(name, canonical)
+                repositories[canonical] = repository
+        # Read after migration so selection sees canonical keys and each issue only once.
+        with get_connection(self.db_path) as conn:
             mappings = conn.execute(
                 "SELECT repo, issue_number FROM github_issue_mappings ORDER BY repo, issue_number"
             ).fetchall()
-        result = SyncResult()
-        repositories = {}
-        if names is not None and mappings:
-            # Imports persist GitHub's canonical full_name, which can differ
-            # from a requested repository after a transfer or rename.
-            for name in names:
-                repository = self.client.get_repo(name)
-                repositories[repository.full_name.casefold()] = repository
-            names = list(repositories)
         for mapping in mappings:
             name = mapping["repo"]
-            if names is not None and name not in names:
-                continue
             if name not in repositories:
-                repositories[name] = self.client.get_repo(name)
+                continue
             issue = repositories[name].get_issue(mapping["issue_number"])
             if issue.pull_request is not None:
                 msg = f"Mapped GitHub issue is now a pull request: {name}#{issue.number}"
                 raise ValueError(msg)
             self._reconcile(name, issue, result, push=push)
         return result
+
+    def _migrate_repository(self, alias: str, canonical: str) -> None:
+        """Atomically move mappings and their snapshots, retaining canonical collisions.
+
+        Already-mapped canonical issues win; their former alias tasks remain local
+        rather than deleting user planning data or history.
+        """
+        if alias == canonical:
+            return
+        with get_connection(self.db_path) as conn, conn:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                """DELETE FROM github_issue_mappings
+                WHERE repo = ? AND issue_number IN (
+                    SELECT issue_number FROM github_issue_mappings WHERE repo = ?
+                )""",
+                (alias, canonical),
+            )
+            conn.execute("UPDATE github_issue_mappings SET repo = ? WHERE repo = ?", (canonical, alias))
 
     @staticmethod
     def _push_status(issue: Issue, local_value: str | None, remote: dict[str, str | None]) -> None:
