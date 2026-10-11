@@ -308,8 +308,11 @@ async def test_rapid_refresh_keeps_latest_data_and_workspace_interactive(app):
             app.task_repo.update_task(task.task_id, TaskUpdate(title=f"Updated {index}"))
             app.refresh_tasks()
             await asyncio.sleep(0)
-        await pilot.pause()
-        assert app.query_one("#task-table", DataTable).get_row(str(task.task_id))[0].plain == "Updated 11"
+        table = app.query_one("#task-table", DataTable)
+        # Refreshes load off the UI loop; slow runners need more than one pause for the last one to land.
+        async with asyncio.timeout(5):
+            while table.row_count == 0 or table.get_row(str(task.task_id))[0].plain != "Updated 11":
+                await pilot.pause(0.02)
         await pilot.press("n")
         fill(app, **{"task-title": "Still interactive", "task-requirement": "Saved after refresh"})
         await save_form(app, pilot)
