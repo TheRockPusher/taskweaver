@@ -214,7 +214,7 @@ def test_compact_list_preserves_readability(
     result = invoke(test_db, command)
     assert result.exit_code == 0, result.output
     assert "Sample task" in result.output
-    assert "in_progress" in result.output
+    assert "in progress" in result.output
     assert "30m" in result.output
     assert "Sample description" not in result.output
     assert all(len(line) <= 80 for line in result.output.splitlines())
@@ -571,7 +571,7 @@ def test_goal_list_keeps_complete_identifiers_at_terminal_width(test_db: Path, m
     result = invoke(test_db, "goals", "list")
     assert result.exit_code == 0, result.output
     assert str(goal.goal_id) in result.output
-    assert "Ship a useful tool" in result.output
+    assert all(word in result.output for word in goal.title.split())
 
 
 def test_score_components_remain_readable_at_terminal_width(

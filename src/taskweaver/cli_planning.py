@@ -121,8 +121,10 @@ def focus(ctx: typer.Context, limit: Annotated[int, typer.Option(min=0)] = 10, d
         if not tasks:
             console.print("[dim]No actionable tasks[/dim]")
         table = Table(title="Actionable focus")
-        for heading in ("ID", "Title", "Estimate", "MCDA"):
-            table.add_column(heading)
+        table.add_column("ID", no_wrap=True, min_width=36)
+        table.add_column("Title", overflow="fold")
+        for heading in ("Estimate", "MCDA"):
+            table.add_column(heading, no_wrap=True)
         for task in tasks:
             score = f"{task.priority_score:.1f}" if task.priority_score is not None else "—"
             table.add_row(str(task.task_id), Text(task.title), f"{task.duration_min}m", score)
@@ -200,13 +202,15 @@ def list_goals(ctx: typer.Context, db_path: DB = None) -> None:
             console.print("[dim]No goals found[/dim]")
             return
         table = Table(title="Goals")
-        table.add_column("Goal", min_width=36, overflow="fold")
-        for heading in ("Done/total", "Progress", "Cancelled"):
-            table.add_column(heading, justify="right")
+        table.add_column("ID", no_wrap=True, min_width=36)
+        table.add_column("Goal", overflow="fold")
+        for heading in ("Done", "%", "Cancelled"):
+            table.add_column(heading, justify="right", no_wrap=True, min_width=len(heading))
         for goal in goals:
             progress = service.goal_progress(goal.goal_id)
             table.add_row(
-                Text(f"{goal.title}\n{goal.goal_id}"),
+                str(goal.goal_id),
+                Text(goal.title),
                 f"{progress.completed}/{progress.total}",
                 f"{progress.fraction:.0%}",
                 str(progress.cancelled),
@@ -364,15 +368,19 @@ def analysis(
         result = PlanningService(resolve_db(ctx, db_path)).work_analysis(max_minutes, limit)
         console.print(f"Critical path: {result.critical_path_minutes}m")
         console.print("Unlimited parallel capacity; excludes skill-learning time; not completion dates.")
-        console.print(
-            " → ".join(f"{task.task_id} ({task.duration_min}m)" for task in result.critical_path) or "(empty)"
-        )
+        if not result.critical_path:
+            console.print("(empty)")
+        for index, task in enumerate(result.critical_path, start=1):
+            console.print(f"{index}. {task.title} · {task.duration_min}m", markup=False, highlight=False)
+            console.print(f"   {task.task_id}", markup=False, highlight=False)
         if not result.quick_wins:
             console.print("[dim]No ready quick wins[/dim]")
             return
         table = Table(title=f"Ready quick wins (≤{max_minutes}m; CD3, not MCDA)")
-        for heading in ("ID", "Title", "Duration", "Value/min"):
-            table.add_column(heading)
+        table.add_column("ID", no_wrap=True, min_width=36)
+        table.add_column("Title", overflow="fold")
+        for heading in ("Duration", "Value/min"):
+            table.add_column(heading, no_wrap=True)
         for task in result.quick_wins:
             table.add_row(str(task.task_id), Text(task.title), f"{task.duration_min}m", f"{task.priority:.3f}")
         console.print(table)

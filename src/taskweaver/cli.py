@@ -76,7 +76,7 @@ def _print_tasks(tasks: Sequence[Task], sort: TaskSort = TaskSort.SCORE) -> None
         console.print("[yellow]No tasks found[/yellow]")
         return
     show_dependencies = isinstance(tasks[0], TaskWithDependencies)
-    table = Table(title="Tasks", show_lines=True, header_style="bold blue")
+    table = Table(title="Tasks", header_style="bold blue")
     table.add_column("Title", min_width=12, ratio=1, overflow="fold")
     table.add_column("Status", no_wrap=True)
     table.add_column("Estimate", justify="right", no_wrap=True)
@@ -90,12 +90,12 @@ def _print_tasks(tasks: Sequence[Task], sort: TaskSort = TaskSort.SCORE) -> None
             if sort == TaskSort.CD3
             else (f"{task.priority_score:.1f}" if task.priority_score is not None else "—")
         )
-        row: list[str | Text] = [Text(task.title), task.status.value, f"{task.duration_min}m", score]
+        row: list[str | Text] = [Text(task.title), task.status.value.replace("_", " "), f"{task.duration_min}m", score]
         if isinstance(task, TaskWithDependencies):
             row.extend([str(task.tasks_blocked_count), str(task.active_blocker_count)])
         table.add_row(*row)
     console.print(table)
-    console.print(f"\n[dim]Total: {len(tasks)} task(s)[/dim]")
+    console.print(f"\n[dim]Total: {len(tasks)} {'task' if len(tasks) == 1 else 'tasks'}[/dim]", highlight=False)
     console.print("\n[dim]Task IDs[/dim]")
     for task in tasks:
         console.print(f"{task.task_id}  {task.title}", markup=False)
@@ -369,8 +369,8 @@ def blockers(ctx: typer.Context, task_id: UUID, db_path: DB = None) -> None:
             console.print("[dim]No blockers[/dim]")
             return
         table = Table(title="Blockers")
-        table.add_column("Blocker ID")
-        table.add_column("Blocker Title")
+        table.add_column("Blocker ID", no_wrap=True, min_width=36)
+        table.add_column("Blocker Title", overflow="fold")
         for blocker in task_blockers:
             table.add_row(str(blocker.task_id), Text(blocker.title))
         console.print(table)
