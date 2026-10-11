@@ -604,6 +604,9 @@ class TaskWeaverApp(App):
 
     def _toggle_task_in_database(self, task_id: UUID) -> Task | None:
         task = self.task_repo.get_task(task_id)
+        if task is None:
+            # Another process may delete the task between refresh and keypress.
+            raise TaskNotFoundError(task_id)
         if task.status not in (TaskStatus.PENDING, TaskStatus.IN_PROGRESS):
             return None
         if task.status == TaskStatus.PENDING and not self.planning.match(task_id).ready:
@@ -618,6 +621,7 @@ class TaskWeaverApp(App):
                 self._changed(await asyncio.to_thread(self._toggle_task_in_database, task_id))
         except _UI_ERRORS as error:
             self.post_error_message(str(error))
+            self.refresh_tasks()
 
     def action_focus_tasks(self) -> None:
         """Toggle the dependency- and skill-ready task filter."""

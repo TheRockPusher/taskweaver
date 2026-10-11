@@ -412,6 +412,21 @@ async def test_slow_database_refresh_does_not_freeze_keyboard(app, monkeypatch):
             release.set()
 
 
+async def test_starting_a_task_deleted_elsewhere_reports_and_drops_stale_row(app):
+    deleted = create(app, "Deleted by another process")
+    create(app, "Still here")
+    async with app.run_test(size=(80, 24)) as pilot:
+        await select_task(app, pilot, deleted.task_id)
+        app.task_repo.delete_task(deleted.task_id)
+        await pilot.press("space")
+        table = app.query_one("#task-table", DataTable)
+        async with asyncio.timeout(5):
+            while str(deleted.task_id) in {row.value for row in table.rows}:
+                await pilot.pause(0.02)
+        assert str(deleted.task_id) in str(app.query_one("#notice", Static).content)
+        assert [task.title for task in app.task_repo.list_tasks()] == ["Still here"]
+
+
 async def test_github_sync_is_nonoverlapping_and_cancelled_on_quit(app, monkeypatch):
     started = asyncio.Event()
     cancelled = asyncio.Event()
