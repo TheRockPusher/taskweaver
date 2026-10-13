@@ -1,51 +1,87 @@
-"""Task management agent - handles all task domain operations."""
+"""Task agent: repository workflows and explicit planning/memory operations."""
 
 from .dependencies import TaskDependencies
 from .shared import create_agent
 from .tools import (
-    # Dependencies (5 tools)
     add_dependency_tool,
-    # Utilities (1 tool)
+    assess_skill_tool,
     calculator_tool,
-    # Task CRUD (6 tools)
+    completion_insights_tool,
+    create_goal_tool,
     create_task_tool,
+    delete_goal_tool,
+    estimate_duration_tool,
+    forget_fact_tool,
     get_blocked_tool,
     get_blockers_tool,
     get_task_details_tool,
+    goal_progress_tool,
+    link_task_goal_tool,
+    list_facts_tool,
+    list_goals_tool,
     list_open_tasks_full,
+    list_skills_tool,
     list_tasks_tool,
     mark_task_cancelled_tool,
-    # Completions (2 tools)
     mark_task_completed_tool,
+    match_task_skills_tool,
+    priority_weights_tool,
+    rank_tasks_tool,
+    recalculate_priorities_tool,
+    recommendations_tool,
+    remember_fact_tool,
     remove_dependency_tool,
+    score_task_tool,
+    search_facts_tool,
     search_tasks_tool,
+    skill_history_tool,
+    update_fact_tool,
+    update_goal_tool,
     update_task_status_tool,
     update_task_tool,
+    work_analysis_tool,
 )
 
-# All task-related tools
 TASK_TOOLS = [
-    # CRUD
     create_task_tool,
     update_task_tool,
     list_tasks_tool,
     search_tasks_tool,
     get_task_details_tool,
     update_task_status_tool,
-    # Dependencies
     add_dependency_tool,
     remove_dependency_tool,
     get_blockers_tool,
     get_blocked_tool,
     list_open_tasks_full,
-    # Completions
     mark_task_completed_tool,
     mark_task_cancelled_tool,
-    # Utilities
+    score_task_tool,
+    recalculate_priorities_tool,
+    rank_tasks_tool,
+    priority_weights_tool,
+    create_goal_tool,
+    list_goals_tool,
+    goal_progress_tool,
+    update_goal_tool,
+    delete_goal_tool,
+    link_task_goal_tool,
+    assess_skill_tool,
+    list_skills_tool,
+    skill_history_tool,
+    match_task_skills_tool,
+    recommendations_tool,
+    work_analysis_tool,
+    estimate_duration_tool,
+    completion_insights_tool,
+    remember_fact_tool,
+    update_fact_tool,
+    forget_fact_tool,
+    list_facts_tool,
+    search_facts_tool,
     calculator_tool,
 ]
 
-# Create TaskAgent using factory (composition!)
 task_agent = create_agent(
     prompt_name="task",
     tools=TASK_TOOLS,

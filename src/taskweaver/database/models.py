@@ -4,7 +4,9 @@ from datetime import UTC, datetime
 from enum import Enum
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+SQLITE_MAX_INTEGER = 2**63 - 1
 
 
 class TaskStatus(str, Enum):
@@ -23,73 +25,83 @@ class CompletionStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
-class Task(BaseModel):
-    """Task model - mirrors database schema exactly.
+class TaskCreate(BaseModel):
+    """Fields supplied when creating a task."""
 
-    - Entity-specific primary key (task_id)
-    - Models mirror database exactly (no field mapping)
+    title: str = Field(min_length=1, max_length=500)
+    description: str | None = None
+    duration_min: int = Field(ge=1, le=SQLITE_MAX_INTEGER)
+    raw_duration_min: int | None = Field(
+        default=None, ge=1, le=SQLITE_MAX_INTEGER, description="Original estimate before automatic adjustment"
+    )
+    llm_value: float = Field(ge=0, le=100, description="LLM-assigned value score (0-100)")
+    requirement: str = Field(min_length=1, max_length=500)
+    urgency: int = Field(default=3, ge=1, le=5)
+    importance: int = Field(default=3, ge=1, le=5)
+    effort: int = Field(default=3, ge=1, le=5)
+    category: str = Field(default="general", min_length=1)
+    goal_id: UUID | None = None
+    skill_domain: str | None = None
+    required_skill_level: int | None = Field(default=None, ge=1, le=5)
+    priority_score: float | None = Field(default=None, ge=0, le=100)
+    priority_updated_at: datetime | None = None
 
+
+class Task(TaskCreate):
+    """Persisted task with enum status, CD3, and independently refreshed MCDA scores.
+
+    Status remains a TaskStatus in memory; JSON serialization emits its string value.
+    Persisted timestamps are UTC-aware; legacy SQLite timestamps without offsets
+    are interpreted as UTC, matching the age-scoring contract.
     """
 
     task_id: UUID = Field(default_factory=uuid4)
-    title: str = Field(min_length=1, max_length=500)
-    description: str | None = None
     status: TaskStatus = TaskStatus.PENDING
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    duration_min: int = Field(ge=1)
-    llm_value: float = Field(ge=0, le=100, description="LLM-assigned value score (0-100)")
-    requirement: str = Field(min_length=1, max_length=500)
-
-    model_config = ConfigDict(
-        use_enum_values=True,  # Store enum values, not names
+    raw_duration_min: int = Field(
+        default_factory=lambda data: data["duration_min"],
+        ge=1,
+        le=SQLITE_MAX_INTEGER,
+        description="Immutable original estimate; duration_min is the editable working estimate",
     )
+
+    model_config = ConfigDict(validate_default=True)
+
+    @field_validator("created_at", "updated_at", "priority_updated_at")
+    @classmethod
+    def normalize_timestamp(cls, value: datetime | None) -> datetime | None:
+        """Keep legacy and new task timestamps comparable across every consumer."""
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
 
     @property
     def priority(self) -> float:
-        """Calculate priority score as value per minute (llm_value / duration_min).
-
-        Higher priority = higher value delivered per minute of effort.
-        Uses CD3 (Cost of Delay Divided by Duration) from WSJF framework.
-
-        Returns:
-            Priority score (higher is better). Ranges from ~0.4 (value=1, duration=240min)
-            to 100.0 (value=100, duration=1min).
-
-        Example:
-            >>> task = Task(title="Quick win", duration_min=30, llm_value=90.0, requirement="Done")
-            >>> task.priority
-            3.0  # High value, short duration = good priority
-            >>> task2 = Task(title="Long grind", duration_min=240, llm_value=30.0, requirement="Done")
-            >>> task2.priority
-            0.125  # Low value, long duration = poor priority
-        """
+        """Return CD3 value per working minute, independently of the weighted MCDA score."""
         return self.llm_value / self.duration_min
 
 
-class TaskCreate(BaseModel):
-    """Model for creating new tasks."""
-
-    title: str = Field(min_length=1, max_length=500)
-    description: str | None = None
-    duration_min: int = Field(ge=1)
-    llm_value: float = Field(ge=0, le=100, description="LLM-assigned value score (0-100)")
-    requirement: str = Field(min_length=1, max_length=500)
-
-
 class TaskUpdate(BaseModel):
-    """Model for updating tasks - all fields optional."""
+    """Update supplied working fields; explicit None clears nullable fields, never the original duration baseline."""
 
     title: str | None = Field(default=None, min_length=1, max_length=500)
     description: str | None = None
     status: TaskStatus | None = None
-    duration_min: int | None = Field(default=None, ge=1)
+    duration_min: int | None = Field(default=None, ge=1, le=SQLITE_MAX_INTEGER)
     llm_value: float | None = Field(default=None, ge=0, le=100, description="LLM-assigned value score (0-100)")
     requirement: str | None = Field(default=None, min_length=1, max_length=500)
-
-    model_config = ConfigDict(
-        use_enum_values=True,  # Store enum values, not names
-    )
+    urgency: int | None = Field(default=None, ge=1, le=5)
+    importance: int | None = Field(default=None, ge=1, le=5)
+    effort: int | None = Field(default=None, ge=1, le=5)
+    category: str | None = Field(default=None, min_length=1)
+    goal_id: UUID | None = None
+    skill_domain: str | None = None
+    required_skill_level: int | None = Field(default=None, ge=1, le=5)
+    priority_score: float | None = Field(default=None, ge=0, le=100)
+    priority_updated_at: datetime | None = None
 
 
 class TaskDependency(BaseModel):
@@ -165,6 +177,8 @@ class Completion(BaseModel):
     Records completion events for tasks with immutable snapshots of duration estimates.
     Supports pattern learning by preserving historical state at completion time.
 
+    Status remains a CompletionStatus in memory; JSON serialization emits its string value.
+
     - Entity-specific primary key (completion_id)
     - Models mirror database exactly (no field mapping)
     - One completion per task (enforced by UNIQUE constraint on task_id)
@@ -174,21 +188,24 @@ class Completion(BaseModel):
     task_id: UUID
     status: CompletionStatus
     closed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    duration_expected: int = Field(ge=1, description="Snapshot of task duration_min at completion time")
-    duration_actual: int = Field(ge=1, description="Actual time spent on task (user-reported)")
+    duration_expected: int = Field(
+        ge=1, le=SQLITE_MAX_INTEGER, description="Snapshot of task duration_min at completion time"
+    )
+    duration_actual: int = Field(ge=1, le=SQLITE_MAX_INTEGER, description="Actual time spent on task (user-reported)")
     conclusion: str | None = Field(default=None, description="What was learned/delivered")
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-
-    model_config = ConfigDict(
-        use_enum_values=True,  # Store enum values, not names
+    raw_duration_min: int | None = Field(
+        default=None, ge=1, le=SQLITE_MAX_INTEGER, description="Original unadjusted duration estimate"
     )
+    category: str | None = None
+    priority_factors: dict[str, float] | None = None
 
     @property
     def variance_minutes(self) -> int:
         """Calculate estimation variance in minutes.
 
         Returns:
-            Difference between actual and expected duration (positive = over-estimate).
+            Difference between actual and expected duration (positive = task took longer than estimated).
         """
         return self.duration_actual - self.duration_expected
 
@@ -208,6 +225,11 @@ class CompletionCreate(BaseModel):
     task_id: UUID
     status: CompletionStatus
     closed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    duration_expected: int = Field(ge=1, description="Snapshot of task duration_min at completion time")
-    duration_actual: int = Field(ge=1, description="Actual time spent on task")
+    duration_expected: int = Field(
+        ge=1, le=SQLITE_MAX_INTEGER, description="Snapshot of task duration_min at completion time"
+    )
+    duration_actual: int = Field(ge=1, le=SQLITE_MAX_INTEGER, description="Actual time spent on task")
     conclusion: str | None = Field(default=None, description="What was learned/delivered")
+    raw_duration_min: int | None = Field(default=None, ge=1, le=SQLITE_MAX_INTEGER)
+    category: str | None = None
+    priority_factors: dict[str, float] | None = None

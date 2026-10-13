@@ -9,28 +9,38 @@ Error Handling Strategy:
 - The LLM receives the error message and can retry with corrected parameters
 """
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+from datetime import datetime
 from enum import Enum
 from uuid import UUID
 
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 from pydantic_ai import RunContext
 from pydantic_ai.exceptions import ModelRetry
-from simpleeval import InvalidExpression, simple_eval
 
 from taskweaver.database.exceptions import DependencyError, TaskNotFoundError
 from taskweaver.database.models import (
-    CompletionCreate,
     CompletionStatus,
     TaskDependency,
     TaskWithPriority,
 )
 
 from ..database.models import Task, TaskCreate, TaskStatus, TaskUpdate
+from ..database.planning import PlanningService
+from ..database.priority_service import PriorityService, PriorityWeights
+from .calculator import evaluate_expression
 from .dependencies import TaskDependencies
+from .memory import MemoryFact, MemoryService
 
 # Display constants
 MAX_TITLE_LENGTH = 60
-MAX_DESCRIPTION_LENGTH = 40
+
+
+def require_write_access(ctx: RunContext[TaskDependencies]) -> None:
+    """Reject review mutations before opening services or touching repositories."""
+    if ctx.deps.request_mode == "review":
+        raise ModelRetry("Review is read-only; this operation is not authorized.")
 
 
 class ResponseFormat(str, Enum):
@@ -41,19 +51,11 @@ class ResponseFormat(str, Enum):
 
 
 def _format_task_concise(task: Task, index: int = 0) -> str:
-    """Format task as concise single-line summary.
-
-    Args:
-        task: Task object to format.
-        index: Display index (1-based for user display).
-
-    Returns:
-        Single-line task summary string.
-    """
+    """Summarize working duration, enum status and separate CD3 value/time."""
     idx_str = f"{index}. " if index > 0 else ""
     return (
         f"{idx_str}{task.title[:MAX_TITLE_LENGTH]} "
-        f"(Status: {task.status}, Priority: {task.priority:.2f}, "
+        f"(Status: {task.status.value}, Priority: {task.priority:.2f}, "
         f"Duration: {task.duration_min}min)"
     )
 
@@ -65,85 +67,48 @@ def create_task_tool(  # noqa: PLR0913
     llm_value: float,
     requirement: str,
     description: str | None = None,
-) -> str:
-    """Create a new task with required fields.
-
-    Use this tool when user wants to add a task to their task list.
-    Validates title length (1-500 chars) and returns task ID for future reference.
-
-    Args:
-        ctx: Runtime context containing TaskDependencies.
-        title: Task title (1-500 characters). Be specific and actionable.
-        duration_min: Estimated duration in minutes (must be >= 1).
-        llm_value: LLM-assigned value score (0-100 scale).
-        requirement: Task requirement or conclusion field (1-500 characters).
-        description: Optional task description for context.
-
-    Returns:
-        Confirmation message with task ID and title.
-
-    Raises:
-        ModelRetry: If validation fails. LLM receives error and can retry.
-
-    Example:
-        >>> create_task_tool(ctx, "Build login feature", 120, 85.0, "OAuth2 implementation", "Implement OAuth2")
-        "✅ Created task 'Build login feature' (ID: 123e4567-...)"
-    """
-    try:
-        task_data = TaskCreate(
-            title=title,
-            description=description,
-            duration_min=duration_min,
-            llm_value=llm_value,
-            requirement=requirement,
+    urgency: int = 3,
+    importance: int = 3,
+    effort: int = 3,
+    category: str = "general",
+    goal_id: UUID | None = None,
+    skill_domain: str | None = None,
+    required_skill_level: int | None = None,
+) -> dict:
+    """Create work with MCDA factors, goal and skill requirements; learn category duration once."""
+    require_write_access(ctx)
+    with _tool_errors():
+        _require_goal(ctx, goal_id)
+        task = ctx.deps.task_repo.create_task(
+            TaskCreate(
+                title=title,
+                description=description,
+                duration_min=duration_min,
+                llm_value=llm_value,
+                requirement=requirement,
+                urgency=urgency,
+                importance=importance,
+                effort=effort,
+                category=category,
+                goal_id=goal_id,
+                skill_domain=skill_domain,
+                required_skill_level=required_skill_level,
+            ),
         )
-        task = ctx.deps.task_repo.create_task(task_data)
-        return f"✅ Created task '{task.title}' (ID: {task.task_id})"
-    except (ValidationError, ValueError) as e:
-        raise ModelRetry(str(e)) from e
+        return task.model_dump(mode="json")
 
 
-def update_task_tool(  # noqa: PLR0913
+def update_task_tool(
     ctx: RunContext[TaskDependencies],
     task_id: UUID,
-    title: str | None = None,
-    description: str | None = None,
-    status: str | None = None,
-    duration_min: int | None = None,
-    llm_value: float | None = None,
-    requirement: str | None = None,
+    changes: TaskUpdate | dict[str, object],
 ) -> Task:
-    """Update fields of an existing task.
-
-    Args:
-        ctx: Runtime context containing TaskDependencies.
-        task_id: UUID of the task to update.
-        title: New task title (1-500 characters).
-        description: New task description.
-        status: New status ('pending', 'in_progress', 'completed', 'cancelled').
-        duration_min: New estimated duration in minutes (>= 1).
-        llm_value: New value score (0-100 scale).
-        requirement: New requirement/conclusion (1-500 characters).
-
-    Returns:
-        Updated Task object.
-
-    Raises:
-        ModelRetry: If validation fails or task not found.
-    """
-    try:
-        task_status = TaskStatus(status) if status else None
-        task_data = TaskUpdate(
-            title=title,
-            description=description,
-            status=task_status,
-            duration_min=duration_min,
-            llm_value=llm_value,
-            requirement=requirement,
-        )
-        return ctx.deps.task_repo.update_task(task_id, task_data)
-    except (ValidationError, ValueError, TaskNotFoundError) as e:
-        raise ModelRetry(str(e)) from e
+    """Apply supplied fields only. Omit nullable fields to keep them; explicit null clears them."""
+    require_write_access(ctx)
+    with _tool_errors():
+        updates = TaskUpdate.model_validate(changes)
+        _require_goal(ctx, updates.goal_id)
+        return ctx.deps.task_repo.update_task(task_id, updates)
 
 
 def list_tasks_tool(  # noqa: PLR0913
@@ -154,50 +119,28 @@ def list_tasks_tool(  # noqa: PLR0913
     sort_by: str = "priority",
     response_format: str = "concise",
 ) -> str | dict:
-    r"""List tasks with pagination and flexible output format.
+    """List tasks: up to 50 per page; concise summaries or detailed JSON.
 
-    Returns up to `limit` tasks to avoid overwhelming context window.
-    Use response_format='concise' for token-efficient summaries,
-    'detailed' for full Task objects when chaining tools.
-
-    Args:
-        ctx: Runtime context containing TaskDependencies.
-        status: Optional filter (pending, in_progress, completed, cancelled).
-        limit: Maximum tasks to return (default 10, max 50).
-        offset: Number of tasks to skip for pagination.
-        sort_by: Sort order: priority (default), created_at, duration_min.
-        response_format: Output format: concise (default) or detailed.
-
-    Returns:
-        If concise: Human-readable summary string.
-        If detailed: Dict with tasks, total_count, has_more, suggestion.
-
-    Raises:
-        ModelRetry: If sort_by or response_format is invalid.
-
-    Example:
-        >>> list_tasks_tool(ctx, status="pending", limit=5)
-        "Found 12 tasks:\\n1. Build login (Status: pending, Priority: 2.5)..."
+    Sort by CD3 priority, MCDA score, created_at or duration_min.
     """
-    # Validate response_format
-    try:
-        fmt = ResponseFormat(response_format)
-    except ValueError:
-        raise ModelRetry(f"Invalid response_format: {response_format}. Use: concise, detailed") from None
+    fmt = _response_format(response_format)
 
     # Validate and convert status
-    task_status = TaskStatus(status) if status else None
+    task_status = _task_status(status)
+    _validate_page(limit, offset)
     all_tasks = ctx.deps.task_repo.list_tasks(status=task_status)
 
     # Sort based on sort_by parameter
     if sort_by == "priority":
         all_tasks.sort(key=lambda t: t.priority, reverse=True)
+    elif sort_by == "score":
+        all_tasks.sort(key=lambda t: t.priority_score or 0.0, reverse=True)
     elif sort_by == "created_at":
         all_tasks.sort(key=lambda t: t.created_at, reverse=True)
     elif sort_by == "duration_min":
         all_tasks.sort(key=lambda t: t.duration_min)
     else:
-        raise ModelRetry(f"Invalid sort_by: {sort_by}. Use: priority, created_at, duration_min") from None
+        raise ModelRetry(f"Invalid sort_by: {sort_by}. Use: priority, score, created_at, duration_min") from None
 
     # Enforce max limit and paginate
     effective_limit = min(limit, 50)
@@ -211,9 +154,7 @@ def list_tasks_tool(  # noqa: PLR0913
             status_str = f" with status '{status}'" if status else ""
             return f"No tasks found{status_str}."
 
-        lines = [f"Found {total_count} task{'s' if total_count != 1 else ''}:\n"]
-        for i, task in enumerate(paginated, start=offset + 1):
-            lines.append(_format_task_concise(task, i))
+        lines = _concise_tasks(paginated, f"Found {total_count} task{'s' if total_count != 1 else ''}:", offset)
 
         if has_more:
             remaining = total_count - (offset + len(paginated))
@@ -223,7 +164,7 @@ def list_tasks_tool(  # noqa: PLR0913
 
     # Detailed format
     result: dict = {
-        "tasks": paginated,
+        "tasks": [task.model_dump(mode="json") for task in paginated],
         "total_count": total_count,
         "has_more": has_more,
     }
@@ -244,43 +185,16 @@ def search_tasks_tool(  # noqa: PLR0913
     limit: int = 10,
     response_format: str = "concise",
 ) -> str | dict:
-    r"""Search tasks by keyword with optional filters.
-
-    Searches across title, description, and requirement fields.
-    More token-efficient than list_tasks_tool when looking for specific tasks.
-
-    Args:
-        ctx: Runtime context containing TaskDependencies.
-        query: Keyword to search (case-insensitive, partial match).
-        status: Optional status filter.
-        min_priority: Only tasks with priority >= this value.
-        max_duration: Only tasks with duration_min <= this value.
-        limit: Maximum results (default 10, max 50).
-        response_format: concise (default) or detailed.
-
-    Returns:
-        If concise: Human-readable string with matching tasks.
-        If detailed: Dict with tasks, total_matches, query.
-
-    Raises:
-        ModelRetry: If query empty or response_format invalid.
-
-    Example:
-        >>> search_tasks_tool(ctx, "login", status="pending")
-        "Found 3 matches for 'login':\\n1. Build login (Priority: 2.5)..."
-    """
+    """Search title, description and requirement; optional CD3/duration/status filters, max 50 results."""
     # Validate query
     if not query or not query.strip():
         raise ModelRetry("Search query cannot be empty.") from None
 
-    # Validate response_format
-    try:
-        fmt = ResponseFormat(response_format)
-    except ValueError:
-        raise ModelRetry(f"Invalid response_format: {response_format}. Use: concise, detailed") from None
+    fmt = _response_format(response_format)
 
     # Get base task list
-    task_status = TaskStatus(status) if status else None
+    task_status = _task_status(status)
+    _validate_page(limit)
     all_tasks = ctx.deps.task_repo.list_tasks(status=task_status)
 
     # Filter by keyword (case-insensitive)
@@ -311,9 +225,10 @@ def search_tasks_tool(  # noqa: PLR0913
         if not paginated:
             return f"No tasks found matching '{query}'."
 
-        lines = [f"Found {total_matches} match{'es' if total_matches != 1 else ''} for '{query}':\n"]
-        for i, task in enumerate(paginated, start=1):
-            lines.append(_format_task_concise(task, i))
+        lines = _concise_tasks(
+            paginated,
+            f"Found {total_matches} match{'es' if total_matches != 1 else ''} for '{query}':",
+        )
 
         if has_more:
             remaining = total_matches - len(paginated)
@@ -323,7 +238,7 @@ def search_tasks_tool(  # noqa: PLR0913
 
     # Detailed format
     result: dict = {
-        "tasks": paginated,
+        "tasks": [task.model_dump(mode="json") for task in paginated],
         "total_matches": total_matches,
         "query": query,
     }
@@ -338,43 +253,15 @@ def mark_task_completed_tool(
     duration_actual: int | None = None,
     conclusion: str | None = None,
 ) -> str:
-    """Mark a task as completed and optionally record completion data for pattern learning.
-
-    Transitions task to completed status and unblocks any tasks depending on it.
-    If duration_actual is provided, creates a completion record with variance tracking.
-
-    Args:
-        ctx: Runtime context containing TaskDependencies.
-        task_id: UUID of the task to mark as completed.
-        duration_actual: Optional. Actual time spent in minutes. Enables completion tracking.
-        conclusion: Optional. What was learned or delivered. Captures insights for future tasks.
-
-    Returns:
-        Confirmation message with task title and variance information if tracked.
-
-    Raises:
-        ModelRetry: If task doesn't exist. LLM can retry with correct task ID.
-
-    Example:
-        >>> mark_task_completed_tool(ctx, UUID("..."))
-        "✅ Task 'Build login feature' marked as completed"
-
-        >>> mark_task_completed_tool(ctx, UUID("..."), duration_actual=90, conclusion="OAuth2 setup")
-        "✅ Completed 'Build login feature' (60min estimated, 90min actual, +50.0% variance)"
-    """
+    """Complete work; measured actual time records an atomic immutable snapshot before blocker cleanup."""
+    require_write_access(ctx)
     try:
-        task = ctx.deps.task_repo.mark_completed(task_id)
-
-        # If duration provided, record completion for pattern learning
         if duration_actual is not None:
-            completion = ctx.deps.completion_repo.create_completion(
-                CompletionCreate(
-                    task_id=task_id,
-                    status=CompletionStatus.COMPLETED,
-                    duration_expected=task.duration_min,  # Immutable snapshot
-                    duration_actual=duration_actual,
-                    conclusion=conclusion,
-                )
+            task = get_task_details_tool(ctx, task_id)
+            completion = ctx.deps.completion_repo.complete_task(
+                task_id,
+                actual_minutes=duration_actual,
+                conclusion=conclusion,
             )
 
             variance_sign = "+" if completion.variance_minutes > 0 else ""
@@ -383,36 +270,10 @@ def mark_task_completed_tool(
                 f"({completion.duration_expected}min estimated, {completion.duration_actual}min actual, "
                 f"{variance_sign}{completion.variance_percent:.1f}% variance)"
             )
+        task = ctx.deps.task_repo.mark_completed(task_id)
 
         return f"✅ Task '{task.title}' marked as completed"
-    except TaskNotFoundError as e:
-        raise ModelRetry(str(e)) from e
-
-
-def mark_task_in_progress_tool(ctx: RunContext[TaskDependencies], task_id: UUID) -> str:
-    """Mark a task as in progress.
-
-    Transitions task to in_progress status to track active work.
-    Use when user starts working on a task.
-
-    Args:
-        ctx: Runtime context containing TaskDependencies.
-        task_id: UUID of the task to mark as in progress.
-
-    Returns:
-        Confirmation message with task title.
-
-    Raises:
-        ModelRetry: If task doesn't exist. LLM can retry with correct task ID.
-
-    Example:
-        >>> mark_task_in_progress_tool(ctx, UUID("123e4567-e89b-12d3-a456-426614174000"))
-        "Task 'Build login feature' marked as in progress"
-    """
-    try:
-        task = ctx.deps.task_repo.mark_in_progress(task_id)
-        return f"Task '{task.title}' marked as in progress"
-    except TaskNotFoundError as e:
+    except (TaskNotFoundError, ValueError) as e:
         raise ModelRetry(str(e)) from e
 
 
@@ -422,49 +283,23 @@ def mark_task_cancelled_tool(
     duration_actual: int | None = None,
     conclusion: str | None = None,
 ) -> str:
-    """Mark a task as cancelled and optionally record why for learning.
-
-    Transitions task to cancelled status to remove from active workload.
-    If duration_actual is provided, records time spent before cancellation.
-
-    Args:
-        ctx: Runtime context containing TaskDependencies.
-        task_id: UUID of the task to mark as cancelled.
-        duration_actual: Optional. Time spent before cancellation in minutes.
-        conclusion: Optional. Why task was cancelled. Helps avoid similar tasks.
-
-    Returns:
-        Confirmation message with task title and cancellation details if tracked.
-
-    Raises:
-        ModelRetry: If task doesn't exist. LLM can retry with correct task ID.
-
-    Example:
-        >>> mark_task_cancelled_tool(ctx, UUID("..."))
-        "❌ Task 'Build login feature' marked as cancelled"
-
-        >>> mark_task_cancelled_tool(ctx, UUID("..."), duration_actual=30, conclusion="Requirements changed")
-        "❌ Cancelled 'Build login feature' (spent 30min)"
-    """
+    """Cancel work; optional measured actual time records evidence, never invent time from conclusions."""
+    require_write_access(ctx)
     try:
-        task = ctx.deps.task_repo.mark_cancelled(task_id)
-
-        # If duration provided, record cancellation for pattern learning
         if duration_actual is not None:
-            ctx.deps.completion_repo.create_completion(
-                CompletionCreate(
-                    task_id=task_id,
-                    status=CompletionStatus.CANCELLED,
-                    duration_expected=task.duration_min,  # Immutable snapshot
-                    duration_actual=duration_actual,
-                    conclusion=conclusion,
-                )
+            task = get_task_details_tool(ctx, task_id)
+            ctx.deps.completion_repo.complete_task(
+                task_id,
+                actual_minutes=duration_actual,
+                conclusion=conclusion,
+                status=CompletionStatus.CANCELLED,
             )
 
             return f"❌ Cancelled '{task.title}' (spent {duration_actual}min)"
+        task = ctx.deps.task_repo.mark_cancelled(task_id)
 
         return f"❌ Task '{task.title}' marked as cancelled"
-    except TaskNotFoundError as e:
+    except (TaskNotFoundError, ValueError) as e:
         raise ModelRetry(str(e)) from e
 
 
@@ -475,35 +310,8 @@ def update_task_status_tool(
     duration_actual: int | None = None,
     conclusion: str | None = None,
 ) -> str:
-    """Update task status with optional completion tracking.
-
-    Transitions tasks through workflow states:
-    - pending -> in_progress: Start working
-    - in_progress -> completed: Finish with optional time tracking
-    - any -> cancelled: Abandon with optional reason
-
-    Replaces separate mark_task_completed, mark_task_in_progress,
-    and mark_task_cancelled tools.
-
-    Args:
-        ctx: Runtime context containing TaskDependencies.
-        task_id: UUID of task to update.
-        new_status: Target status (in_progress, completed, cancelled).
-        duration_actual: Actual time in minutes (for completed/cancelled).
-        conclusion: Notes or reason (for completed/cancelled).
-
-    Returns:
-        Confirmation message with status details.
-
-    Raises:
-        ModelRetry: If task not found or new_status invalid.
-
-    Example:
-        >>> update_task_status_tool(ctx, task_id, "in_progress")
-        "Task 'Build login' marked as in progress"
-        >>> update_task_status_tool(ctx, task_id, "completed", duration_actual=90)
-        "Completed 'Build login' (120min estimated, 90min actual, -25.0% variance)"
-    """
+    """Start, complete or cancel work; only measured closure time creates completion evidence."""
+    require_write_access(ctx)
     valid_statuses = ["in_progress", "completed", "cancelled"]
     if new_status not in valid_statuses:
         raise ModelRetry(f"Invalid new_status: {new_status}. Use: {', '.join(valid_statuses)}") from None
@@ -512,48 +320,13 @@ def update_task_status_tool(
         new_status_enum = TaskStatus(new_status)
 
         if new_status_enum == TaskStatus.COMPLETED:
-            task = ctx.deps.task_repo.mark_completed(task_id)
-            if duration_actual is not None:
-                completion = ctx.deps.completion_repo.create_completion(
-                    CompletionCreate(
-                        task_id=task_id,
-                        status=CompletionStatus.COMPLETED,
-                        duration_expected=task.duration_min,
-                        duration_actual=duration_actual,
-                        conclusion=conclusion,
-                    )
-                )
-                sign = "+" if completion.variance_minutes > 0 else ""
-                return (
-                    f"✅ Completed '{task.title}' "
-                    f"({completion.duration_expected}min estimated, "
-                    f"{completion.duration_actual}min actual, "
-                    f"{sign}{completion.variance_percent:.1f}% variance)"
-                )
-            return f"✅ Task '{task.title}' marked as completed"
+            return mark_task_completed_tool(ctx, task_id, duration_actual, conclusion)
 
         if new_status_enum == TaskStatus.IN_PROGRESS:
             task = ctx.deps.task_repo.mark_in_progress(task_id)
             return f"🚀 Task '{task.title}' marked as in progress"
 
-        if new_status_enum == TaskStatus.CANCELLED:
-            task = ctx.deps.task_repo.mark_cancelled(task_id)
-            if duration_actual is not None:
-                ctx.deps.completion_repo.create_completion(
-                    CompletionCreate(
-                        task_id=task_id,
-                        status=CompletionStatus.CANCELLED,
-                        duration_expected=task.duration_min,
-                        duration_actual=duration_actual,
-                        conclusion=conclusion,
-                    )
-                )
-                return f"❌ Cancelled '{task.title}' (spent {duration_actual}min)"
-            return f"❌ Task '{task.title}' cancelled"
-
-        # Unreachable - all valid statuses handled above
-        msg = f"Unexpected status: {new_status_enum}"
-        raise RuntimeError(msg)
+        return mark_task_cancelled_tool(ctx, task_id, duration_actual, conclusion)
 
     except TaskNotFoundError as e:
         raise ModelRetry(
@@ -562,25 +335,7 @@ def update_task_status_tool(
 
 
 def get_task_details_tool(ctx: RunContext[TaskDependencies], task_id: UUID) -> Task:
-    """Get detailed information about a specific task.
-
-    Retrieves full task metadata for inspection or tool chaining.
-    Use when you need complete task data before updating.
-
-    Args:
-        ctx: Runtime context containing TaskDependencies.
-        task_id: UUID of the task to retrieve.
-
-    Returns:
-        Task object with all fields.
-
-    Raises:
-        ModelRetry: If task not found. Use list_tasks_tool to find valid IDs.
-
-    Example:
-        >>> task = get_task_details_tool(ctx, UUID("..."))
-        >>> print(f"{task.title}: {task.requirement}")
-    """
+    """Read full task metadata; missing task IDs produce a correctable error."""
     task: Task | None = ctx.deps.task_repo.get_task(task_id)
 
     if task is None:
@@ -592,43 +347,13 @@ def get_task_details_tool(ctx: RunContext[TaskDependencies], task_id: UUID) -> T
 
 
 def list_open_tasks_full(ctx: RunContext[TaskDependencies]) -> list[TaskWithPriority]:
-    """List open tasks with dependency counts and effective priorities.
-
-    Returns tasks enriched with:
-    - Dependency counts (tasks_blocked_count, active_blocker_count)
-    - Effective priority (considering DAG inheritance)
-
-    Args:
-        ctx: Runtime context containing TaskDependencies.
-
-    Returns:
-        List of TaskWithPriority objects.
-    """
+    """List active tasks with dependency counts and inherited CD3 value/time (not MCDA score)."""
     return ctx.deps.dep_repo.list_tasks_with_priority()
 
 
 def add_dependency_tool(ctx: RunContext[TaskDependencies], task_id: UUID, blocker_id: UUID) -> TaskDependency:
-    """Create a dependency relationship between two tasks.
-
-    Marks task_id as blocked by blocker_id, preventing task_id from being
-    completed until blocker_id is done. Automatically detects and prevents cycles.
-
-    Args:
-        ctx: Runtime context containing TaskDependencies.
-        task_id: UUID of the task that is being blocked.
-        blocker_id: UUID of the task that blocks task_id.
-
-    Returns:
-        TaskDependency object representing the created relationship.
-
-    Raises:
-        ModelRetry: If cycle detected, blocker closed, duplicate exists, or tasks not found.
-            LLM receives error and can retry with different task IDs.
-
-    Example:
-        >>> add_dependency_tool(ctx, task_id=UUID(...), blocker_id=UUID(...))
-        TaskDependency(task_id=..., blocker_id=..., created_at=...)
-    """
+    """Make task_id wait for blocker_id; reject cycles, duplicates and closed endpoints."""
+    require_write_access(ctx)
     try:
         return ctx.deps.dep_repo.add_dependency(task_id, blocker_id)
     except (DependencyError, TaskNotFoundError) as e:
@@ -636,72 +361,22 @@ def add_dependency_tool(ctx: RunContext[TaskDependencies], task_id: UUID, blocke
 
 
 def get_blockers_tool(ctx: RunContext[TaskDependencies], task_id: UUID) -> list[Task]:
-    """Get all active tasks blocking a given task.
-
-    Returns tasks that must be completed before task_id can proceed.
-    Only includes active blockers (pending/in_progress), not completed/cancelled.
-
-    Args:
-        ctx: Runtime context containing TaskDependencies.
-        task_id: UUID of the task to check for blockers.
-
-    Returns:
-        List of Task objects that are actively blocking task_id (empty if unblocked).
-
-    Raises:
-        TaskNotFoundError: If task_id doesn't exist.
-
-    Example:
-        >>> get_blockers_tool(ctx, UUID("..."))
-        [Task(title='Setup database', ...), Task(title='Configure auth', ...)]
-    """
-    return ctx.deps.dep_repo.get_blockers(task_id)
+    """Read active blockers; missing task IDs produce a correctable error."""
+    with _tool_errors():
+        get_task_details_tool(ctx, task_id)
+        return ctx.deps.dep_repo.get_blockers(task_id)
 
 
 def get_blocked_tool(ctx: RunContext[TaskDependencies], task_id: UUID) -> list[Task]:
-    """Get all tasks blocked by a given task.
-
-    Returns tasks that are waiting for task_id to be completed.
-    Helps identify the impact of completing a task.
-
-    Args:
-        ctx: Runtime context containing TaskDependencies.
-        task_id: UUID of the task to check for dependents.
-
-    Returns:
-        List of Task objects that are blocked by task_id (empty if blocking no tasks).
-
-    Raises:
-        TaskNotFoundError: If task_id doesn't exist.
-
-    Example:
-        >>> get_blocked_tool(ctx, UUID("..."))
-        [Task(title='Deploy to production', ...), Task(title='Write documentation', ...)]
-    """
-    return ctx.deps.dep_repo.get_blocked(task_id)
+    """Read tasks waiting on this task; missing task IDs produce a correctable error."""
+    with _tool_errors():
+        get_task_details_tool(ctx, task_id)
+        return ctx.deps.dep_repo.get_blocked(task_id)
 
 
 def remove_dependency_tool(ctx: RunContext[TaskDependencies], task_id: UUID, blocker_id: UUID) -> str:
-    """Remove a dependency relationship between two tasks.
-
-    Unblocks task_id so it no longer depends on blocker_id being completed.
-    Use when a dependency is no longer necessary or was incorrectly added.
-
-    Args:
-        ctx: Runtime context containing TaskDependencies.
-        task_id: UUID of the task being unblocked.
-        blocker_id: UUID of the task that no longer blocks task_id.
-
-    Returns:
-        Confirmation message with task IDs.
-
-    Raises:
-        ModelRetry: If dependency doesn't exist or tasks not found. LLM can retry.
-
-    Example:
-        >>> remove_dependency_tool(ctx, task_id=UUID(...), blocker_id=UUID(...))
-        "Dependency between ... and ... removed"
-    """
+    """Remove an existing blocker edge without altering either task."""
+    require_write_access(ctx)
     try:
         ctx.deps.dep_repo.remove_dependency(task_id, blocker_id)
         return f"✅ Dependency removed: {task_id} no longer blocked by {blocker_id}"
@@ -713,83 +388,274 @@ def calculator_tool(
     ctx: RunContext[TaskDependencies],  # noqa: ARG001
     expression: str,
 ) -> str:
-    """Evaluate mathematical expressions safely for task calculations.
-
-    Enables the agent to perform calculations for:
-    - Priority score computations (e.g., "85.0 / 120" → 0.7083)
-    - Variance percentage calculations (e.g., "(90 - 60) / 60 * 100" → 50.0%)
-    - Duration conversions (e.g., "2.5 * 60" for hours to minutes → 150)
-    - Multi-dimensional value scoring (e.g., "(85 * 0.35) + (65 * 0.30) + (95 * 0.35)" → 86.4)
-
-    Supports: +, -, *, /, ** (power), % (modulo), parentheses for order of operations
-    Security: Uses AST-based evaluation (simpleeval) - no arbitrary code execution possible
-
-    Use this tool when you need to:
-    - Verify priority calculations before recommendations
-    - Calculate inherited effective priority for blocking tasks
-    - Compute variance percentages for completion analysis
-    - Convert between time units or value scales
-    - Perform any mathematical computation needed for task reasoning
+    """Evaluate bounded numeric arithmetic for priorities and duration analysis.
 
     Args:
-        ctx: Runtime context containing TaskDependencies.
-        expression: Mathematical expression to evaluate (e.g., "85.0 / 120", "(2 + 2) * 3").
-                   Must be a valid mathematical expression using numbers and operators.
-                   No variables, functions, or code execution allowed.
+        ctx: Task repositories (unused for this stateless operation).
+        expression: Numbers, arithmetic operators, and parentheses.
 
     Returns:
-        Formatted result string: "{expression} = {result}"
-        - Floats formatted to 4 decimal places (e.g., "85.0 / 120 = 0.7083")
-        - Integers displayed without decimals (e.g., "2 + 2 = 4")
+        Expression and numeric result; floats use four decimal places.
 
     Raises:
-        ModelRetry: If expression is invalid, empty, contains division by zero, or uses
-                   unsupported operations. LLM receives error message and can retry.
-
-    Example:
-        >>> calculator_tool(ctx, "85.0 / 120")
-        "85.0 / 120 = 0.7083"
-
-        >>> calculator_tool(ctx, "2 + 2")
-        "2 + 2 = 4"
-
-        >>> calculator_tool(ctx, "(92*0.35) + (78*0.30) + (88*0.35)")
-        "(92*0.35) + (78*0.30) + (88*0.35) = 86.4000"
-
-        >>> calculator_tool(ctx, "2 ** 8")
-        "2 ** 8 = 256"
+        ModelRetry: If the expression is invalid, unsafe, or divides by zero.
     """
-    # Validate input
-    if not expression or not expression.strip():
-        raise ModelRetry("Expression cannot be empty. Provide a mathematical expression like '2 + 2'.") from None
-
     try:
-        # Safe evaluation using AST-based simpleeval (no code execution possible)
-        result = simple_eval(expression.strip())
+        return evaluate_expression(expression)
+    except ZeroDivisionError as error:
+        raise ModelRetry("Division by zero. Check the denominator.") from error
+    except ValueError as error:
+        raise ModelRetry(f"Invalid mathematical expression: {error}") from error
 
-        # Format result based on type
-        if isinstance(result, float):
-            # Format floats with 4 decimal places for consistency
-            formatted_result = f"{result:.4f}"
-        elif isinstance(result, int):
-            # Integers displayed without decimals
-            formatted_result = str(result)
-        else:
-            # Unexpected type (shouldn't happen with pure math expressions)
-            formatted_result = str(result)
 
-        return f"{expression} = {formatted_result}"
+@contextmanager
+def _tool_errors() -> Iterator[None]:
+    """Translate correctable inputs, not database or programming failures."""
+    try:
+        yield
+    except (ValidationError, ValueError, TaskNotFoundError, DependencyError) as error:
+        raise ModelRetry(str(error)) from error
 
-    except ZeroDivisionError as e:
-        raise ModelRetry(f"Division by zero in expression: '{expression}'. Check the denominator.") from e
-    except InvalidExpression as e:
-        # Catches NameNotDefined, FunctionNotDefined, and other simpleeval-specific errors
-        raise ModelRetry(
-            f"Invalid mathematical expression: '{expression}'. "
-            f"Error: {e}. Use only numbers and operators (+, -, *, /, **, %)."
-        ) from e
-    except (SyntaxError, TypeError, ValueError, NameError) as e:
-        raise ModelRetry(
-            f"Invalid mathematical expression: '{expression}'. "
-            f"Error: {e}. Use only numbers and operators (+, -, *, /, **, %)."
-        ) from e
+
+def _planning(ctx: RunContext[TaskDependencies]) -> PlanningService:
+    if ctx.deps.planning is None:
+        ctx.deps.planning = PlanningService(ctx.deps.task_repo.db_path)
+    return ctx.deps.planning
+
+
+def _memory(ctx: RunContext[TaskDependencies]) -> MemoryService:
+    if ctx.deps.memory is None:
+        ctx.deps.memory = MemoryService(ctx.deps.task_repo.db_path, user_id=ctx.deps.user_id)
+    return ctx.deps.memory
+
+
+def _priority(ctx: RunContext[TaskDependencies]) -> PriorityService:
+    return PriorityService(ctx.deps.task_repo.db_path)
+
+
+def _task_status(status: str | None) -> TaskStatus | None:
+    with _tool_errors():
+        return TaskStatus(status) if status is not None else None
+
+
+def _validate_page(limit: int, offset: int = 0) -> None:
+    if limit < 1 or offset < 0:
+        raise ModelRetry("Limit must be positive and offset must be nonnegative")
+
+
+def _require_goal(ctx: RunContext[TaskDependencies], goal_id: UUID | None) -> None:
+    if goal_id is not None and _planning(ctx).get_goal(goal_id) is None:
+        raise ModelRetry(f"Goal not found: {goal_id}")
+
+
+def score_task_tool(ctx: RunContext[TaskDependencies], task_id: UUID) -> dict:
+    """Persist current MCDA score and return exact contributions, inherited score and trend."""
+    require_write_access(ctx)
+    with _tool_errors():
+        service = _priority(ctx)
+        service.update_task_priority(task_id)
+        return {**service.explain(task_id), "trend": service.trend(task_id), "history": service.history(task_id)}
+
+
+def recalculate_priorities_tool(ctx: RunContext[TaskDependencies], status: str | None = None) -> dict:
+    """Refresh changed MCDA scores; omit status for active work only."""
+    require_write_access(ctx)
+    with _tool_errors():
+        service = _priority(ctx)
+        selected = _task_status(status)
+        changed = service.update_all_priorities(selected)
+        scores = service.calculate_all_priorities(selected)
+        return {"changed": changed, "scores": {str(task_id): score for task_id, score in scores.items()}}
+
+
+def rank_tasks_tool(ctx: RunContext[TaskDependencies], limit: int = 10, match_skills: bool = True) -> list[dict]:
+    """Rank actionable work by inherited MCDA score; exclude blockers and optionally skill gaps."""
+    with _tool_errors():
+        return [task.model_dump(mode="json") for task in _priority(ctx).get_top_priorities(limit, match_skills)]
+
+
+def priority_weights_tool(ctx: RunContext[TaskDependencies], weights: PriorityWeights | None = None) -> dict:
+    """Show current weights, or explicitly replace all five finite weights summing to one."""
+    if weights is not None:
+        require_write_access(ctx)
+    with _tool_errors():
+        service = _priority(ctx)
+        if weights is not None:
+            service.adjust_weights(PriorityWeights.model_validate(weights))
+        return service.weights.model_dump(mode="json")
+
+
+def create_goal_tool(ctx: RunContext[TaskDependencies], title: str, description: str | None = None) -> dict:
+    """Create an outcome without silently creating tasks."""
+    require_write_access(ctx)
+    with _tool_errors():
+        return _planning(ctx).create_goal(title, description).model_dump(mode="json")
+
+
+def list_goals_tool(ctx: RunContext[TaskDependencies]) -> list[dict]:
+    """List outcomes together with completed/noncancelled task progress."""
+    with _tool_errors():
+        service = _planning(ctx)
+        return [service.goal_progress(goal.goal_id).model_dump(mode="json") for goal in service.list_goals()]
+
+
+def goal_progress_tool(ctx: RunContext[TaskDependencies], goal_id: UUID) -> dict:
+    """Report completed fraction, linked total and cancellations; empty progress is zero."""
+    with _tool_errors():
+        return _planning(ctx).goal_progress(goal_id).model_dump(mode="json")
+
+
+def update_goal_tool(
+    ctx: RunContext[TaskDependencies],
+    goal_id: UUID,
+    title: str | None = None,
+    description: str | None = None,
+    replace_description: bool = False,
+) -> dict:
+    """Edit a goal; set replace_description to clear with null, otherwise omitted description is kept."""
+    require_write_access(ctx)
+    with _tool_errors():
+        service = _planning(ctx)
+        goal = service.get_goal(goal_id)
+        if goal is None:
+            raise ValueError(f"Goal not found: {goal_id}")
+        new_description = description if description is not None or replace_description else goal.description
+        return service.update_goal(goal_id, title, new_description).model_dump(mode="json")
+
+
+def delete_goal_tool(ctx: RunContext[TaskDependencies], goal_id: UUID) -> dict:
+    """Delete an outcome and unlink its tasks without deleting work."""
+    require_write_access(ctx)
+    with _tool_errors():
+        _planning(ctx).delete_goal(goal_id)
+        return {"deleted_goal_id": str(goal_id)}
+
+
+def link_task_goal_tool(ctx: RunContext[TaskDependencies], task_id: UUID, goal_id: UUID | None) -> dict:
+    """Attach work to an existing goal, or explicitly unlink it with null."""
+    require_write_access(ctx)
+    with _tool_errors():
+        _require_goal(ctx, goal_id)
+        return _planning(ctx).link_task(task_id, goal_id).model_dump(mode="json")
+
+
+def assess_skill_tool(
+    ctx: RunContext[TaskDependencies],
+    domain: str,
+    level: int,
+    evidence: str,
+    assessed_at: datetime | None = None,
+) -> dict:
+    """Record explicit evidence-backed Dreyfus level 1..5; retain history, never infer from speed."""
+    require_write_access(ctx)
+    with _tool_errors():
+        return _planning(ctx).set_skill(domain, level, evidence, assessed_at).model_dump(mode="json")
+
+
+def list_skills_tool(ctx: RunContext[TaskDependencies]) -> list[dict]:
+    """Read latest observed evidence-backed assessments."""
+    return [skill.model_dump(mode="json") for skill in _planning(ctx).list_skills()]
+
+
+def skill_history_tool(ctx: RunContext[TaskDependencies], domain: str) -> list[dict]:
+    """Read chronological evidence including backfills, corrections and regressions."""
+    if not domain.strip():
+        raise ModelRetry("Skill domain must not be empty")
+    return [skill.model_dump(mode="json") for skill in _planning(ctx).skill_history(domain)]
+
+
+def match_task_skills_tool(ctx: RunContext[TaskDependencies], task_id: UUID) -> dict:
+    """Explain readiness, blockers and unknown or insufficient skill levels for one task."""
+    with _tool_errors():
+        return _planning(ctx).match(task_id).model_dump(mode="json")
+
+
+def recommendations_tool(ctx: RunContext[TaskDependencies]) -> dict:
+    """Separate actionable work from learning gaps; blocked work is never recommended."""
+    return _planning(ctx).recommendations().model_dump(mode="json")
+
+
+def work_analysis_tool(ctx: RunContext[TaskDependencies], max_minutes: int = 30, limit: int = 5) -> dict:
+    """Read duration critical path and skill/dependency-ready CD3 quick wins.
+
+    Assumes unlimited parallel capacity, excludes learning time, and predicts no dates.
+    """
+    with _tool_errors():
+        return _planning(ctx).work_analysis(max_minutes, limit).model_dump(mode="json")
+
+
+def estimate_duration_tool(ctx: RunContext[TaskDependencies], category: str, baseline_minutes: int) -> dict:
+    """Apply category evidence once to a raw estimate; expose count, median and dispersion."""
+    with _tool_errors():
+        if not category.strip():
+            raise ValueError("Category must not be empty")
+        return _planning(ctx).estimate(category, baseline_minutes).model_dump(mode="json")
+
+
+def completion_insights_tool(ctx: RunContext[TaskDependencies]) -> list[dict]:
+    """Read immutable category completion/cancellation evidence and duration confidence."""
+    return [insight.model_dump(mode="json") for insight in _planning(ctx).insights()]
+
+
+_FACT_ADAPTER = TypeAdapter(MemoryFact)
+
+
+def remember_fact_tool(
+    ctx: RunContext[TaskDependencies],
+    key: str,
+    value: str,
+    category: str = "preference",
+    expires_at: datetime | None = None,
+) -> dict:
+    """Store only an explicitly requested user fact locally; optional injected semantic backend mirrors it."""
+    require_write_access(ctx)
+    with _tool_errors():
+        return _FACT_ADAPTER.dump_python(_memory(ctx).remember(key, value, category, expires_at), mode="json")
+
+
+def update_fact_tool(
+    ctx: RunContext[TaskDependencies],
+    key: str,
+    value: str,
+    category: str = "preference",
+    expires_at: datetime | None = None,
+) -> dict:
+    """Explicitly correct a fact; obsolete semantic versions cannot resurface."""
+    require_write_access(ctx)
+    with _tool_errors():
+        return _FACT_ADAPTER.dump_python(_memory(ctx).update(key, value, category, expires_at), mode="json")
+
+
+def forget_fact_tool(ctx: RunContext[TaskDependencies], key: str) -> dict:
+    """Remove a user fact authoritatively before attempting optional backend deletion."""
+    require_write_access(ctx)
+    with _tool_errors():
+        return {"forgotten": _memory(ctx).forget(key)}
+
+
+def list_facts_tool(ctx: RunContext[TaskDependencies], category: str | None = None) -> list[dict]:
+    """List current unexpired facts for this user only."""
+    with _tool_errors():
+        if category is not None and category not in ("preference", "skill", "goal", "context"):
+            raise ValueError("Unsupported memory category")
+        return [_FACT_ADAPTER.dump_python(fact, mode="json") for fact in _memory(ctx).list_facts(category)]
+
+
+def search_facts_tool(ctx: RunContext[TaskDependencies], query: str, limit: int = 10) -> list[dict]:
+    """Retrieve user facts, filtering forgotten, expired and replaced versions."""
+    with _tool_errors():
+        if not query.strip():
+            raise ValueError("Memory query must not be empty")
+        _validate_page(limit)
+        return [_FACT_ADAPTER.dump_python(fact, mode="json") for fact in _memory(ctx).search(query, limit)]
+
+
+def _response_format(value: str) -> ResponseFormat:
+    try:
+        return ResponseFormat(value)
+    except ValueError as error:
+        raise ModelRetry(f"Invalid response_format: {value}. Use: concise, detailed") from error
+
+
+def _concise_tasks(tasks: list[Task], heading: str, offset: int = 0) -> list[str]:
+    return [heading + "\n", *(_format_task_concise(task, index) for index, task in enumerate(tasks, offset + 1))]

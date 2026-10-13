@@ -1,13 +1,29 @@
 """Tests for task repository."""
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from typer.testing import CliRunner
 
+from taskweaver.cli import app
+from taskweaver.database.completion_repository import CompletionRepository
+from taskweaver.database.connection import get_connection
 from taskweaver.database.dependency_repository import TaskDependencyRepository
 from taskweaver.database.exceptions import TaskNotFoundError
-from taskweaver.database.models import TaskCreate, TaskStatus, TaskUpdate, TaskWithDependencies, TaskWithPriority
+from taskweaver.database.models import (
+    Completion,
+    CompletionCreate,
+    CompletionStatus,
+    Task,
+    TaskCreate,
+    TaskStatus,
+    TaskUpdate,
+    TaskWithDependencies,
+    TaskWithPriority,
+)
+from taskweaver.database.priority_service import PriorityService
 from taskweaver.database.repository import TaskRepository
 
 
@@ -38,6 +54,128 @@ def test_get_task_by_id(task_repo: TaskRepository) -> None:
     assert retrieved_task is not None
     assert retrieved_task.task_id == created_task.task_id
     assert retrieved_task.title == created_task.title
+
+
+def test_priority_listings_refresh_age_without_writing_history(task_repo: TaskRepository) -> None:
+    """CLI/TUI listing scores follow current age, leaving persisted scores and history untouched."""
+    old = task_repo.create_task(
+        TaskCreate(title="Old lower urgency", duration_min=30, llm_value=50, requirement="Deliver", urgency=2)
+    )
+    new = task_repo.create_task(
+        TaskCreate(title="New higher urgency", duration_min=30, llm_value=50, requirement="Deliver", urgency=3)
+    )
+    with get_connection(task_repo.db_path) as conn, conn:
+        conn.execute(
+            "UPDATE tasks SET created_at = ? WHERE task_id = ?",
+            ((datetime.now(UTC) - timedelta(days=30)).isoformat(), str(old.task_id)),
+        )
+        history_before = [tuple(row) for row in conn.execute("SELECT * FROM priority_history ORDER BY event_id")]
+        persisted_before = [
+            tuple(row)
+            for row in conn.execute("SELECT task_id, priority_score, priority_updated_at FROM tasks ORDER BY task_id")
+        ]
+
+    expected = PriorityService(task_repo.db_path).calculate_all_priorities()
+    assert expected[old.task_id] > expected[new.task_id]
+    ranked = task_repo.list_tasks_by_priority()
+    assert [task.task_id for task in ranked] == [old.task_id, new.task_id]
+    assert {task.task_id: task.priority_score for task in ranked} == expected
+    assert [task.task_id for task in task_repo.list_tasks_by_priority(limit=1)] == [old.task_id]
+    assert {task.task_id: task.priority_score for task in task_repo.list_tasks(TaskStatus.PENDING)} == expected
+    assert {task.task_id: task.priority_score for task in task_repo.list_tasks_with_deps()} == expected
+    runner = CliRunner()
+    for arguments in (["ls", "--sort", "score"], ["ls"], ["lso"], ["show", str(old.task_id)]):
+        result = runner.invoke(app, [*arguments, "--db", str(task_repo.db_path)])
+        assert result.exit_code == 0, result.output
+        assert f"{expected[old.task_id]:.1f}" in result.output
+        if arguments == ["ls", "--sort", "score"]:
+            assert result.output.index(old.title) < result.output.index(new.title)
+    with get_connection(task_repo.db_path) as conn:
+        assert [
+            tuple(row) for row in conn.execute("SELECT * FROM priority_history ORDER BY event_id")
+        ] == history_before
+        assert [
+            tuple(row)
+            for row in conn.execute("SELECT task_id, priority_score, priority_updated_at FROM tasks ORDER BY task_id")
+        ] == persisted_before
+
+
+def test_task_status_lifecycle_round_trip(task_repo: TaskRepository) -> None:
+    """Status types survive validation, repository mutations, and JSON round trips."""
+    task = task_repo.create_task(
+        TaskCreate(title="Status lifecycle", duration_min=30, llm_value=50.0, requirement="Deliver")
+    )
+    assert task.status is TaskStatus.PENDING
+    assert task.model_dump(mode="json")["status"] == "pending"
+    assert Task.model_validate_json(task.model_dump_json()).status is TaskStatus.PENDING
+
+    update = TaskUpdate.model_validate({"status": "in_progress"})
+    assert update.status is TaskStatus.IN_PROGRESS
+    assert update.model_dump(mode="json", exclude_unset=True) == {"status": "in_progress"}
+    assert TaskUpdate.model_validate_json(update.model_dump_json()).status is TaskStatus.IN_PROGRESS
+    updated = task_repo.update_task(task.task_id, update)
+    assert updated.status is TaskStatus.IN_PROGRESS
+    retrieved = task_repo.get_task(task.task_id)
+    assert retrieved is not None
+    assert retrieved.status is TaskStatus.IN_PROGRESS
+    assert retrieved.model_dump(mode="json")["status"] == "in_progress"
+    assert task_repo.list_tasks(TaskStatus.IN_PROGRESS)[0].status is TaskStatus.IN_PROGRESS
+    assert task_repo.list_tasks_by_priority(TaskStatus.IN_PROGRESS)[0].status is TaskStatus.IN_PROGRESS
+
+    completed = task_repo.mark_completed(task.task_id)
+    assert completed.status is TaskStatus.COMPLETED
+    retrieved = task_repo.get_task(task.task_id)
+    assert retrieved is not None
+    assert retrieved.status is TaskStatus.COMPLETED
+    assert Task.model_validate_json(retrieved.model_dump_json()).status is TaskStatus.COMPLETED
+    with get_connection(task_repo.db_path) as conn:
+        row = conn.execute("SELECT status FROM tasks WHERE task_id = ?", (str(task.task_id),)).fetchone()
+    assert row["status"] == "completed"
+
+
+@pytest.mark.parametrize("status", list(CompletionStatus))
+def test_completion_status_round_trip(
+    task_repo: TaskRepository, completion_repo: CompletionRepository, status: CompletionStatus
+) -> None:
+    """Historical inserts and atomic closures preserve enum state and string storage."""
+    historical_task = task_repo.create_task(
+        TaskCreate(title="Historical task", duration_min=30, llm_value=50.0, requirement="Deliver")
+    )
+    data = CompletionCreate.model_validate(
+        {
+            "task_id": historical_task.task_id,
+            "status": status.value,
+            "duration_expected": 30,
+            "duration_actual": 40,
+        }
+    )
+    historical = completion_repo.create_completion(data)
+    assert historical.status is status
+    retrieved = completion_repo.get_completion(historical.completion_id)
+    assert retrieved is not None
+    assert retrieved.status is status
+    assert retrieved.model_dump(mode="json")["status"] == status.value
+    assert Completion.model_validate_json(retrieved.model_dump_json()).status is status
+    unchanged = task_repo.get_task(historical_task.task_id)
+    assert unchanged is not None
+    assert unchanged.status is TaskStatus.PENDING
+
+    task = task_repo.create_task(
+        TaskCreate(title="Tracked task", duration_min=30, llm_value=50.0, requirement="Deliver")
+    )
+    completion = completion_repo.complete_task(task.task_id, 40, status=status)
+    assert completion.status is status
+    assert completion.model_dump(mode="json")["status"] == status.value
+    retrieved = completion_repo.get_completion_by_task_id(task.task_id)
+    assert retrieved is not None
+    assert retrieved.status is status
+    assert completion_repo.complete_task(task.task_id, 40, status=status) == completion
+    closed = task_repo.get_task(task.task_id)
+    assert closed is not None
+    assert closed.status is TaskStatus(status.value)
+    with get_connection(task_repo.db_path) as conn:
+        row = conn.execute("SELECT status FROM completion WHERE task_id = ?", (str(task.task_id),)).fetchone()
+    assert row["status"] == status.value
 
 
 def test_get_nonexistent_task(task_repo: TaskRepository) -> None:
@@ -115,36 +253,6 @@ def test_update_nonexistent_task(task_repo: TaskRepository) -> None:
     assert "Task not found" in str(exc_info.value)
 
 
-def test_mark_completed(task_repo: TaskRepository) -> None:
-    """Test marking task as completed."""
-    task_data = TaskCreate(title="Task to complete", duration_min=30, llm_value=50.0, requirement="Test requirement")
-    created_task = task_repo.create_task(task_data)
-
-    updated_task = task_repo.mark_completed(created_task.task_id)
-
-    assert updated_task.status == TaskStatus.COMPLETED
-
-
-def test_mark_in_progress(task_repo: TaskRepository) -> None:
-    """Test marking task as in progress."""
-    task_data = TaskCreate(title="Task to start", duration_min=30, llm_value=50.0, requirement="Test requirement")
-    created_task = task_repo.create_task(task_data)
-
-    updated_task = task_repo.mark_in_progress(created_task.task_id)
-
-    assert updated_task.status == TaskStatus.IN_PROGRESS
-
-
-def test_mark_cancelled(task_repo: TaskRepository) -> None:
-    """Test marking task as cancelled."""
-    task_data = TaskCreate(title="Task to cancel", duration_min=30, llm_value=50.0, requirement="Test requirement")
-    created_task = task_repo.create_task(task_data)
-
-    updated_task = task_repo.mark_cancelled(created_task.task_id)
-
-    assert updated_task.status == TaskStatus.CANCELLED
-
-
 def test_delete_task(task_repo: TaskRepository) -> None:
     """Test deleting a task."""
     task_data = TaskCreate(title="Task to delete", duration_min=30, llm_value=50.0, requirement="Test requirement")
@@ -155,30 +263,6 @@ def test_delete_task(task_repo: TaskRepository) -> None:
     # Verify it's gone
     task = task_repo.get_task(created_task.task_id)
     assert task is None
-
-
-def test_mark_completed_nonexistent_task(task_repo: TaskRepository) -> None:
-    """Test marking non-existent task as completed raises TaskNotFoundError."""
-    with pytest.raises(TaskNotFoundError) as exc_info:
-        task_repo.mark_completed(uuid4())
-
-    assert "Task not found" in str(exc_info.value)
-
-
-def test_mark_in_progress_nonexistent_task(task_repo: TaskRepository) -> None:
-    """Test marking non-existent task as in progress raises TaskNotFoundError."""
-    with pytest.raises(TaskNotFoundError) as exc_info:
-        task_repo.mark_in_progress(uuid4())
-
-    assert "Task not found" in str(exc_info.value)
-
-
-def test_mark_cancelled_nonexistent_task(task_repo: TaskRepository) -> None:
-    """Test marking non-existent task as cancelled raises TaskNotFoundError."""
-    with pytest.raises(TaskNotFoundError) as exc_info:
-        task_repo.mark_cancelled(uuid4())
-
-    assert "Task not found" in str(exc_info.value)
 
 
 def test_delete_nonexistent_task(task_repo: TaskRepository) -> None:
@@ -370,32 +454,6 @@ def test_effective_priority_chain_inheritance(task_repo: TaskRepository) -> None
     assert effective_a == 1.0
 
 
-def test_effective_priority_batch_calculation(task_repo: TaskRepository) -> None:
-    """Test batch calculation of all priorities in one pass."""
-    dep_repo = TaskDependencyRepository(task_repo.db_path)
-
-    # Create two tasks
-    blocker = task_repo.create_task(
-        TaskCreate(title="Blocker", duration_min=100, llm_value=100.0, requirement="Test requirement")
-    )
-    blocked = task_repo.create_task(
-        TaskCreate(title="Blocked", duration_min=50, llm_value=100.0, requirement="Test requirement")
-    )
-
-    dep_repo.add_dependency(blocked.task_id, blocker.task_id)
-
-    # Calculate all priorities at once
-    priorities = dep_repo.calculate_effective_priorities()
-
-    # Both tasks should be in result
-    assert blocker.task_id in priorities
-    assert blocked.task_id in priorities
-
-    # Blocker inherits from blocked
-    assert priorities[blocker.task_id] == 2.0
-    assert priorities[blocked.task_id] == 2.0
-
-
 def test_effective_priority_multiple_blocked_tasks(task_repo: TaskRepository) -> None:
     """Test blocker inherits max priority when blocking multiple tasks."""
     dep_repo = TaskDependencyRepository(task_repo.db_path)
@@ -462,3 +520,69 @@ def test_list_tasks_with_priority(task_repo: TaskRepository) -> None:
 
     # Can easily compare intrinsic vs effective
     assert blocker_enriched.effective_priority > blocker_enriched.priority
+
+
+def test_caller_owned_create_and_update_rollback_together(task_repo: TaskRepository) -> None:
+    task_ids = []
+
+    def import_and_abort() -> None:
+        with get_connection(task_repo.db_path) as conn, conn:
+            conn.execute("BEGIN IMMEDIATE")
+            task = task_repo.create_task(
+                TaskCreate(title="Atomic import", duration_min=30, llm_value=50, requirement="Deliver"),
+                connection=conn,
+            )
+            task_ids.append(task.task_id)
+            task_repo.update_task(task.task_id, TaskUpdate(urgency=5), connection=conn)
+            assert (
+                conn.execute(
+                    "SELECT COUNT(*) FROM priority_history WHERE task_id = ?", (str(task.task_id),)
+                ).fetchone()[0]
+                > 0
+            )
+            raise RuntimeError("abort caller transaction")
+
+    with pytest.raises(RuntimeError, match="abort caller transaction"):
+        import_and_abort()
+    task_id = task_ids[0]
+    assert task_repo.get_task(task_id) is None
+    with get_connection(task_repo.db_path) as conn:
+        assert (
+            conn.execute("SELECT COUNT(*) FROM priority_history WHERE task_id = ?", (str(task_id),)).fetchone()[0] == 0
+        )
+
+
+def test_caller_owned_update_does_not_commit_or_release_blocker_on_rollback(
+    task_repo: TaskRepository, dep_repo: TaskDependencyRepository
+) -> None:
+    blocker = task_repo.create_task(TaskCreate(title="Blocker", duration_min=30, llm_value=50, requirement="Done"))
+    dependent = task_repo.create_task(TaskCreate(title="Downstream", duration_min=30, llm_value=50, requirement="Done"))
+    dep_repo.add_dependency(dependent.task_id, blocker.task_id)
+
+    def close_and_abort() -> None:
+        with get_connection(task_repo.db_path) as conn, conn:
+            conn.execute("BEGIN IMMEDIATE")
+            task_repo.update_task(blocker.task_id, TaskUpdate(status=TaskStatus.COMPLETED), connection=conn)
+            assert conn.execute("SELECT COUNT(*) FROM task_dependencies").fetchone()[0] == 0
+            raise RuntimeError("rollback")
+
+    with pytest.raises(RuntimeError, match="rollback"):
+        close_and_abort()
+    stored = task_repo.get_task(blocker.task_id)
+    assert stored is not None
+    assert stored.status is TaskStatus.PENDING
+    assert [task.task_id for task in dep_repo.get_blockers(dependent.task_id)] == [blocker.task_id]
+
+
+def test_supplied_connection_requires_transaction(task_repo: TaskRepository) -> None:
+    task_data = TaskCreate(title="Transaction required", duration_min=30, llm_value=50, requirement="Done")
+    task = task_repo.create_task(task_data)
+    with get_connection(task_repo.db_path) as conn:
+        with pytest.raises(ValueError, match="active transaction"):
+            task_repo.create_task(task_data, connection=conn)
+        with pytest.raises(ValueError, match="active transaction"):
+            task_repo.update_task(task.task_id, TaskUpdate(title="Not committed"), connection=conn)
+    stored = task_repo.get_task(task.task_id)
+    assert stored is not None
+    assert stored.title == task.title
+    assert len(task_repo.list_tasks()) == 1

@@ -4,48 +4,59 @@ This module provides abstractions for handling conversational I/O between
 the AI agent and users across different interfaces (CLI, web, etc.).
 """
 
-import queue
-from typing import TYPE_CHECKING, Protocol
+import asyncio
+from collections.abc import Callable
+from typing import Protocol
 
 from rich.console import Console
 from rich.markdown import Markdown
 
-if TYPE_CHECKING:
-    from ..tui import TaskWeaverApp
 
-
-class ChatHandler(Protocol):
-    """Protocol for general I/O operations.
-
-    Defines the interface for handling bidirectional communication
-    between the AI agent and users.
-    """
+class ChatOutput(Protocol):
+    """Messages shared by synchronous CLI and same-loop asynchronous TUI chat."""
 
     def display_agent_message(self, message: str) -> None:
-        """Display a message from the AI agent to the user.
-
-        Args:
-            message: The message text to display, may contain markdown.
-        """
-        ...
-
-    def get_user_input(self, prompt: str = "") -> str | None:
-        """Get input from the user.
-
-        Args:
-            prompt: Optional prompt to display before accepting input.
-
-        Returns:
-            User input string, or None if user requests to exit.
-        """
+        """Display an agent response."""
         ...
 
     def display_system_message(self, message: str) -> None:
-        """Display a message from the system."""
+        """Display a system notice."""
         ...
 
     def display_error(self, message: str) -> None:
-        """Display an error message."""
+        """Display an operational error."""
+        ...
+
+
+class ChatHandler(ChatOutput, Protocol):
+    """Synchronous input used by the interactive CLI."""
+
+    def get_user_input(self, prompt: str = "") -> str | None:
+        """Read a user message, or None to end the conversation."""
+        ...
+
+
+class AsyncChatHandler(ChatOutput, Protocol):
+    """Cancellable input consumed on the UI's event loop."""
+
+    async def get_user_input(self, prompt: str = "") -> str | None:
+        """Await a user message, or None to end the conversation."""
+        ...
+
+
+class ChatUI(Protocol):
+    """Only the message destinations needed by the TUI chat handler."""
+
+    def post_agent_message(self, message: str) -> None:
+        """Render an agent response."""
+        ...
+
+    def post_system_message(self, message: str) -> None:
+        """Render a system notice."""
+        ...
+
+    def post_error_message(self, message: str) -> None:
+        """Render an operational error."""
         ...
 
 
@@ -83,66 +94,64 @@ class CliChatHandler:
 
 
 class TuiChatHandler:
-    """Chat Handler for TUI usage.
+    """Keep UI callbacks on the input loop, including output from local-work threads."""
 
-    Bridges blocking I/O (run_chat) with event-driven TUI using queue.Queue.
-    Handler runs in worker thread, UI updates via call_from_thread.
-    """
-
-    def __init__(self, app: "TaskWeaverApp") -> None:
-        """Initialize the TUI chat handler.
-
-        Args:
-            app: The main TaskWeaver TUI application instance.
-        """
+    def __init__(self, app: ChatUI) -> None:
         self.app = app
-        self.input_queue: queue.Queue[str | None] = queue.Queue()
+        self.input_queue: asyncio.Queue[str | None] = asyncio.Queue()
         self.should_exit = False
+        try:
+            self._loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
+        except RuntimeError:
+            self._loop = None
+
+    def _display(self, destination: Callable[[str], None], message: str) -> None:
+        if self.should_exit:
+            return
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+        if self._loop is None:
+            self._loop = current_loop
+
+        def deliver() -> None:
+            # Shutdown may begin after a thread schedules this callback.
+            if not self.should_exit:
+                destination(message)
+
+        if self._loop is not None and current_loop is not self._loop:
+            if not self._loop.is_closed():
+                try:
+                    self._loop.call_soon_threadsafe(deliver)
+                except RuntimeError:
+                    if not self.should_exit and not self._loop.is_closed():
+                        raise
+        else:
+            deliver()
 
     def display_agent_message(self, message: str) -> None:
-        """Display a message from the AI agent (called from worker thread).
+        """Display an agent response unless shutdown has started."""
+        self._display(self.app.post_agent_message, message)
 
-        Args:
-            message: The message text to display, may contain markdown.
-        """
-        # Use call_from_thread for thread safety
-        self.app.call_from_thread(self.app.post_agent_message, message)
-
-    def get_user_input(self, prompt: str = "") -> str | None:  # noqa: ARG002
-        """Get input from the user (blocks until input available).
-
-        This blocks the worker thread until user submits input.
-        Called from run_chat() loop in worker thread.
-
-        Args:
-            prompt: Optional prompt (not used in TUI).
-
-        Returns:
-            User input string, or None if user requests to exit.
-        """
+    async def get_user_input(self, prompt: str = "") -> str | None:  # noqa: ARG002
+        """Await queued input without leaving an uncancellable reader thread."""
+        self._loop = asyncio.get_running_loop()
         if self.should_exit:
             return None
-
-        try:
-            # Block until input available (bridges event-driven → blocking)
-            # This is OK because we're in a worker thread
-            input_text = self.input_queue.get()
-            return input_text
-        except (queue.Empty, RuntimeError):
-            return None
+        input_text = await self.input_queue.get()
+        return None if self.should_exit else input_text
 
     def display_system_message(self, message: str) -> None:
-        """Display a message from the system (called from worker thread).
-
-        Args:
-            message: System message to display.
-        """
-        self.app.call_from_thread(self.app.post_system_message, message)
+        """Display a system notice unless shutdown has started."""
+        self._display(self.app.post_system_message, message)
 
     def display_error(self, message: str) -> None:
-        """Display an error message (called from worker thread).
+        """Display an operational error unless shutdown has started."""
+        self._display(self.app.post_error_message, message)
 
-        Args:
-            message: Error message to display.
-        """
-        self.app.call_from_thread(self.app.post_error_message, message)
+    def shutdown(self) -> None:
+        """Wake a queued reader and forbid callbacks before the UI unmounts."""
+        if not self.should_exit:
+            self.should_exit = True
+            self.input_queue.put_nowait(None)

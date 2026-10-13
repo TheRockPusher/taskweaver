@@ -1,16 +1,9 @@
-PACKAGE_VERSION := $(shell grep -m1 '^version' pyproject.toml | sed -E 's/version *= *"(.*)"/\1/')
-
-# Capture additional arguments as FILE variable
-FILE ?= $(filter-out $@,$(MAKECMDGOALS))
-
-# Prevent make from treating arguments as targets
-%:
-	@:
+FILE ?=
 
 .PHONY: install
-install: ## Install the virtual environment
+install: ## Install the development environment with optional integrations
 	@echo "🚀 Creating virtual environment using uv"
-	@uv sync
+	@uv sync --all-extras
 
 
 .PHONY: format
@@ -37,9 +30,9 @@ endif
 lint-check: ## Lint code with ruff check (use FILE=path to check specific file)
 	@echo "🚀 Linting code: Running ruff check"
 ifdef FILE
-	@uv run ruff check $(FILE)
+	@uv run ruff check --no-fix $(FILE)
 else
-	@uv run ruff check
+	@uv run ruff check --no-fix
 endif
 
 .PHONY: type-check
@@ -63,9 +56,9 @@ check: ## Run all code quality tools (format-check, lint-check, type-check)
 test: ## Test the code with pytest (use FILE=path to test specific file)
 	@echo "🚀 Testing code: Running pytest"
 ifdef FILE
-	@PYTHONTRACEMALLOC=20 uv run python -m pytest $(FILE)
+	@uv run python -m pytest -o addopts="" $(FILE)
 else
-	@PYTHONTRACEMALLOC=20 uv run python -m pytest
+	@uv run python -m pytest
 endif
 
 .PHONY: help

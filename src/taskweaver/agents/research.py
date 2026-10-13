@@ -1,37 +1,28 @@
 """Research agent - handles external data gathering."""
 
 import json
+from dataclasses import asdict
 
 from pydantic_ai import RunContext
 from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
 
-from ..config import get_config
 from .dependencies import TaskDependencies
-from .github_issues import get_github_issues
+from .github_issues import GitHubIssueSyncService
 from .shared import create_agent
+from .tools import require_write_access
 
 
-def github_import_tool(_ctx: RunContext[TaskDependencies]) -> str:
-    """Import open issues from configured GitHub repositories.
+def github_import_tool(ctx: RunContext[TaskDependencies], repo_names: list[str]) -> str:
+    """Persist issues from explicitly supplied owner/repo repositories.
 
-    Fetches issues from repositories configured in config.toml.
-    Returns issues as JSON for the agent to process.
-
-    Args:
-        _ctx: Runtime context (unused but required for tool signature)
-
-    Returns:
-        JSON string of GitHub issues with metadata.
+    Uses this request's task database, not cached global repository configuration.
+    Imports and repeated pulls are durable; no remote writes are authorized here.
+    API failures propagate so an unavailable repository is never reported as empty.
     """
-    config = get_config()
-    if not config.github_repos:
-        return "No GitHub repositories configured. Set github_repos in config.toml."
-
-    issues = get_github_issues(config.github_repos)
-    if not issues:
-        return "No open issues found in configured repositories."
-
-    return json.dumps(issues, indent=2, default=str)
+    require_write_access(ctx)
+    with GitHubIssueSyncService(ctx.deps.task_repo.db_path) as service:
+        result = service.import_issues(repo_names)
+    return json.dumps(asdict(result), indent=2, default=str)
 
 
 # Research tools

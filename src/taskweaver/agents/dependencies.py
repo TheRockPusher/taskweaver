@@ -4,23 +4,17 @@ from dataclasses import dataclass
 
 from ..database.completion_repository import CompletionRepository
 from ..database.dependency_repository import TaskDependencyRepository
+from ..database.planning import PlanningService
 from ..database.repository import TaskRepository
+from .memory import MemoryService
 
 
 @dataclass
 class TaskDependencies:
-    """Container for task-related repositories and memory.
+    """Repositories and optional services plus request-scoped instructions.
 
-    Provides task repositories and semantic memory to agent tools,
-    enabling dependency-aware operations and persistent memory.
-
-    Attributes:
-        task_repo: Repository for task CRUD operations.
-        dep_repo: Repository for task dependency management.
-        completion_repo: Repository for completion tracking and variance analysis.
-        memories: Semantic memory context from Mem0 (optional).
-        user_id: User identifier for memory operations (default: "default").
-
+    Memory facts are authoritative locally; semantic retrieval is explicitly injected.
+    Orchestration replaces this container per turn so modes never leak between requests.
     """
 
     task_repo: TaskRepository
@@ -28,3 +22,7 @@ class TaskDependencies:
     completion_repo: CompletionRepository
     memories: str
     user_id: str = "default"
+    planning: PlanningService | None = None
+    memory: MemoryService | None = None
+    request_mode: str | None = None
+    request_instructions: str = ""

@@ -1,253 +1,80 @@
-# Contributing to TaskWeaver
+# Contributing
 
-Thank you for considering contributing to TaskWeaver! This document provides guidelines and instructions for contributing.
+Read [README.md](README.md) for product scope and [CONFIG.md](CONFIG.md) for configuration and data safety. Report reproducible behavior without credentials or private task/chat data.
 
-## About TaskWeaver
+## Setup
 
-TaskWeaver is an AI-powered task organizer that helps users break down complex goals into manageable tasks. It uses intelligent decomposition, skill gap analysis, and Just-In-Time learning principles to help people achieve their goals efficiently. The project is currently in MVP stage with a focus on dogfooding - using TaskWeaver to improve itself.
+Use Python 3.13+ and [uv](https://docs.astral.sh/uv/). Work on a feature branch.
 
-## Code of Conduct
-
-Be respectful and inclusive. We aim to create a welcoming environment for all contributors.
-
-## Getting Started
-
-### Prerequisites
-
-- Python 3.13 or higher
-- [UV](https://github.com/astral-sh/uv) package manager
-- Git
-
-### Setup Development Environment
-
-1. **Fork and Clone**
-
-```bash
-# Fork the repository on GitHub, then clone your fork
-git clone https://github.com/YOUR_USERNAME/taskweaver.git
-cd taskweaver
-```
-
-2. **Install Dependencies**
-
-```bash
-# Install the project with development dependencies
+```sh
+uv sync --locked --all-extras
+# Or use the development convenience target:
 make install
-
-# This will:
-# - Create a virtual environment with uv
-# - Install all dependencies
-# - Install pre-commit hooks
 ```
 
-3. **Create a Branch**
+`make install` runs `uv sync --all-extras` without `--locked`; it installs development dependencies and optional integrations, but no git hooks.
 
-```bash
-git checkout -b feature/your-feature-name
-# or
-git checkout -b fix/your-bug-fix
-```
+## Checks
 
-## Development Workflow
+| Command | Purpose |
+| --- | --- |
+| `make check` | Check lock consistency, Ruff formatting/lint, and ty types |
+| `make test` | Run pytest with coverage and the 80% coverage floor |
+| `make test FILE=src/taskweaver/tests/test_cli.py` | Run focused tests without the full-suite coverage options |
+| `make format` | Apply Ruff formatting and lint fixes |
+| `uv build` | Build a wheel and source distribution |
 
-### Making Changes
+Formatting, lint, and type targets also accept `FILE=path`. For release-equivalent packaging, use `uv build --no-sources` and `uv tool run --from twine twine check --strict dist/*`.
 
-1. **Write Code**
-   - Follow the existing code style
-   - Add type hints to all functions
-   - Write Google-style docstrings
-   - Keep functions focused and testable
+Report the checks actually run. Exercise affected offline workflows, migrations, packaged resources, and installation outside the checkout. Use disposable data for live integrations; native-platform and Docker checks need the corresponding runner or engine.
 
-2. **Write Tests**
-   - Add tests for new features in `tests/`
-   - Ensure tests are clear and descriptive
-   - Aim for high code coverage (minimum 80%)
+## Architecture and conventions
 
-3. **Run Quality Checks**
+- Put shared behavior in services under `src/taskweaver/database/` and `src/taskweaver/agents/`. CLI, TUI, and agent tools call those services instead of duplicating business logic.
+- Keep code focused and typed, with Google-style docstrings. Preserve omitted-versus-null updates, raw duration baselines, transactions, foreign keys, cycle rejection, and user-scoped memory.
+- Keep tests beside their subsystems in `src/taskweaver/**/tests/`. Test behavior and state changes, not exact wording unless the text is a public contract.
+- Keep blocking UI work off the event loop. Cancel and reap owned subprocesses on shutdown; close owned provider transports and semantic clients.
+- Construct provider models at request time. Keep review tools read-only at their write boundaries, not only through prompts.
+- Automatic GitHub sync never pushes. External writes require explicit user authorization.
 
-```bash
-# Format code
-make format
+The [calculator reference](docs/calculator.md) describes the agent arithmetic interface and limits.
 
-# Run all quality checks (format, lint, type-check)
-make check
+## Dependency pins
 
-# Run tests
-make test
+Keep the compatibility ranges in `pyproject.toml` aligned with the service adapters. When changing them, exercise provider routing and cleanup in the resolved environment, including anonymous local endpoints.
 
-# Run specific test file
-make test FILE=tests/test_specific.py
-```
+| Package | Range | Reason |
+| --- | --- | --- |
+| `pydantic-ai-slim[openai,anthropic,google,duckduckgo]` | `>=1.1.0,<2` | Keep the 1.x agent/provider contract with only the selected integrations |
+| `openai` | `>=1.109.1,<2` | Preserve empty-key support for anonymous local endpoints |
+| `anthropic` | `>=0.71.0,<0.72` | Keep beta types used by the compatible PydanticAI adapter |
+| `google-genai` | `>=1.45.0,<2` | Keep the 1.x client and provider cleanup API |
+| `opentelemetry-api` | `>=1.37.0,<1.39` | Retain event APIs used by the compatible PydanticAI generation |
+| `mem0ai` (memory extra) | `>=1.0.11,<2` | Keep the optional semantic-memory adapter on its 1.x API |
+| `uv_build` (build backend) | `>=0.9.2,<0.10.0` | Keep the distribution backend in the configured 0.9 family |
 
-### Code Quality Standards
+## Dependency-retention tradeoff (#7)
 
-#### Formatting (Ruff)
-- Line length: 120 characters
-- Automatic formatting with `make format`
-- Pre-commit hooks will auto-format on commit
+Closing or cancelling a blocker deletes its outgoing dependency edges; reopening does not restore them. Closed downstream tasks can retain incoming edges until their blocker closes. This favors active relationships over historical edge storage; task and completion history are separate.
 
-#### Linting (Ruff)
-- Comprehensive rule set including:
-  - PEP 8 style (E, W, F)
-  - Import sorting (I)
-  - Security checks (S - Bandit)
-  - Code simplification (SIM)
-  - Best practices (B, PT, PL)
-- Run: `make lint-check`
+A supplied synthetic disk-backed SQLite benchmark used **12,000 tasks, 10,000 edges, five predecessors per target, 80% terminal blockers**, and **10,000 indexed lookups**:
 
-#### Type Checking (Ty)
-- All functions must have type hints
-- Run: `make type-check`
+| Measurement | Result |
+| --- | --- |
+| Filtered lookup before cleanup | 126.82 ms |
+| Filtered lookup after cleanup | 126.22 ms |
+| Unfiltered lookup after cleanup | 129.99 ms |
+| Cleanup | 8,000 removed / 2,000 retained in 7.27 ms |
+| Database pages | 148 × 4,096 bytes; 74 reusable free pages |
 
-#### Testing (pytest)
-- Minimum 80% coverage required
-- Tests fail if coverage drops
-- Use fixtures for setup/teardown
-- Descriptive test names: `test_function_does_something_when_condition()`
+No material lookup speed gain was observed. Cleanup makes logical space reusable without immediately shrinking the file. Retained edges equal the sum of active blockers' outgoing edges; `E ≈ 5*A` requires bounded active fan-out, not merely five predecessors per target. A long-lived blocker can retain many edges. These synthetic timings do not measure production retention or growth.
 
-#### Docstrings
-- Google-style docstrings required
-- Include Args, Returns, Raises sections
-- Example:
+## Release workflow
 
-```python
-def example_function(value: str, count: int = 1) -> str:
-    """Return the value repeated count times.
+1. Review changes and run the applicable checks above. Keep secrets out of distributions and build contexts.
+2. Dispatch [.github/workflows/release.yml](.github/workflows/release.yml) with `publish=none` for build-only artifacts. The workflow runs CI, builds with Python 3.13 and uv 0.9.2, validates tag/version agreement, inspects metadata/resources, exercises the installed wheel outside the checkout, and uploads artifacts.
+3. Inspect the artifacts. For TestPyPI, dispatch with `publish=testpypi`; publication uses the `testpypi` environment and trusted publishing.
+4. For PyPI, use an existing `v<package-version>` tag matching `pyproject.toml` and dispatch with `publish=pypi`. Tag-push publication is enabled only when `PYPI_PUBLISH_ENABLED=true`. Publication uses the `pypi` environment and trusted publishing.
+5. Have an authorized maintainer approve tagging, pushing, and publishing, and configure protected environments and trusted publishers. Homebrew/AUR publication is separate work.
 
-    Args:
-        value: The string to repeat.
-        count: Number of times to repeat. Defaults to 1.
-
-    Returns:
-        The repeated string.
-
-    Raises:
-        ValueError: If count is negative.
-
-    """
-    if count < 0:
-        raise ValueError("count must be non-negative")
-    return value * count
-```
-
-### Pre-commit Hooks
-
-Pre-commit hooks run automatically before each commit:
-- Ruff formatting
-- Ruff linting with auto-fix
-
-If hooks fail:
-1. Review the changes
-2. Stage the auto-fixed files: `git add .`
-3. Commit again
-
-To run hooks manually:
-```bash
-uv run pre-commit run --all-files
-```
-
-### Commit Messages
-
-Use clear, descriptive commit messages:
-
-```
-feat: add new feature X
-fix: resolve issue with Y
-docs: update README installation instructions
-test: add tests for Z
-refactor: simplify function W
-chore: update dependencies
-```
-
-## Pull Request Process
-
-1. **Ensure Quality**
-   ```bash
-   make check  # All checks must pass
-   make test   # All tests must pass
-   ```
-
-2. **Update Documentation**
-   - Update README.md if adding features
-   - Add docstrings to new code
-   - Update CHANGELOG.md (if exists)
-
-3. **Submit PR**
-   - Push your branch to your fork
-   - Open a Pull Request against `master` branch
-   - Fill out the PR template
-   - Link any related issues
-
-4. **PR Review**
-   - Maintainers will review your code
-   - Address feedback by pushing new commits
-   - Once approved, your PR will be merged
-
-### PR Checklist
-
-- [ ] Code follows project style guidelines
-- [ ] All tests pass (`make test`)
-- [ ] Code coverage is maintained/improved
-- [ ] Type hints are present and correct
-- [ ] Docstrings are complete and accurate
-- [ ] No linting errors (`make check`)
-- [ ] Commit messages are clear
-- [ ] Documentation is updated
-- [ ] PR description explains changes
-
-## Running CI Locally
-
-The CI pipeline runs automatically on GitHub, but you can verify locally:
-
-```bash
-# Run all quality checks (same as CI)
-make check
-
-# Run tests with coverage (same as CI)
-make test
-```
-
-## Project Structure
-
-```bash
-taskweaver/
-├── src/taskweaver/  # Main package code
-├── tests/                               # Test suite
-├── .github/workflows/                   # CI/CD configuration
-├── pyproject.toml                       # Project metadata and tool config
-├── Makefile                             # Development commands
-└── .pre-commit-config.yaml             # Pre-commit hook configuration
-```
-
-## Reporting Issues
-
-### Bug Reports
-
-Include:
-
-- Clear description of the bug
-- Steps to reproduce
-- Expected vs actual behaviour
-- Python version and OS
-- Relevant error messages/tracebacks
-
-### Feature Requests
-
-Include:
-
-- Clear description of the feature
-- Use case / motivation
-- Proposed implementation (if you have ideas)
-
-## Questions?
-
-- Open an issue with the `question` label
-- Check existing issues and documentation first
-
-## License
-
-By contributing, you agree that your contributions will be licensed under the AGPL-3.0 License.
-
-## Thank You
-
-Your contributions make TaskWeaver better for everyone. We appreciate your time and effort!
+Do not tag, push, publish, or change remote issues as a side effect of local development. Track remaining work in [GitHub issues](https://github.com/TheRockPusher/taskweaver/issues).
